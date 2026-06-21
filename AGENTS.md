@@ -7,8 +7,8 @@ Panduan ini berlaku untuk AI agent dan Codex yang bekerja di `sakala-api`.
 - Repository ini adalah Laravel API/control plane, bukan frontend.
 - Jangan menambahkan Blade UI, Inertia, Fortify starter flow, Vite, Tailwind, atau package JavaScript.
 - Jangan menambahkan Team/Membership sebelum kontrak domain disetujui.
-- Dashboard browser memakai Sanctum SPA cookie; agent/machine client memakai bearer token terpisah.
-- Dashboard tidak boleh mengakses Docker socket. Runtime operation hanya milik `sakala-agent`.
+- Console browser memakai Sanctum SPA cookie; agent/machine client memakai bearer token terpisah.
+- Console dan API tidak boleh mengakses Docker socket. Runtime operation hanya milik `sakala-agent`.
 - Jangan hardcode secret, credential, token, atau origin produksi.
 
 ## Architecture
