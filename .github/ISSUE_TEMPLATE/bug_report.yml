@@ -1,0 +1,27 @@
+name: Bug report
+description: Laporkan perilaku API yang salah atau regression.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Masalah
+      description: Jelaskan expected dan actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduksi
+      description: Sertakan endpoint, payload aman, dan langkah minimal. Jangan kirim secret.
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Commit atau versi
+  - type: textarea
+    id: context
+    attributes:
+      label: Konteks tambahan

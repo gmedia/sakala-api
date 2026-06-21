@@ -1,0 +1,23 @@
+name: Feature request
+description: Usulkan capability baru untuk Sakala API.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Masalah pengguna
+      description: Jelaskan kebutuhan, bukan hanya solusi teknis.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Usulan kontrak
+      description: Jelaskan endpoint/event/data dan boundary repository yang terdampak.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatif
