@@ -22,6 +22,16 @@ Panduan ini berlaku untuk AI agent dan Codex yang bekerja di `sakala-api`.
 - Pisahkan route app, admin, agent, webhook, dan auth ketika domain tersebut mulai dibuat.
 - Hindari abstraction prematur dan package baru tanpa kebutuhan konkret.
 
+## Database
+
+- Gunakan UUIDv7 untuk identifier domain yang melintasi API atau agent; gunakan bigint untuk data append-only internal.
+- Status/type domain wajib memakai backed enum di `app/Enums` dan kolom string, bukan native database enum.
+- Tambahkan index berdasarkan query path yang nyata dan dokumentasikan alasannya di `docs/DATABASE.md`.
+- Alokasi deployment sequence, claim command, dan perubahan state yang bersaing wajib dilakukan dalam transaction.
+- Secret memakai encrypted cast atau hash satu arah dan harus disembunyikan dari serialization.
+- Seeder development harus idempotent, bebas credential nyata, dan dibatasi ke environment `local`/`testing`.
+- Jangan menambahkan workspace/team, custom domain, atau layanan managed sebelum kontrak MVP berubah.
+
 ## Laravel Conventions
 
 - Gunakan `php artisan make:* --no-interaction` untuk file framework.

@@ -1,6 +1,6 @@
 # Sakala API
 
-Sakala API adalah control plane API-first untuk platform deployment open-source Sakala. Repository ini mengelola kontrak aplikasi, autentikasi first-party, metadata deployment, komunikasi agent, queue, event, dan integrasi provider. Implementasi domain produk belum dimulai pada fondasi ini.
+Sakala API adalah control plane API-first untuk platform deployment open-source Sakala. Repository ini mengelola kontrak aplikasi, autentikasi first-party, metadata project dan deployment, komunikasi agent, queue, event, serta integrasi provider.
 
 ## Batas Tanggung Jawab
 
@@ -31,6 +31,12 @@ php artisan key:generate
 ./vendor/bin/sail artisan migrate
 ```
 
+Untuk menambahkan fixture development yang aman dijalankan ulang:
+
+```bash
+./vendor/bin/sail artisan db:seed
+```
+
 Pastikan host lokal `api.sakala.localhost` dan `app.sakala.localhost` mengarah ke loopback. Endpoint awal tersedia di `http://api.sakala.localhost:8000/api/v1`.
 
 Dokumentasi interaktif tersedia di `http://api.sakala.localhost:8000/docs/api` dan spesifikasi OpenAPI di `/docs/api.json`.
@@ -57,6 +63,7 @@ Padanan Sail tersedia melalui `make up`, `make test`, dan target lain di `Makefi
 - [Arsitektur](ARCHITECTURE.md)
 - [Konfigurasi](docs/CONFIGURATION.md)
 - [Konvensi API](docs/API_CONVENTIONS.md)
+- [Database](docs/DATABASE.md)
 - [Dokumentasi OpenAPI](docs/OPENAPI.md)
 - [Autentikasi](docs/AUTHENTICATION.md)
 - [Development](docs/DEVELOPMENT.md)
