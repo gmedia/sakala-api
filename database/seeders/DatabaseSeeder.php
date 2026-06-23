@@ -16,6 +16,12 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Domain seeders will be registered when MVP fixtures are defined.
+        if (! app()->environment(['local', 'testing'])) {
+            $this->command->warn('Demo data is only available in local and testing environments.');
+
+            return;
+        }
+
+        $this->call(DemoSeeder::class);
     }
 }

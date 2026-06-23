@@ -25,6 +25,12 @@ Semua kontrak baru memakai JSON dan versi mayor di URL (`/api/v1`). Route dikelo
 
 Fondasi saat ini baru mengekspos service status. Domain route ditambahkan setelah kontrak MVP disetujui.
 
+## Persistence
+
+PostgreSQL menyimpan metadata control plane dan durable agent command. Entitas yang melewati boundary API/agent memakai UUIDv7, sedangkan event/log/audit append-only memakai bigint internal. Nilai status didefinisikan sebagai backed enum PHP dan disimpan sebagai string agar kontrak dapat berkembang tanpa migrasi native enum database.
+
+Project dimiliki user secara langsung pada MVP. Workspace/team dan custom domain sengaja belum dimodelkan. Lihat [desain database](docs/DATABASE.md) untuk relasi, pola query, idempotensi, dan strategi index.
+
 ## Authentication
 
 Console memakai Sanctum stateful SPA authentication melalui cookie HTTP-only dan proteksi CSRF. Agent tidak memakai session browser; ia memakai bearer token dan identitas agent. GitHub OAuth akan diorkestrasi melalui Socialite tanpa Fortify.
