@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 
 final class GitHubService
 {
+    /** @return array<string, mixed> */
     public function getUser(string $accessToken): array
     {
         $response = Http::withToken($accessToken)
@@ -16,6 +17,7 @@ final class GitHubService
         return $response->json();
     }
 
+    /** @return array<int, array<string, mixed>> */
     public function getUserEmails(string $accessToken): array
     {
         $response = Http::withToken($accessToken)

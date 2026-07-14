@@ -26,7 +26,6 @@ class AuthService
         // 3. Update token OAuth
         $oauthAccount->update([
             'user_id' => $user->id,
-            'refresh_token' => $oauthAccount->refreshToken,
         ]);
 
         return $user;

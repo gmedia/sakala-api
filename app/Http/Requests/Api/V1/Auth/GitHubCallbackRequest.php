@@ -11,6 +11,7 @@ use Illuminate\Validation\ValidationException;
 
 final class GitHubCallbackRequest extends FormRequest
 {
+    /** @return array<string, array<int, string>> */
     public function rules(): array
     {
         return [
@@ -22,7 +23,7 @@ final class GitHubCallbackRequest extends FormRequest
     /**
      * Configure the validator instance.
      */
-    public function withValidator($validator): void
+    public function withValidator(Validator $validator): void
     {
         $validator->after(function ($validator) {
             $storedState = Session::get('github_oauth_state');

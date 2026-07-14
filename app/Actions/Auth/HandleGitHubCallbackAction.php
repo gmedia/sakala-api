@@ -14,6 +14,7 @@ use Laravel\Socialite\Facades\Socialite;
 
 final class HandleGitHubCallbackAction
 {
+    /** @return array{user: User, token: string, redirect_url: string} */
     public function handle(string $code, string $state): array
     {
         // State validation is already handled in GitHubCallbackRequest
@@ -138,7 +139,7 @@ final class HandleGitHubCallbackAction
 
     private function generateConsoleRedirectUrl(string $token): string
     {
-        $consoleUrl = env('SAKALA_CONSOLE_URL', 'http://app.sakala.localhost:5173');
+        $consoleUrl = config('app.url', 'http://app.sakala.localhost:5173');
 
         // Use a secure redirect to console with token in fragment (frontend will read it)
         return "$consoleUrl/auth/callback?token=$token";
