@@ -28,7 +28,7 @@ class OAuthAccount extends Model
     /** @use HasFactory<OAuthAccountFactory> */
     use HasFactory;
 
-    public const array PROVIDERS = ['github', 'google'];
+    public const array PROVIDERS = ['github'];
 
     protected $table = 'oauth_accounts';
 
@@ -47,14 +47,5 @@ class OAuthAccount extends Model
             'refresh_token' => 'encrypted',
             'token_expires_at' => 'immutable_datetime',
         ];
-    }
-
-    public function finishProvider(string $provider): static
-    {
-        if (! $provider) {
-            return $this;
-        }
-
-        return $this;
     }
 }

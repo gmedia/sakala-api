@@ -15,8 +15,10 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::get('/auth/github/callback', [AuthController::class, 'handleGitHubCallback'])
-    ->name('auth.github.callback');
+Route::middleware('web')->group(function (): void {
+    Route::get('/auth/github/callback', [AuthController::class, 'handleGitHubCallback'])
+        ->name('auth.github.callback');
 
-Route::get('/auth/github/redirect', [AuthController::class, 'redirectToGitHub'])
-    ->name('auth.github.redirect');
+    Route::get('/auth/github/redirect', [AuthController::class, 'redirectToGitHub'])
+        ->name('auth.github.redirect');
+});

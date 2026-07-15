@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Auth;
 
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * @property-read array{user: User, token: string, redirect_url: string} $resource
+ * @property-read string $id
+ * @property-read string $name
+ * @property-read string $email
+ * @property-read string|null $avatar_url
  */
-final class AuthCallbackResource extends JsonResource
+final class UserResource extends JsonResource
 {
     /**
      * Transform the resource into an array.
@@ -22,10 +24,10 @@ final class AuthCallbackResource extends JsonResource
     public function toArray($request): array
     {
         return [
-            'data' => [
-                'token' => $this->resource['token'],
-                'redirect_url' => $this->resource['redirect_url'],
-            ],
+            'id' => $this->id,
+            'name' => $this->name,
+            'email' => $this->email,
+            'avatar_url' => $this->avatar_url,
         ];
     }
 }

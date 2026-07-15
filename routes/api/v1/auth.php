@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -14,6 +15,5 @@ use Illuminate\Support\Facades\Route;
 |
 */
 Route::prefix('auth')->group(function (): void {
-    // e.g. Route::get('user', CurrentUserController::class);
-    // Future: email/password login, password reset, etc.
+    Route::get('user', CurrentUserController::class)->middleware('auth:sanctum');
 });

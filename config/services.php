@@ -10,6 +10,11 @@ return [
         'redirect' => env('GITHUB_REDIRECT_URI'),
     ],
 
+    'console' => [
+        'allowed_origins' => explode(',', (string) env('CONSOLE_ALLOWED_ORIGINS', 'http://app.sakala.localhost:5173')),
+        'default_redirect_path' => env('CONSOLE_DEFAULT_REDIRECT_PATH', '/dashboard'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
