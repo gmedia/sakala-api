@@ -8,22 +8,19 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Session;
 use Laravel\Socialite\Contracts\User as ProviderUser;
 use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Two\InvalidStateException;
 
 use function Pest\Laravel\assertDatabaseHas;
 
 uses(RefreshDatabase::class);
 
-// Define a valid 64-character state string for testing (exactly 64 characters)
-define('TEST_VALID_STATE', '1234567890123456789012345678901234567890123456789012345678901234');
-
 beforeEach(function () {
     Session::flush();
-    Session::put('github_oauth_state', TEST_VALID_STATE);
 });
 
 it('redirects to GitHub OAuth page', function () {
     $mockRedirect = Mockery::mock('Illuminate\Http\RedirectResponse');
-    $mockRedirect->shouldReceive('getTargetUrl')->andReturn('https://github.com/login/oauth/authorize?client_id=test&redirect_uri=test&state='.TEST_VALID_STATE);
+    $mockRedirect->shouldReceive('getTargetUrl')->andReturn('https://github.com/login/oauth/authorize?client_id=test&redirect_uri=test&state='.'test-state-12345');
 
     $mockDriver = Mockery::mock('Laravel\Socialite\Two\AbstractProvider');
     $mockDriver->shouldReceive('redirect')->andReturn($mockRedirect);
@@ -49,7 +46,7 @@ it('handles GitHub callback successfully for new user', function () {
 
     Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
-    $callbackUrl = '/auth/github/callback?code=test-code&state='.TEST_VALID_STATE;
+    $callbackUrl = '/auth/github/callback?code=test-code&state='.'test-state-12345';
     $response = $this->get($callbackUrl);
 
     $response->assertStatus(302);
@@ -84,7 +81,7 @@ it('handles GitHub callback successfully for existing identity (OAuthAccount)', 
 
     Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
-    $callbackUrl = '/auth/github/callback?code=test-code&state='.TEST_VALID_STATE;
+    $callbackUrl = '/auth/github/callback?code=test-code&state='.'test-state-12345';
     $response = $this->get($callbackUrl);
 
     $response->assertStatus(302);
@@ -116,7 +113,7 @@ it('handles GitHub callback successfully for existing user (email fallback)', fu
 
     Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
-    $callbackUrl = '/auth/github/callback?code=test-code&state='.TEST_VALID_STATE;
+    $callbackUrl = '/auth/github/callback?code=test-code&state='.'test-state-12345';
     $response = $this->get($callbackUrl);
 
     $response->assertStatus(302);
@@ -133,7 +130,7 @@ it('handles GitHub callback successfully for existing user (email fallback)', fu
 it('rejects callback with missing code (denied consent)', function () {
     Socialite::shouldReceive('driver')->with('github')->never();
 
-    $response = $this->get('/auth/github/callback?state='.TEST_VALID_STATE);
+    $response = $this->get('/auth/github/callback?state='.'test-state-12345');
 
     $response->assertStatus(422);
     $response->assertJsonValidationErrors(['code']);
@@ -152,7 +149,7 @@ it('rejects callback with private or missing email', function () {
 
     Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
-    $callbackUrl = '/auth/github/callback?code=test-code&state='.TEST_VALID_STATE;
+    $callbackUrl = '/auth/github/callback?code=test-code&state='.'test-state-12345';
     $response = $this->get($callbackUrl);
 
     $response->assertStatus(422);
@@ -165,32 +162,37 @@ it('rejects callback with provider failure', function () {
 
     Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
-    $callbackUrl = '/auth/github/callback?code=test-code&state='.TEST_VALID_STATE;
+    $callbackUrl = '/auth/github/callback?code=test-code&state='.'test-state-12345';
     $response = $this->get($callbackUrl);
 
     $response->assertStatus(422);
     $response->assertJsonValidationErrors(['provider']);
 });
 
-it('rejects callback with invalid state parameter (too short)', function () {
-    Socialite::shouldReceive('driver')->with('github')->never();
+it('rejects callback with invalid state (Socialite rejects)', function () {
+    $mockDriver = Mockery::mock('Laravel\Socialite\Two\AbstractProvider');
+    $mockDriver->shouldReceive('user')->andThrow(new InvalidStateException('Invalid state'));
+
+    Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
     $response = $this->get('/auth/github/callback?code=test-code&state=invalid-state');
 
     $response->assertStatus(422);
-    $response->assertJsonValidationErrors(['state']);
+    $response->assertJsonValidationErrors(['provider']);
 });
 
-it('rejects callback with mismatched state parameter (different 64 chars)', function () {
-    Socialite::shouldReceive('driver')->with('github')->never();
+it('rejects callback with mismatched state (Socialite rejects)', function () {
+    $mockDriver = Mockery::mock('Laravel\Socialite\Two\AbstractProvider');
+    $mockDriver->shouldReceive('user')->andThrow(new InvalidStateException('State mismatch'));
+
+    Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
     $mismatchedState = 'abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcd';
-
     $callbackUrl = '/auth/github/callback?code=test-code&state='.$mismatchedState;
     $response = $this->get($callbackUrl);
 
     $response->assertStatus(422);
-    $response->assertJsonValidationErrors(['state']);
+    $response->assertJsonValidationErrors(['provider']);
 });
 
 it('regenerates session after successful login', function () {
@@ -211,7 +213,7 @@ it('regenerates session after successful login', function () {
     $oldSessionId = Session::getId();
 
     // Perform login
-    $callbackUrl = '/auth/github/callback?code=test-code&state='.TEST_VALID_STATE;
+    $callbackUrl = '/auth/github/callback?code=test-code&state='.'test-state-12345';
     $this->get($callbackUrl);
 
     // Session ID should have changed
@@ -232,7 +234,7 @@ it('does not return token in callback response', function () {
 
     Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
-    $callbackUrl = '/auth/github/callback?code=test-code&state='.TEST_VALID_STATE;
+    $callbackUrl = '/auth/github/callback?code=test-code&state='.'test-state-12345';
     $response = $this->get($callbackUrl);
 
     // Response should be redirect, not JSON with token
@@ -258,7 +260,7 @@ it('redirects only to allowed console origins', function () {
 
     Socialite::shouldReceive('driver')->with('github')->andReturn($mockDriver);
 
-    $callbackUrl = '/auth/github/callback?code=test-code&state='.TEST_VALID_STATE;
+    $callbackUrl = '/auth/github/callback?code=test-code&state='.'test-state-12345';
     $response = $this->get($callbackUrl);
 
     $response->assertStatus(302);

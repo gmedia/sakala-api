@@ -9,6 +9,9 @@ use App\Actions\Auth\RedirectToGitHubAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Auth\GitHubCallbackRequest;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Auth;
 
 final class AuthController extends Controller
 {
@@ -17,6 +20,19 @@ final class AuthController extends Controller
         $redirectUrl = $action->handle();
 
         return redirect()->away($redirectUrl);
+    }
+
+    /**
+     * Log the user out and invalidate the session.
+     */
+    public function logout(Request $request): Response
+    {
+        Auth::guard('web')->logout();
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return response()->noContent();
     }
 
     public function handleGitHubCallback(

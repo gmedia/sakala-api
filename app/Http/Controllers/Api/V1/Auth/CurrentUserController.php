@@ -6,8 +6,6 @@ namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\Auth\UserResource;
-use Dedoc\Scramble\Attributes\ExcludeRouteFromDocs;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 final class CurrentUserController extends Controller
@@ -15,9 +13,8 @@ final class CurrentUserController extends Controller
     /**
      * Get the authenticated user.
      */
-    #[ExcludeRouteFromDocs]
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request): UserResource
     {
-        return UserResource::make($request->user())->response();
+        return UserResource::make($request->user());
     }
 }

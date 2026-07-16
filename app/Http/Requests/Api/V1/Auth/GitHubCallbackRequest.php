@@ -6,7 +6,6 @@ namespace App\Http\Requests\Api\V1\Auth;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
 
 final class GitHubCallbackRequest extends FormRequest
@@ -16,23 +15,8 @@ final class GitHubCallbackRequest extends FormRequest
     {
         return [
             'code' => ['required', 'string'],
-            'state' => ['required', 'string', 'size:64'], // state must match CSRF token stored in session
+            'state' => ['required', 'string'],
         ];
-    }
-
-    /**
-     * Configure the validator instance.
-     */
-    public function withValidator(Validator $validator): void
-    {
-        $validator->after(function ($validator) {
-            $storedState = Session::get('github_oauth_state');
-            $requestState = $this->input('state');
-
-            if (! $storedState || ! hash_equals($storedState, $requestState)) {
-                $validator->errors()->add('state', 'Invalid or expired OAuth state.');
-            }
-        });
     }
 
     public function authorize(): bool
