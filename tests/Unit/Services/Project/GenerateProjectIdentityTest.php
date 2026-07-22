@@ -13,7 +13,7 @@ use Tests\TestCase;
 uses(TestCase::class, RefreshDatabase::class);
 
 beforeEach(function () {
-    Config::set('sakala.reserved_slugs', ['api']);
+    Config::set('sakala.project.reserved_slugs', ['api']);
     Config::set('sakala.project.default_domain', 'run.sakala.dev');
 
     // Framework menyala app() akan berhasil membaca AppServiceProvider
@@ -65,4 +65,16 @@ it('Membatasi panjang slug', function () {
     );
     expect(strlen($result->slug))
         ->toBeLessThanOrEqual(63);
+});
+
+it('Menghasilkan slug unik tanpa melebihi batas 63 karakter', function () {
+    $maxSlug = str_repeat('a', 63);
+
+    Project::factory()->create(['slug' => $maxSlug]);
+    $result = $this->action->handle($maxSlug);
+    expect($result->slug)
+        ->toBe(str_repeat('a', 61).'-1')
+        ->and(strlen($result->slug))->toBe(63)
+        ->and($result->defaultDomain)
+        ->toBe(str_repeat('a', 61).'-1.run.sakala.dev');
 });

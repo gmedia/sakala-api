@@ -22,15 +22,34 @@ class GenerateProjectIdentity
 
     protected function resolveCollision(string $slug): string
     {
-        $originalSlug = $slug;
-        $counter = 1;
-        // Tambahkan withTrashed() agar slug dari project yang dihapus tidak diduplikasi
-        while (Project::withTrashed()->where('slug', $slug)->exists()) {
-            $slug = $originalSlug.'-'.$counter;
-            $counter++;
+        $maxLength = 63;
+
+        $candidateSlug = Str::limit($slug, $maxLength, '');
+
+        if (! Project::withTrashed()->where('slug', $candidateSlug)->exists()) {
+            return $candidateSlug;
         }
 
-        return Str::limit($slug, 63, '');
+        $counter = 1;
+
+        do {
+            $suffix = '-'.$counter;
+
+            $base = Str::limit(
+                $slug,
+                $maxLength - strlen($suffix),
+                ''
+            );
+
+            $candidateSlug = $base.$suffix;
+            $counter++;
+        } while (
+            Project::withTrashed()
+                ->where('slug', $candidateSlug)
+                ->exists()
+        );
+
+        return $candidateSlug;
     }
 
     public function handle(string $projectName): ProjectIdentity
@@ -41,7 +60,7 @@ class GenerateProjectIdentity
         // Tolak jika reserved word
         if ($this->reservedSlug->isReserved($baseSlug)) {
             throw ValidationException::withMessages([
-                'name' => "Nama project menghasilkan identitas sistem ($baseSlug), silakan gunakan nama lain.",
+                'name' => 'Nama project tersebut tidak dapat digunakan karena menghasilkan slug yang dicadangkan sistem. Silakan gunakan nama lain.',
             ]);
         }
 

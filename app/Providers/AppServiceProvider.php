@@ -25,7 +25,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(
             ReservedSlug::class,
             fn () => new ReservedSlug(
-                config('sakala.reserved_slugs', [])
+                config('sakala.project.reserved_slugs', [])
             )
         );
 

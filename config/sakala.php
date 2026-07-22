@@ -10,8 +10,8 @@ return [
     ],
 
     'project' => [
-        'default_domain' => env('SAKALA_PROJECT_NAME', 'run.sakala.dev'),
-        'reserved_slug' => [
+        'default_domain' => env('SAKALA_PROJECT_DEFAULT_DOMAIN', 'run.sakala.dev'),
+        'reserved_slugs' => [
             'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',
             'support', 'help', 'status', 'mail', 'test', 'run',
         ],

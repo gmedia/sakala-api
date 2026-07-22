@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 
 class GenerateSlug
 {
-    public static function fromString(string $name): string
+    public function fromString(string $name): string
     {
         // Normalisasi slug nama ke format slug
         $slug = Str::slug($name);
@@ -18,7 +18,7 @@ class GenerateSlug
             $slug = 'project-'.Str::lower(Str::random(6));
         }
 
-        // Batasi panjang slug hingga 50 karakter
-        return Str::limit($slug, 50, '');
+        // Batasi panjang slug hingga 63 karakter
+        return Str::limit($slug, 63, '');
     }
 }
