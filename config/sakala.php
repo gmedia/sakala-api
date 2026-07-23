@@ -8,4 +8,12 @@ return [
     'rate_limits' => [
         'api' => (int) env('SAKALA_API_RATE_LIMIT', 60),
     ],
+
+    'project' => [
+        'default_domain' => env('SAKALA_PROJECT_DEFAULT_DOMAIN', 'run.sakala.dev'),
+        'reserved_slugs' => [
+            'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',
+            'support', 'help', 'status', 'mail', 'test', 'run',
+        ],
+    ],
 ];

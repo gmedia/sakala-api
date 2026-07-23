@@ -53,7 +53,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "@php artisan serve"
+            "@php artisan serve --host=0.0.0.0"
         ],
         "queue": [
             "Composer\\Config::disableProcessTimeout",

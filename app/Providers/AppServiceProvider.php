@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Support\Domains\ProjectDomainGenerator;
+use App\Support\Slug\ReservedSlug;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
@@ -19,7 +21,20 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Komponen yang membutuhkan konfigurasi aplikasi
+        $this->app->singleton(
+            ReservedSlug::class,
+            fn () => new ReservedSlug(
+                config('sakala.project.reserved_slugs', [])
+            )
+        );
+
+        $this->app->singleton(
+            ProjectDomainGenerator::class,
+            fn () => new ProjectDomainGenerator(
+                config('sakala.project.default_domain', 'run.sakala.dev')
+            )
+        );
     }
 
     /**
