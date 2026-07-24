@@ -7,6 +7,8 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\OnboardingSource;
 use App\Enums\UserRole;
+use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -16,6 +18,18 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
+/**
+ * @property int $id
+ * @property string $name
+ * @property string $email
+ * @property Carbon|null $email_verified_at
+ * @property string|null $password
+ * @property UserRole $role
+ * @property string|null $avatar_url
+ * @property OnboardingSource|null $onboarding_source
+ * @property CarbonImmutable|null $onboarding_completed_at
+ * @property CarbonImmutable|null $last_login_at
+ */
 #[Fillable([
     'name',
     'email',
