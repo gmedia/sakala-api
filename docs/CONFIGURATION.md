@@ -23,6 +23,10 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SANCTUM_STATEFUL_DOMAINS`: host/port console dan API yang dianggap first-party.
 - `CORS_ALLOWED_ORIGINS`: daftar origin console dipisahkan koma.
 
+Untuk Sanctum SPA session, `CORS_ALLOWED_ORIGINS` harus berisi origin Console
+secara eksplisit dan tidak boleh menggunakan wildcard. Console harus mengirim
+request dengan credentials agar cookie session dan CSRF dapat dipakai.
+
 ## GitHub dan Realtime
 
 - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REDIRECT_URI`: credential OAuth.
