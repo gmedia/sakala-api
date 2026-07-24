@@ -31,14 +31,58 @@ Flow session lokal:
 
 ### GitHub OAuth
 
-GitHub OAuth akan ditambahkan pada delivery berikutnya di atas session
-foundation ini. Flow browser yang direncanakan:
+GitHub OAuth berjalan di atas session foundation ini. OAuth adalah browser flow,
+sehingga route-nya berada di web middleware, bukan di API JSON versioned:
 
-1. Browser membuka redirect GitHub OAuth pada API.
-2. Socialite memproses callback stateful dan menyinkronkan user.
-3. Laravel membuat session baru dan meregenerasi session ID.
-4. API mengarahkan browser kembali ke Console tanpa credential pada URL.
-5. Console mengambil user melalui `GET /api/v1/auth/user`.
+| Endpoint | Kegunaan |
+| --- | --- |
+| `GET /auth/github/redirect` | Membuka authorization flow GitHub melalui Socialite. |
+| `GET /auth/github/callback` | Menerima callback GitHub dan membuat session Console. |
+
+Flow browser:
+
+1. Browser membuka `GET /auth/github/redirect` pada API.
+2. Socialite menyimpan dan memverifikasi OAuth state melalui session Laravel.
+3. GitHub mengarahkan browser ke `GET /auth/github/callback` pada API.
+4. API menemukan identitas berdasarkan kombinasi `provider` dan `provider_user_id`.
+5. Jika identitas belum ada, API membuat user baru dari email GitHub yang terverifikasi dan membuat `OAuthAccount`.
+6. Jika email sudah dipakai user lain tanpa identity GitHub yang sama, API tidak melakukan account linking otomatis.
+7. Laravel membuat session baru dan meregenerasi session ID.
+8. API mengarahkan browser kembali ke Console tanpa credential pada URL.
+9. Console mengambil user melalui `GET /api/v1/auth/user`.
+
+Sakala hanya meminta scope `read:user` dan `user:email` saat login. Access
+token GitHub dipakai sementara oleh Socialite untuk menyelesaikan login dan
+tidak disimpan pada `oauth_accounts`. Akses repository akan menjadi flow
+persetujuan terpisah ketika fitur koneksi repository dibuat.
+
+Callback yang gagal selalu mengarahkan user ke halaman login Console dengan
+kode error non-sensitif: `github_access_denied`, `github_invalid_state`,
+`github_email_unavailable`, `github_email_conflict`, atau
+`github_provider_failure`. Kegagalan tidak mengembalikan bearer token,
+personal access token, detail provider, maupun credential pada URL.
+
+Konfigurasi GitHub OAuth App harus memakai callback URI yang persis sama
+dengan `GITHUB_REDIRECT_URI`. Untuk local development:
+
+```text
+http://api.sakala.localhost:8000/auth/github/callback
+```
+
+Untuk deployment, gunakan host API yang sebenarnya, misalnya:
+
+```text
+https://api.sakala.dev/auth/github/callback
+```
+
+Jangan gunakan `stateless()` atau membuat OAuth state sendiri. Socialite
+stateful flow adalah proteksi callback browser terhadap CSRF.
+
+### Batasan Login Email dan Google
+
+Wireframe Console dapat menampilkan pilihan login email/password atau Google,
+tetapi keduanya belum diimplementasikan dalam API. Jangan menambahkan route
+atau credential provider baru tanpa issue dan kontrak keamanan terpisah.
 
 ## Agent dan Machine Client
 

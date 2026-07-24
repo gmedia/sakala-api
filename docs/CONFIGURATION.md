@@ -7,6 +7,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `APP_URL`: URL API.
 - `SAKALA_CONSOLE_URL`: URL console first-party.
 - `SAKALA_API_RATE_LIMIT`: request per menit untuk limiter API dasar.
+- `SAKALA_OAUTH_RATE_LIMIT`: request per menit per IP untuk browser OAuth route.
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
 
@@ -27,9 +28,12 @@ Untuk Sanctum SPA session, `CORS_ALLOWED_ORIGINS` harus berisi origin Console
 secara eksplisit dan tidak boleh menggunakan wildcard. Console harus mengirim
 request dengan credentials agar cookie session dan CSRF dapat dipakai.
 
-## GitHub dan Realtime
+## GitHub OAuth dan Realtime
 
-- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REDIRECT_URI`: credential OAuth.
+- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`: credential OAuth App GitHub.
+- `GITHUB_REDIRECT_URI`: callback URI OAuth yang harus identik dengan yang
+  didaftarkan pada GitHub OAuth App. Local default:
+  `http://api.sakala.localhost:8000/auth/github/callback`.
 - `REVERB_APP_*`: credential aplikasi Reverb.
 - `REVERB_ALLOWED_ORIGINS`: allowlist origin WebSocket dipisahkan koma.
 

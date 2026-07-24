@@ -7,6 +7,7 @@ return [
 
     'rate_limits' => [
         'api' => (int) env('SAKALA_API_RATE_LIMIT', 60),
+        'oauth' => (int) env('SAKALA_OAUTH_RATE_LIMIT', 10),
     ],
 
     'project' => [

@@ -33,7 +33,7 @@ Project dimiliki user secara langsung pada MVP. Workspace/team dan custom domain
 
 ## Authentication
 
-Console memakai Sanctum stateful SPA authentication melalui cookie HTTP-only dan proteksi CSRF. Agent tidak memakai session browser; ia memakai bearer token dan identitas agent. GitHub OAuth akan diorkestrasi melalui Socialite tanpa Fortify.
+Console memakai Sanctum stateful SPA authentication melalui cookie HTTP-only dan proteksi CSRF. Agent tidak memakai session browser; ia memakai bearer token dan identitas agent. GitHub OAuth diorkestrasi melalui Socialite tanpa Fortify: browser menggunakan `/auth/github/*` pada web middleware untuk redirect dan callback stateful, kemudian kembali ke Console tanpa token. Endpoint JSON Console tetap berada di `/api/v1/auth/*`.
 
 ## Asynchronous Work
 
