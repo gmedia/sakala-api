@@ -7,6 +7,10 @@ cookie/session, bukan bearer token atau personal access token. Cookie session
 bersifat HTTP-only; Console mengirim request lintas origin dengan credentials
 dan memakai CSRF cookie Laravel untuk request yang mengubah state.
 
+Endpoint Console hanya menerima session dari guard `web`. Bearer token yang
+nantinya dipakai agent atau machine client tidak dapat mengakses endpoint
+Console.
+
 ### Session Foundation
 
 Endpoint berikut tersedia untuk Console:

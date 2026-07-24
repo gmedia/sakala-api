@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function (): void {
-    Route::middleware('auth:sanctum')->group(function (): void {
+    Route::middleware('auth:web')->group(function (): void {
         Route::get('user', CurrentUserController::class)->name('api.v1.auth.user');
         Route::post('logout', LogoutController::class)->name('api.v1.auth.logout');
     });
