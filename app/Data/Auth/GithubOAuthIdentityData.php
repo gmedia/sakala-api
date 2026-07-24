@@ -20,7 +20,7 @@ final readonly class GithubOAuthIdentityData
 
     public static function fromSocialiteUser(SocialiteUser $user): self
     {
-        $providerUserId = self::normalized($user->getId());
+        $providerUserId = self::normalizedProviderId($user->getId());
         $email = self::normalized($user->getEmail());
         $providerUsername = self::normalized($user->getNickname());
 
@@ -48,5 +48,14 @@ final readonly class GithubOAuthIdentityData
         $value = $value === null ? null : trim($value);
 
         return $value === '' ? null : $value;
+    }
+
+    private static function normalizedProviderId(mixed $value): ?string
+    {
+        if (! is_int($value) && ! is_string($value)) {
+            return null;
+        }
+
+        return self::normalized((string) $value);
     }
 }

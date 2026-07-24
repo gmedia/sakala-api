@@ -75,6 +75,21 @@ test('a GitHub callback creates the user, creates its provider identity, and sta
     ]);
 });
 
+test('a numeric GitHub provider ID is stored as a string identity', function () {
+    Socialite::fake('github', SocialiteUser::fake([
+        'id' => 84290817,
+        'email' => 'numeric-id@example.test',
+    ]));
+
+    $this->get(route('auth.github.callback'))
+        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+
+    $this->assertDatabaseHas('oauth_accounts', [
+        'provider' => OAuthProvider::Github->value,
+        'provider_user_id' => '84290817',
+    ]);
+});
+
 test('a returning GitHub identity uses its existing user without creating duplicates', function () {
     $user = User::factory()->create(['last_login_at' => null]);
     OAuthAccount::factory()->for($user)->create([
