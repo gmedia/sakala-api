@@ -29,6 +29,7 @@ use Laravel\Sanctum\HasApiTokens;
  * @property OnboardingSource|null $onboarding_source
  * @property CarbonImmutable|null $onboarding_completed_at
  * @property CarbonImmutable|null $last_login_at
+ * @property UserRole $role
  */
 #[Fillable([
     'name',
@@ -45,6 +46,11 @@ class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
+
+    public function isAdmin(): bool
+    {
+        return $this->role === UserRole::Admin;
+    }
 
     /** @return HasMany<OAuthAccount, $this> */
     public function oauthAccounts(): HasMany

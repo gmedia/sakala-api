@@ -8,6 +8,7 @@ use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use Database\Factories\ProjectFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -67,5 +68,20 @@ class Project extends Model
             'detected_port' => 'integer',
             'last_deployed_at' => 'immutable_datetime',
         ];
+    }
+
+    /**
+     * Scope a query to only include projects accessible by the given user.
+     *
+     * @param  Builder<Project>  $query
+     * @return Builder<Project>
+     */
+    public function scopeForUser(Builder $query, User $user): Builder
+    {
+        if ($user->isAdmin()) {
+            return $query;
+        }
+
+        return $query->where('user_id', $user->id);
     }
 }
