@@ -56,7 +56,7 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 
 ## Secret dan Retention
 
-OAuth token dan environment value memakai encrypted cast Laravel. Agent bearer token tidak disimpan; database hanya menyimpan SHA-256/HMAC hash dan prefix untuk identifikasi. Model menyembunyikan seluruh nilai sensitif dari serialization.
+Kolom token OAuth dan environment value memakai encrypted cast Laravel bila memang digunakan. Flow login GitHub saat ini tidak menyimpan token provider; penyimpanan token hanya dapat ditambahkan pada flow persetujuan repository yang terpisah. Agent bearer token tidak disimpan; database hanya menyimpan SHA-256/HMAC hash dan prefix untuk identifikasi. Model menyembunyikan seluruh nilai sensitif dari serialization.
 
 Log/event disimpan di database untuk MVP. Sebelum volume produksi meningkat, tentukan retention policy dan evaluasi partitioning PostgreSQL atau object storage. Jangan membuat pencarian tanpa batas atas; endpoint timeline/log harus memakai cursor pagination dan urutan sequence.
 
