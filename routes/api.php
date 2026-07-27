@@ -9,6 +9,7 @@ Route::prefix('v1')
     ->group(function (): void {
         require __DIR__.'/api/v1/system.php';
         require __DIR__.'/api/v1/auth.php';
+        require __DIR__.'/api/v1/onboarding.php';
         require __DIR__.'/api/v1/app.php';
         require __DIR__.'/api/v1/admin.php';
         require __DIR__.'/api/v1/agent.php';
