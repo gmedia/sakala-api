@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('name', 120);
             $table->string('slug', 80)->unique();
             $table->string('repository_provider', 32)->default('github');
+            $table->string('thumbnail_url', 2048)->nullable();
             $table->string('repository_url', 2048);
             $table->string('repository_full_name', 255)->nullable();
             $table->string('branch', 255)->default('main');
