@@ -8,7 +8,11 @@ use App\Models\Project;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin Project */
+/**
+ * @mixin Project
+ *
+ * @property Project $resource
+ */
 final class ProjectResource extends JsonResource
 {
     /**
@@ -19,22 +23,22 @@ final class ProjectResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
-            'user_id' => $this->user_id,
-            'name' => $this->name,
-            'slug' => $this->slug,
-            'repository_provider' => $this->repository_provider,
-            'thumbnail_url' => $this->thumbnail_url,
-            'repository_url' => $this->repository_url,
-            'repository_full_name' => $this->repository_full_name,
-            'branch' => $this->branch,
-            'default_domain' => $this->default_domain,
-            'status' => $this->status->value,
-            'runtime_status' => $this->runtime_status->value,
-            'detected_port' => $this->detected_port,
-            'last_deployed_at' => $this->last_deployed_at?->toAtomString(),
-            'created_at' => $this->created_at?->toAtomString(),
-            'updated_at' => $this->updated_at?->toAtomString(),
+            'id' => $this->resource->id,
+            'user_id' => $this->resource->user_id,
+            'name' => $this->resource->name,
+            'slug' => $this->resource->slug,
+            'repository_provider' => $this->resource->repository_provider,
+            'thumbnail_url' => $this->resource->thumbnail_url,
+            'repository_url' => $this->resource->repository_url,
+            'repository_full_name' => $this->resource->repository_full_name,
+            'branch' => $this->resource->branch,
+            'default_domain' => $this->resource->default_domain,
+            'status' => $this->resource->status->value,
+            'runtime_status' => $this->resource->runtime_status->value,
+            'detected_port' => $this->resource->detected_port,
+            'last_deployed_at' => $this->resource->last_deployed_at?->toAtomString(),
+            'created_at' => $this->resource->created_at?->toAtomString(),
+            'updated_at' => $this->resource->updated_at?->toAtomString(),
         ];
     }
 }
