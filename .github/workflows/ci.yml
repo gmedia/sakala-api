@@ -43,6 +43,9 @@ jobs:
 
       - name: Validate OpenAPI documentation
         run: composer docs:analyse
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ":memory:"
 
       - name: Run tests
         run: composer test
