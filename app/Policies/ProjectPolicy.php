@@ -38,6 +38,14 @@ final class ProjectPolicy
     }
 
     /**
+     * Determine whether the user can view the model including soft-deleted.
+     */
+    public function viewWithTrashed(User $user, Project $project): bool
+    {
+        return $user->id === $project->user_id;
+    }
+
+    /**
      * Determine whether the user can create models.
      */
     public function create(User $user): bool
