@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'name',
     'slug',
     'repository_provider',
+    'thumbnail_url',
     'repository_url',
     'repository_full_name',
     'branch',
