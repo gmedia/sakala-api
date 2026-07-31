@@ -41,6 +41,22 @@ Pastikan host lokal `api.sakala.localhost` dan `app.sakala.localhost` mengarah k
 
 Dokumentasi interaktif tersedia di `http://api.sakala.localhost:8000/docs/api` dan spesifikasi OpenAPI di `/docs/api.json`.
 
+## Container Image
+
+`Dockerfile` menyediakan dua target production yang sengaja dipisahkan:
+
+- `app`: PHP-FPM untuk Laravel API pada port `9000`.
+- `web`: Nginx yang hanya melayani `public/` pada port `8080` dan meneruskan PHP ke hostname internal `api:9000`.
+
+Contoh build lokal:
+
+```bash
+docker build --target app -t sakala-api:local .
+docker build --target web -t sakala-api-web:local .
+```
+
+Image tidak memuat `.env`, secret, database, Redis, migrasi otomatis, queue worker, atau Reverb. Repository deployment nantinya menyediakan environment runtime, jaringan internal, proses migrasi satu-kali, serta service tambahan hanya ketika memang dibutuhkan oleh fitur yang berjalan.
+
 ## Perintah
 
 ```bash
