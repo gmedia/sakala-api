@@ -16,6 +16,9 @@ final readonly class GithubOAuthIdentityData
         public string $name,
         public string $email,
         public ?string $avatarUrl,
+        public string $accessToken,
+        public ?string $refreshToken,
+        public ?int $expiresIn,
     ) {}
 
     public static function fromSocialiteUser(SocialiteUser $user): self
@@ -40,6 +43,9 @@ final readonly class GithubOAuthIdentityData
             name: self::normalized($user->getName()) ?? $providerUsername ?? 'GitHub user',
             email: mb_strtolower($email),
             avatarUrl: self::normalized($user->getAvatar()),
+            accessToken: $user->token,
+            refreshToken: $user->refreshToken,
+            expiresIn: $user->expiresIn,
         );
     }
 
