@@ -28,8 +28,8 @@ final class StoreOnboardingSourceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'source' => ['required_without:skip', 'nullable', Rule::enum(OnboardingSource::class)],
-            'skip' => ['sometimes', 'boolean'],
+            'source' => ['required_without:skip', 'prohibits:skip', Rule::enum(OnboardingSource::class)],
+            'skip' => ['sometimes', 'accepted', 'prohibits:source'],
         ];
     }
 
@@ -37,7 +37,7 @@ final class StoreOnboardingSourceRequest extends FormRequest
     {
         /** @var string|null $rawSource */
         $rawSource = $this->validated('source');
-        $skip = $this->boolean('skip') || ($rawSource === null && $this->has('source'));
+        $skip = $this->boolean('skip');
 
         $source = $rawSource !== null ? OnboardingSource::tryFrom($rawSource) : null;
 

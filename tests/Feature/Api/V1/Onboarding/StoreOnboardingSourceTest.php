@@ -70,7 +70,33 @@ test('submitting invalid source returns validation error', function (): void {
         ->assertJsonValidationErrors(['source']);
 });
 
-test('repeated onboarding submission is idempotent for the same user', function (): void {
+test('repeated identical onboarding submission is idempotent for the same user', function (): void {
+    $user = User::factory()->create([
+        'onboarding_source' => null,
+        'onboarding_completed_at' => null,
+    ]);
+
+    $this->actingAs($user)
+        ->postJson(route('api.v1.onboarding.source'), ['source' => 'github'])
+        ->assertOk();
+
+    $initialCompletedAt = $user->refresh()->onboarding_completed_at;
+
+    $this->actingAs($user)
+        ->postJson(route('api.v1.onboarding.source'), ['source' => 'github'])
+        ->assertOk()
+        ->assertJson([
+            'data' => [
+                'onboarding_source' => 'github',
+            ],
+        ]);
+
+    $user->refresh();
+    expect($user->onboarding_source)->toBe(OnboardingSource::Github)
+        ->and($user->onboarding_completed_at->toIso8601String())->toBe($initialCompletedAt?->toIso8601String());
+});
+
+test('authenticated user can update onboarding source after completion', function (): void {
     $user = User::factory()->create([
         'onboarding_source' => null,
         'onboarding_completed_at' => null,
@@ -94,4 +120,36 @@ test('repeated onboarding submission is idempotent for the same user', function 
     $user->refresh();
     expect($user->onboarding_source)->toBe(OnboardingSource::Workshop)
         ->and($user->onboarding_completed_at->toIso8601String())->toBe($initialCompletedAt?->toIso8601String());
+});
+
+test('submitting both source and skip returns validation error', function (): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->postJson(route('api.v1.onboarding.source'), [
+            'source' => 'campus',
+            'skip' => true,
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['source', 'skip']);
+});
+
+test('submitting skip as false returns validation error', function (): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->postJson(route('api.v1.onboarding.source'), [
+            'skip' => false,
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['skip']);
+});
+
+test('submitting empty payload returns validation error for source', function (): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->postJson(route('api.v1.onboarding.source'), [])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['source']);
 });
