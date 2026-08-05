@@ -22,6 +22,7 @@ class ProjectFactory extends Factory
             'name' => fake()->words(3, true),
             'slug' => $slug,
             'repository_provider' => 'github',
+            'thumbnail_url' => null,
             'repository_url' => "https://github.com/sakala-demo/{$slug}",
             'repository_full_name' => "sakala-demo/{$slug}",
             'branch' => 'main',
