@@ -104,3 +104,29 @@ test('User can filter projects from last 7 days', function () {
         ->assertOk()
         ->assertJsonCount(1, 'data');
 });
+
+test('Pagination links preserve query string', function () {
+    $user = User::factory()->create();
+
+    Project::factory()
+        ->count(7)
+        ->create([
+            'user_id' => $user->id,
+            'created_at' => now()->subDays(2),
+        ]);
+
+    $this->actingAs($user, 'web');
+
+    $response = $this->getJson(
+        '/api/v1/app/projects?filter=7_days&per_page=5'
+    );
+
+    $response->assertOk();
+
+    $next = $response->json('links.next');
+
+    expect($next)->not->toBeNull();
+    expect($next)->toContain('page=2');
+    expect($next)->toContain('filter=7_days');
+    expect($next)->toContain('per_page=5');
+});

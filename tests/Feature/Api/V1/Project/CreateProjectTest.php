@@ -34,7 +34,7 @@ test('Authenticated user can create a project', function () {
     $this->assertDatabaseHas('projects', [
         'user_id' => $user->id,
         'name' => 'Ichikiwir',
-        'repository_url' => 'https://github.com/Ngab-Rio/ichikiwir.git',
+        'repository_url' => 'https://github.com/Ngab-Rio/ichikiwir',
         'branch' => 'main',
     ]);
 });
@@ -42,11 +42,27 @@ test('Authenticated user can create a project', function () {
 test('Guest cannot create a project', function () {
     $response = $this->postJson('/api/v1/app/projects', [
         'name' => 'Ichikiwir',
-        'repository_url' => 'https://github.com/Ngab-Rio/ichikiwir.git',
+        'repository_url' => 'https://github.com/Ngab-Rio/ichikiwir',
         'branch' => 'main',
     ]);
 
     $response->assertUnauthorized();
+});
+
+test('Repository url must be string', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'web');
+
+    $this->postJson('/api/v1/app/projects', [
+        'name' => 'Project',
+        'repository_url' => [],
+        'branch' => 'main',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([
+            'repository_url',
+        ]);
 });
 
 test('Repository url must be valid github repository', function () {
@@ -110,6 +126,22 @@ test('Repository url must not contain fragment', function () {
         ->assertJsonValidationErrors([
             'repository_url',
         ]);
+});
+
+test('Repository URL is stored in canonical format', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'web');
+
+    $this->postJson('/api/v1/app/projects', [
+        'name' => 'Project',
+        'repository_url' => 'https://www.github.com/Ngab-Rio/ichikiwir.git',
+        'branch' => 'main',
+    ])->assertCreated();
+
+    $this->assertDatabaseHas('projects', [
+        'repository_url' => 'https://github.com/Ngab-Rio/ichikiwir',
+    ]);
 });
 
 test('Repository url must not contain credentials', function () {

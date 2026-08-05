@@ -29,8 +29,8 @@ final class StoreProjectRequest extends FormRequest
     {
         return [
             //
-            'name' => ['required',  'string', 'max:120'],
-            'repository_url' => ['required', 'url', 'max:255', new GithubRepositoryUrl],
+            'name' => ['required', 'string', 'max:120'],
+            'repository_url' => ['bail', 'required', 'string', 'url', 'max:255', new GithubRepositoryUrl],
             'branch' => ['required', 'string', 'max:255'],
         ];
     }

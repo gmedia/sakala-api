@@ -37,6 +37,7 @@ final class GetProjectCollectionAction
             ->paginate(
                 perPage: $data->perPage,
                 page: $data->page
-            );
+            )
+            ->withQueryString();
     }
 }

@@ -29,7 +29,7 @@ final class CreateProjectAction
             'name' => $data->name,
             'slug' => $projectIdentity->slug,
             'repository_provider' => $parsedRepository->repository_provider,
-            'repository_url' => $data->repository_url,
+            'repository_url' => $parsedRepository->repository_url,
             'repository_full_name' => $parsedRepository->repository_full_name,
             'branch' => $data->branch,
             'default_domain' => $projectIdentity->defaultDomain,

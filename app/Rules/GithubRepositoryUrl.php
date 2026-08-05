@@ -16,6 +16,9 @@ final class GithubRepositoryUrl implements ValidationRule
         mixed $value,
         Closure $fail,
     ): void {
+        if (! is_string($value)) {
+            return;
+        }
         try {
             app(RepositoryParser::class)->parse($value);
         } catch (InvalidArgumentException $e) {
