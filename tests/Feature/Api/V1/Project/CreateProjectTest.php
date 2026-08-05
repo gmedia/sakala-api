@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Sanctum\Sanctum;
 
 uses(RefreshDatabase::class);
 
@@ -12,7 +11,7 @@ test('Authenticated user can create a project', function () {
 
     $user = User::factory()->create();
 
-    Sanctum::actingAs($user);
+    $this->actingAs($user, 'web');
 
     $response = $this->postJson('/api/v1/app/projects', [
         'name' => 'Ichikiwir',
@@ -51,7 +50,8 @@ test('Guest cannot create a project', function () {
 });
 
 test('Repository url must be valid github repository', function () {
-    Sanctum::actingAs(User::factory()->create());
+    $user = User::factory()->create();
+    $this->actingAs($user, 'web');
 
     $this->postJson('/api/v1/app/projects', [
         'name' => 'Project',
@@ -64,8 +64,73 @@ test('Repository url must be valid github repository', function () {
         ]);
 });
 
+test('Repository url must use https', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'web');
+
+    $this->postJson('/api/v1/app/projects', [
+        'name' => 'Project',
+        'repository_url' => 'http://github.com/Ngab-Rio/Karaoke-API',
+        'branch' => 'main',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([
+            'repository_url',
+        ]);
+});
+
+test('Repository url must not contain query string', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'web');
+
+    $this->postJson('/api/v1/app/projects', [
+        'name' => 'Project',
+        'repository_url' => 'https://github.com/Ngab-Rio/Karaoke-API?foo=bar',
+        'branch' => 'main',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([
+            'repository_url',
+        ]);
+});
+
+test('Repository url must not contain fragment', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'web');
+
+    $this->postJson('/api/v1/app/projects', [
+        'name' => 'Project',
+        'repository_url' => 'https://github.com/Ngab-Rio/Karaoke-API#readme',
+        'branch' => 'main',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([
+            'repository_url',
+        ]);
+});
+
+test('Repository url must not contain credentials', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'web');
+
+    $this->postJson('/api/v1/app/projects', [
+        'name' => 'Project',
+        'repository_url' => 'https://user:password@github.com/Ngab-Rio/Karaoke-API',
+        'branch' => 'main',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([
+            'repository_url',
+        ]);
+});
+
 test('Name is required', function () {
-    Sanctum::actingAs(User::factory()->create());
+    $user = User::factory()->create();
+    $this->actingAs($user, 'web');
 
     $this->postJson('/api/v1/app/projects', [
         'repository_url' => 'https://github.com/Ngab-Rio/Karaoke-API',
@@ -78,7 +143,8 @@ test('Name is required', function () {
 });
 
 test('Branch is required', function () {
-    Sanctum::actingAs(User::factory()->create());
+    $user = User::factory()->create();
+    $this->actingAs($user, 'web');
 
     $this->postJson('/api/v1/app/projects', [
         'name' => 'Project',

@@ -5,7 +5,6 @@ declare(strict_types=1);
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Sanctum\Sanctum;
 
 uses(RefreshDatabase::class);
 
@@ -16,7 +15,7 @@ test('Authenticated user can get own project collection', function () {
         'user_id' => $user->id,
     ]);
 
-    Sanctum::actingAs($user);
+    $this->actingAs($user, 'web');
 
     $this->getJson('/api/v1/app/projects')
         ->assertOk()
@@ -50,7 +49,7 @@ test('User only sees own projects', function () {
         'user_id' => $otherUser->id,
     ]);
 
-    Sanctum::actingAs($user);
+    $this->actingAs($user, 'web');
 
     $this->getJson('/api/v1/app/projects')
         ->assertOk()
@@ -60,7 +59,7 @@ test('User only sees own projects', function () {
 test('Authenticated user gets empty collection when no projects exist', function () {
     $user = User::factory()->create();
 
-    Sanctum::actingAs($user);
+    $this->actingAs($user, 'web');
 
     $this->getJson('/api/v1/app/projects')
         ->assertOk()
@@ -75,7 +74,7 @@ test('Project collection is paginated', function () {
         'user_id' => $user->id,
     ]);
 
-    Sanctum::actingAs($user);
+    $this->actingAs($user, 'web');
 
     $this->getJson('/api/v1/app/projects')
         ->assertOk()
@@ -99,7 +98,7 @@ test('User can filter projects from last 7 days', function () {
         'created_at' => now()->subDays(10),
     ]);
 
-    Sanctum::actingAs($user);
+    $this->actingAs($user, 'web');
 
     $this->getJson('/api/v1/app/projects?filter=7_days')
         ->assertOk()

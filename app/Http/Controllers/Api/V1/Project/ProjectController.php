@@ -11,7 +11,6 @@ use App\Http\Requests\Api\V1\Project\IndexProjectRequest;
 use App\Http\Requests\Api\V1\Project\StoreProjectRequest;
 use App\Http\Resources\Api\V1\Project\CreateProjectResource;
 use App\Http\Resources\Api\V1\Project\GetCollectionProjectResource;
-use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -24,8 +23,6 @@ class ProjectController extends Controller
         GetProjectCollectionAction $action,
         IndexProjectRequest $request
     ): AnonymousResourceCollection {
-        $this->authorize('viewAny', Project::class);
-
         $projects = $action->handle(
             $request->user(),
             $request->toData()
@@ -41,8 +38,6 @@ class ProjectController extends Controller
         StoreProjectRequest $request,
         CreateProjectAction $action
     ): JsonResponse {
-        $this->authorize('create', Project::class);
-
         $project = $action->handle(
             $request->user(),
             $request->toData()

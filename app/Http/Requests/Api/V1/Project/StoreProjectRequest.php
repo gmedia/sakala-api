@@ -5,18 +5,19 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\V1\Project;
 
 use App\Data\Project\CreateProjectData;
+use App\Models\Project;
 use App\Rules\GithubRepositoryUrl;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
-class StoreProjectRequest extends FormRequest
+final class StoreProjectRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
      */
     public function authorize(): bool
     {
-        return true;
+        return $this->user()->can('create', Project::class);
     }
 
     /**
@@ -28,8 +29,8 @@ class StoreProjectRequest extends FormRequest
     {
         return [
             //
-            'name' => ['required',  'string', 'max:255'],
-            'repository_url' => ['required', 'url', 'max:255', new GithubRepositoryUrl],
+            'name' => ['required',  'string', 'max:120'],
+            'repository_url' => ['required', 'url', 'max:255', new GithubRepositoryUrl()],
             'branch' => ['required', 'string', 'max:255'],
         ];
     }

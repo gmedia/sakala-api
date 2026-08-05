@@ -9,7 +9,7 @@ use App\Models\Project;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
-class GetProjectCollectionAction
+final class GetProjectCollectionAction
 {
     /**
      * @return LengthAwarePaginator<int, Project>
@@ -32,7 +32,8 @@ class GetProjectCollectionAction
         };
 
         return $query
-            ->latest('created_at')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->paginate(
                 perPage: $data->perPage,
                 page: $data->page

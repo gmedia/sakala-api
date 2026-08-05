@@ -11,36 +11,46 @@ final class RepositoryParser
     public function parse(string $url): ParsedRepositoryData
     {
         // Handle repository_provider
-        $host = parse_url($url, PHP_URL_HOST);
+        $parts = parse_url($url);
 
-        if (! is_string($host)) {
-            throw new \InvalidArgumentException("Invalid URL: $url");
+        // Handle Invalid URL
+        if (! is_array($parts)) {
+            throw new \InvalidArgumentException('Invalid URL: Repository URL is not valid.');
         }
 
-        // Handle repository_full_name
-        $host = strtolower(str_replace('www.', '', $host));
-        $repository_provider = explode('.', $host)[0];
+        // Handle HTTPS
+        if (($parts['scheme'] ?? '') !== 'https') {
+            throw new \InvalidArgumentException('Invalid URL: Repository URL must be HTTPS.');
+        }
 
+        // Handle jika ada user atau pass di URL
+        if (isset($parts['user']) || isset($parts['pass'])) {
+            throw new \InvalidArgumentException('Invalid URL: Repository URL must not contain user or password.');
+        }
+
+        // Handle jika ada query atau fragment di URL
+        if (isset($parts['query']) || isset($parts['fragment'])) {
+            throw new \InvalidArgumentException('Invalid URL: Repository URL must not contain query or fragment.');
+        }
+
+        $host = strtolower(str_replace('www.', '', $parts['host'] ?? ''));
+
+        // Handle jika host bukan github
         if ($host !== 'github.com') {
             throw new \InvalidArgumentException('Repository provider must be GitHub.');
         }
 
-        $path = parse_url($url, PHP_URL_PATH);
+        $repositoryFullName = trim($parts['path'] ?? '', '/');
+        $repositoryFullName = preg_replace('/\.git$/', '', $repositoryFullName);
 
-        if (! is_string($path)) {
-            throw new \InvalidArgumentException("Invalid URL: $url");
-        }
-
-        $repository_full_name = trim($path, '/');
-        $repository_full_name = preg_replace('/\.git$/', '', $repository_full_name);
-
-        if (substr_count($repository_full_name, '/') !== 1) {
-            throw new \InvalidArgumentException("Invalid URL: $url");
+        if ($repositoryFullName === null || substr_count($repositoryFullName, '/') !== 1) {
+            throw new \InvalidArgumentException('Invalid GitHub repository URL');
         }
 
         return new ParsedRepositoryData(
-            repository_provider: $repository_provider,
-            repository_full_name: $repository_full_name
+            repository_provider: 'github',
+            repository_full_name: $repositoryFullName,
+            repository_url: sprintf('https://github.com/%s', $repositoryFullName)
         );
     }
 }
