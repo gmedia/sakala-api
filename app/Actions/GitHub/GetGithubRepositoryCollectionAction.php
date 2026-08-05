@@ -7,6 +7,7 @@ namespace App\Actions\GitHub;
 use App\Models\User;
 use App\Services\GitHub\GithubRepositoryService;
 use App\Data\GitHub\GetGithubRepositoryData;
+use App\Data\GitHub\GithubRepoCollectionResponseData;
 
 final class GetGithubRepositoryCollectionAction
 {
@@ -14,7 +15,7 @@ final class GetGithubRepositoryCollectionAction
         protected GithubRepositoryService $service,
     ) {}
 
-    public function handle(User $user, GetGithubRepositoryData $data): array
+    public function handle(User $user, GetGithubRepositoryData $data): GithubRepoCollectionResponseData
     {
         return $this->service->getUserRepositories($user, $data);
     }

@@ -20,5 +20,7 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
             ->name('api.v1.app.github.repositories.index');
         Route::post('/repositories/validate', [GithubRepositoryController::class, 'validate'])
             ->name('api.v1.app.github.repositories.validate');
+        Route::get('/repositories/count', [GithubRepositoryController::class, 'count'])
+            ->name('api.v1.app.github.repositories.count');
     });
 });

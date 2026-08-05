@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace App\Data\GitHub;
 
-final class GithubRepositoryData
+final readonly class GithubRepositoryData
 {
     public function __construct(
-        public readonly int $id,
-        public readonly string $name,
-        public readonly string $fullName,
-        public readonly string $cloneUrl,
-        public readonly string $defaultBranch,
-        public readonly string $pushedAt,
-        public readonly bool $private,
+        public int $id,
+        public string $name,
+        public string $fullName,
+        public string $cloneUrl,
+        public string $defaultBranch,
+        public string $pushedAt,
+        public bool $private,
     ) {}
 }
