@@ -17,8 +17,8 @@ use App\Http\Resources\Api\V1\Project\GetCollectionProjectResource;
 use App\Http\Resources\Api\V1\Project\ProjectResource;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Response;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
 
 final class ProjectController extends Controller
@@ -77,8 +77,6 @@ final class ProjectController extends Controller
         Project $project,
         UpdateProjectAction $updateProject,
     ): ProjectResource {
-        Gate::authorize('update', $project);
-
         $updatedProject = $updateProject->handle($project, $request->toData());
 
         return ProjectResource::make($updatedProject);

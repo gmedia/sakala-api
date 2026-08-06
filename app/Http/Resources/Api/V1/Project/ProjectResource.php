@@ -24,7 +24,6 @@ final class ProjectResource extends JsonResource
     {
         return [
             'id' => $this->resource->id,
-            'user_id' => $this->resource->user_id,
             'name' => $this->resource->name,
             'slug' => $this->resource->slug,
             'repository_provider' => $this->resource->repository_provider,
