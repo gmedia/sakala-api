@@ -11,6 +11,7 @@ final readonly class UpdateProjectData
         public ?string $thumbnailUrl = null,
         public ?string $repositoryUrl = null,
         public ?string $branch = null,
+        public bool $thumbnailUrlProvided = false,
     ) {}
 
     /**
@@ -20,11 +21,16 @@ final readonly class UpdateProjectData
      */
     public function toDatabaseArray(): array
     {
-        return array_filter([
+        $data = array_filter([
             'name' => $this->name,
-            'thumbnail_url' => $this->thumbnailUrl,
             'repository_url' => $this->repositoryUrl,
             'branch' => $this->branch,
         ], fn (mixed $value): bool => $value !== null);
+
+        if ($this->thumbnailUrlProvided) {
+            $data['thumbnail_url'] = $this->thumbnailUrl;
+        }
+
+        return $data;
     }
 }

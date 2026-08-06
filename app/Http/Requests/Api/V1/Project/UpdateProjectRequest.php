@@ -39,6 +39,8 @@ final class UpdateProjectRequest extends FormRequest
 
     public function toData(): UpdateProjectData
     {
+        $validated = $this->validated();
+
         /** @var string|null $name */
         $name = $this->validated('name');
 
@@ -56,6 +58,7 @@ final class UpdateProjectRequest extends FormRequest
             thumbnailUrl: $thumbnailUrl,
             repositoryUrl: $repositoryUrl,
             branch: $branch,
+            thumbnailUrlProvided: array_key_exists('thumbnail_url', $validated),
         );
     }
 }
