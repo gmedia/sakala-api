@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use Carbon\CarbonImmutable;
 use Database\Factories\ProjectFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,6 +17,24 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * @property string $id
+ * @property int $user_id
+ * @property string $name
+ * @property string $slug
+ * @property string $repository_provider
+ * @property string|null $thumbnail_url
+ * @property string $repository_url
+ * @property string|null $repository_full_name
+ * @property string $branch
+ * @property string $default_domain
+ * @property ProjectStatus $status
+ * @property RuntimeStatus $runtime_status
+ * @property int|null $detected_port
+ * @property CarbonImmutable|null $last_deployed_at
+ * @property CarbonImmutable|null $created_at
+ * @property CarbonImmutable|null $updated_at
+ */
 #[Fillable([
     'user_id',
     'name',
