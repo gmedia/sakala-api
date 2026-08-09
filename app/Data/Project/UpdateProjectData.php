@@ -9,7 +9,6 @@ final readonly class UpdateProjectData
     public function __construct(
         public ?string $name = null,
         public ?string $thumbnailUrl = null,
-        public ?string $repositoryUrl = null,
         public ?string $branch = null,
         public bool $thumbnailUrlProvided = false,
     ) {}
@@ -23,7 +22,6 @@ final readonly class UpdateProjectData
     {
         $data = array_filter([
             'name' => $this->name,
-            'repository_url' => $this->repositoryUrl,
             'branch' => $this->branch,
         ], fn (mixed $value): bool => $value !== null);
 

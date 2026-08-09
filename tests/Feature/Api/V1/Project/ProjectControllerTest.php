@@ -127,10 +127,9 @@ test('update project validates input fields', function (): void {
     $this->actingAs($user)
         ->putJson("/api/v1/app/projects/{$project->id}", [
             'thumbnail_url' => 'invalid-url',
-            'repository_url' => 'invalid-url',
         ])
         ->assertUnprocessable()
-        ->assertJsonValidationErrors(['thumbnail_url', 'repository_url']);
+        ->assertJsonValidationErrors(['thumbnail_url']);
 });
 
 test('server-owned project fields cannot be changed through update', function (): void {
@@ -150,6 +149,7 @@ test('server-owned project fields cannot be changed through update', function ()
             'user_id' => $otherUser->id,
             'slug' => 'hacked-project',
             'repository_provider' => 'gitlab',
+            'repository_url' => 'https://github.com/attacker/hacked-project',
             'repository_full_name' => 'attacker/hacked-project',
             'default_domain' => 'hacked.run.sakala.localhost',
             'status' => 'active',
@@ -166,6 +166,7 @@ test('server-owned project fields cannot be changed through update', function ()
         ->and($project->user_id)->toBe($originalProject->user_id)
         ->and($project->slug)->toBe($originalProject->slug)
         ->and($project->repository_provider)->toBe($originalProject->repository_provider)
+        ->and($project->repository_url)->toBe($originalProject->repository_url)
         ->and($project->repository_full_name)->toBe($originalProject->repository_full_name)
         ->and($project->default_domain)->toBe($originalProject->default_domain)
         ->and($project->status)->toEqual($originalProject->status)

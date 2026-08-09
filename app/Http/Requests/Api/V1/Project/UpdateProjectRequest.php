@@ -32,7 +32,6 @@ final class UpdateProjectRequest extends FormRequest
         return [
             'name' => ['sometimes', 'required', 'string', 'max:120'],
             'thumbnail_url' => ['sometimes', 'nullable', 'string', 'url', 'max:2048'],
-            'repository_url' => ['sometimes', 'required', 'string', 'url', 'max:2048'],
             'branch' => ['sometimes', 'required', 'string', 'max:255'],
         ];
     }
@@ -47,16 +46,12 @@ final class UpdateProjectRequest extends FormRequest
         /** @var string|null $thumbnailUrl */
         $thumbnailUrl = $this->validated('thumbnail_url');
 
-        /** @var string|null $repositoryUrl */
-        $repositoryUrl = $this->validated('repository_url');
-
         /** @var string|null $branch */
         $branch = $this->validated('branch');
 
         return new UpdateProjectData(
             name: $name,
             thumbnailUrl: $thumbnailUrl,
-            repositoryUrl: $repositoryUrl,
             branch: $branch,
             thumbnailUrlProvided: array_key_exists('thumbnail_url', $validated),
         );
