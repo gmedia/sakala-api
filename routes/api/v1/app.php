@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 Route::prefix('app')->middleware('auth:web')->group(function (): void {
-    // Project routes
-    Route::apiResource('projects', ProjectController::class)->only(['index', 'store']);
+    Route::apiResource('projects', ProjectController::class)->only([
+        'index',
+        'store',
+        'show',
+        'update',
+        'destroy',
+    ]);
 });
