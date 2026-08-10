@@ -21,21 +21,21 @@ test('route enforces auth:web middleware (rejects sanctum)', function () {
 
 });
 
-test('server-owned data is stored if sent by client (deviates from Issue #11)', function () {
+test('server-owned fields cannot be overridden by client (mass assignment protection)', function () {
     $user = User::factory()->create();
     $response = $this->actingAs($user, 'web')
         ->postJson('/api/v1/app/projects', [
             'name' => 'New Project',
             'repository_url' => 'https://github.com/user/repo',
             'branch' => 'main',
-            'repository_provider' => 'github',
-            'repository_full_name' => 'user/repo',
+            'repository_provider' => 'gitlab', // Intentionally wrong
+            'repository_full_name' => 'attacker/wrong', // Intentionally wrong
         ]);
 
     $response->assertCreated();
     $this->assertDatabaseHas('projects', [
-        'repository_provider' => 'github',
-        'repository_full_name' => 'user/repo',
+        'repository_provider' => 'github', // Should be parsed from URL, not from client
+        'repository_full_name' => 'user/repo', // Should be parsed from URL, not from client
     ]);
 
 });
@@ -109,10 +109,9 @@ test('pagination uses per_page parameter (matches current impl)', function () {
     $response->assertJsonCount(5, 'data');
 });
 
-
 test('slug collision generates unique slug and default_domain on create', function () {
     $user = User::factory()->create();
-    
+
     // First request: create project with name "My Dashboard"
     $firstResponse = $this->actingAs($user, 'web')
         ->postJson('/api/v1/app/projects', [
@@ -120,7 +119,7 @@ test('slug collision generates unique slug and default_domain on create', functi
             'repository_url' => 'https://github.com/user/repo-a',
             'branch' => 'main',
         ]);
-    
+
     // Second request: create another project with the same name but different repo
     $secondResponse = $this->actingAs($user, 'web')
         ->postJson('/api/v1/app/projects', [
@@ -128,7 +127,7 @@ test('slug collision generates unique slug and default_domain on create', functi
             'repository_url' => 'https://github.com/user/repo-b',
             'branch' => 'main',
         ]);
-    
+
     // Third request: create another project with the same name but different repo
     $thirdResponse = $this->actingAs($user, 'web')
         ->postJson('/api/v1/app/projects', [
@@ -136,10 +135,10 @@ test('slug collision generates unique slug and default_domain on create', functi
             'repository_url' => 'https://github.com/user/repo-c',
             'branch' => 'main',
         ]);
-    
+
     // Assertions for first request
     $firstResponse->assertCreated();
-    
+
     // Assertions for second request
     $secondResponse->assertCreated();
     $secondProject = Project::where('name', 'My Dashboard')->where('repository_url', 'https://github.com/user/repo-b')->first();
@@ -148,7 +147,7 @@ test('slug collision generates unique slug and default_domain on create', functi
     $this->assertStringContainsString('my-dashboard-1', $secondProject->default_domain);
     $secondResponse->assertJsonPath('data.slug', 'my-dashboard-1');
     $secondResponse->assertJsonPath('data.default_domain', fn (string $domain) => str_contains($domain, 'my-dashboard-1'));
-    
+
     // Assertions for third request
     $thirdResponse->assertCreated();
     $thirdProject = Project::where('name', 'My Dashboard')->where('repository_url', 'https://github.com/user/repo-c')->first();
