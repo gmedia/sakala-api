@@ -108,3 +108,53 @@ test('pagination uses per_page parameter (matches current impl)', function () {
     $response->assertOk();
     $response->assertJsonCount(5, 'data');
 });
+
+
+test('slug collision generates unique slug and default_domain on create', function () {
+    $user = User::factory()->create();
+    
+    // First request: create project with name "My Dashboard"
+    $firstResponse = $this->actingAs($user, 'web')
+        ->postJson('/api/v1/app/projects', [
+            'name' => 'My Dashboard',
+            'repository_url' => 'https://github.com/user/repo-a',
+            'branch' => 'main',
+        ]);
+    
+    // Second request: create another project with the same name but different repo
+    $secondResponse = $this->actingAs($user, 'web')
+        ->postJson('/api/v1/app/projects', [
+            'name' => 'My Dashboard',
+            'repository_url' => 'https://github.com/user/repo-b',
+            'branch' => 'main',
+        ]);
+    
+    // Third request: create another project with the same name but different repo
+    $thirdResponse = $this->actingAs($user, 'web')
+        ->postJson('/api/v1/app/projects', [
+            'name' => 'My Dashboard',
+            'repository_url' => 'https://github.com/user/repo-c',
+            'branch' => 'main',
+        ]);
+    
+    // Assertions for first request
+    $firstResponse->assertCreated();
+    
+    // Assertions for second request
+    $secondResponse->assertCreated();
+    $secondProject = Project::where('name', 'My Dashboard')->where('repository_url', 'https://github.com/user/repo-b')->first();
+    $this->assertNotNull($secondProject, 'Second project not found in database');
+    $this->assertEquals('my-dashboard-1', $secondProject->slug);
+    $this->assertStringContainsString('my-dashboard-1', $secondProject->default_domain);
+    $secondResponse->assertJsonPath('data.slug', 'my-dashboard-1');
+    $secondResponse->assertJsonPath('data.default_domain', fn (string $domain) => str_contains($domain, 'my-dashboard-1'));
+    
+    // Assertions for third request
+    $thirdResponse->assertCreated();
+    $thirdProject = Project::where('name', 'My Dashboard')->where('repository_url', 'https://github.com/user/repo-c')->first();
+    $this->assertNotNull($thirdProject, 'Third project not found in database');
+    $this->assertEquals('my-dashboard-2', $thirdProject->slug);
+    $this->assertStringContainsString('my-dashboard-2', $thirdProject->default_domain);
+    $thirdResponse->assertJsonPath('data.slug', 'my-dashboard-2');
+    $thirdResponse->assertJsonPath('data.default_domain', fn (string $domain) => str_contains($domain, 'my-dashboard-2'));
+});

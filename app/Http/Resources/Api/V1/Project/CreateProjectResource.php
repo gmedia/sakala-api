@@ -19,8 +19,10 @@ class CreateProjectResource extends JsonResource
         return [
             'id' => $this->resource->id,
             'name' => $this->resource->name,
+            'slug' => $this->resource->slug,
             'repository_full_name' => $this->resource->repository_full_name,
             'branch' => $this->resource->branch,
+            'default_domain' => $this->resource->default_domain,
             'runtime_status' => $this->resource->runtime_status?->value,
             'created_at' => $this->resource->created_at->toAtomString(),
         ];
