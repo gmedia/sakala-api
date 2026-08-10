@@ -8,7 +8,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 
 uses(LazilyRefreshDatabase::class);
 
-test('route does not enforce auth:web middleware (deviates from Issue #11)', function () {
+test('route enforces auth:web middleware (rejects sanctum)', function () {
     $user = User::factory()->create();
     $response = $this->actingAs($user, 'sanctum')
         ->postJson('/api/v1/app/projects', [
@@ -17,7 +17,8 @@ test('route does not enforce auth:web middleware (deviates from Issue #11)', fun
             'branch' => 'main',
         ]);
 
-    $response->assertCreated();
+    $response->assertUnauthorized();
+
 });
 
 test('server-owned data is stored if sent by client (deviates from Issue #11)', function () {
@@ -36,9 +37,10 @@ test('server-owned data is stored if sent by client (deviates from Issue #11)', 
         'repository_provider' => 'github',
         'repository_full_name' => 'user/repo',
     ]);
+
 });
 
-test('project name validation allows >120 characters (deviates from Issue #11)', function () {
+test('project name validation rejects >120 characters (matches current impl)', function () {
     $user = User::factory()->create();
     $response = $this->actingAs($user, 'web')
         ->postJson('/api/v1/app/projects', [
@@ -47,10 +49,12 @@ test('project name validation allows >120 characters (deviates from Issue #11)',
             'branch' => 'main',
         ]);
 
-    $response->assertCreated();
+    $response->assertUnprocessable();
+    $response->assertJsonValidationErrors(['name']);
+
 });
 
-test('accepts reserved slugs (deviates from Issue #11)', function () {
+test('rejects reserved slugs (matches current impl)', function () {
     $user = User::factory()->create();
     $response = $this->actingAs($user, 'web')
         ->postJson('/api/v1/app/projects', [
@@ -59,10 +63,12 @@ test('accepts reserved slugs (deviates from Issue #11)', function () {
             'branch' => 'main',
         ]);
 
-    $response->assertCreated();
+    $response->assertUnprocessable();
+    $response->assertJsonValidationErrors(['name']);
+
 });
 
-test('slug changes on rename (deviates from Issue #11)', function () {
+test('slug does not change on rename (matches current impl)', function () {
     $user = User::factory()->create();
     $project = Project::factory()->create(['user_id' => $user->id]);
 
@@ -77,11 +83,11 @@ test('slug changes on rename (deviates from Issue #11)', function () {
     $this->assertDatabaseHas('projects', [
         'id' => $project->id,
         'name' => 'Renamed Project',
-        'slug' => 'renamed-project',
+        'slug' => $project->slug,
     ]);
 });
 
-test('soft-deleted projects return 200 (deviates from Issue #11)', function () {
+test('soft-deleted projects return 404 (matches current impl)', function () {
     $user = User::factory()->create();
     $project = Project::factory()->create(['user_id' => $user->id]);
     $project->delete();
@@ -89,10 +95,10 @@ test('soft-deleted projects return 200 (deviates from Issue #11)', function () {
     $response = $this->actingAs($user, 'web')
         ->getJson("/api/v1/app/projects/{$project->id}");
 
-    $response->assertOk();
+    $response->assertNotFound();
 });
 
-test('pagination ignores per_page parameter (deviates from Issue #11)', function () {
+test('pagination uses per_page parameter (matches current impl)', function () {
     $user = User::factory()->create();
     Project::factory()->count(20)->create(['user_id' => $user->id]);
 
@@ -100,5 +106,5 @@ test('pagination ignores per_page parameter (deviates from Issue #11)', function
         ->getJson('/api/v1/app/projects?per_page=5');
 
     $response->assertOk();
-    $response->assertJsonCount(15, 'data');
+    $response->assertJsonCount(5, 'data');
 });
