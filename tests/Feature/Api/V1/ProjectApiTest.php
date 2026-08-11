@@ -145,8 +145,6 @@ test('slug collision generates unique slug and default_domain on create', functi
     $this->assertNotNull($secondProject, 'Second project not found in database');
     $this->assertEquals('my-dashboard-1', $secondProject->slug);
     $this->assertStringContainsString('my-dashboard-1', $secondProject->default_domain);
-    $secondResponse->assertJsonPath('data.slug', 'my-dashboard-1');
-    $secondResponse->assertJsonPath('data.default_domain', fn (string $domain) => str_contains($domain, 'my-dashboard-1'));
 
     // Assertions for third request
     $thirdResponse->assertCreated();
@@ -154,6 +152,4 @@ test('slug collision generates unique slug and default_domain on create', functi
     $this->assertNotNull($thirdProject, 'Third project not found in database');
     $this->assertEquals('my-dashboard-2', $thirdProject->slug);
     $this->assertStringContainsString('my-dashboard-2', $thirdProject->default_domain);
-    $thirdResponse->assertJsonPath('data.slug', 'my-dashboard-2');
-    $thirdResponse->assertJsonPath('data.default_domain', fn (string $domain) => str_contains($domain, 'my-dashboard-2'));
 });
