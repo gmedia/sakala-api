@@ -9,6 +9,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 final class GithubRepositoryCollectionResource extends JsonResource
 {
+    /**
+     * @return array<string, mixed>
+     */
     public function toArray(Request $request): array
     {
         return [
@@ -19,7 +22,7 @@ final class GithubRepositoryCollectionResource extends JsonResource
                 'last_page' => $this->resource->lastPage,
                 'has_next_page' => $this->resource->hasNextPage,
                 'has_previous_page' => $this->resource->hasPreviousPage,
-            ]
+            ],
         ];
     }
 }

@@ -4,115 +4,107 @@ declare(strict_types=1);
 
 namespace App\Services\GitHub;
 
-use App\Data\GitHub\GithubRepositoryData;
 use App\Data\GitHub\GetGithubRepositoryData;
 use App\Data\GitHub\GithubRepoCollectionResponseData;
-use App\Support\GitHub\RepositoryParser;
-use Illuminate\Validation\ValidationException;
-use App\Models\OAuthAccount;
+use App\Data\GitHub\GithubRepositoryData;
 use App\Models\User;
-use Illuminate\Support\Facades\Http;
+use App\Support\GitHub\RepositoryParser;
+use Illuminate\Http\Client\Response;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use RuntimeException;
-use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\Response;
 
 final class GithubRepositoryService
 {
-    
     public function __construct(
-        private RepositoryParser $repositoryParser,
+        private readonly GithubRepositoryMapper $githubRepositoryMapper,
+        private readonly GithubOAuth $githubOAuth,
+        private readonly GithubAPIClient $githubClient,
+        private readonly RepositoryParser $repositoryParser,
     ) {}
 
-    private function getAccessToken(User $user): string
+    /**
+     * Parse and normalize a GitHub repository URL.
+     *
+     * Example:
+     * https://github.com/laravel/laravel.git
+     * → laravel/laravel
+     */
+    private function parseRepository(string $url): string
     {
-        $accessToken = OAuthAccount::query($user)
-            ->where('user_id', $user->id)
-            ->value('access_token');
-
-        if ($accessToken === null || empty($accessToken)) {
-            throw new RuntimeException('GitHub access token not found for the user.');
+        try {
+            return $this->repositoryParser
+                ->parse($url)
+                ->repository_full_name;
+        } catch (InvalidArgumentException) {
+            throw ValidationException::withMessages([
+                'repository_url' => [
+                    'The repository url is not a valid GitHub repository URL.',
+                ],
+            ]);
         }
-
-        return $accessToken;
     }
 
-    private function toRepository(array $repositories): GithubRepositoryData
-    {
-        return new GithubRepositoryData(
-            id: $repositories['id'],
-            name: $repositories['name'],
-            fullName: $repositories['full_name'],
-            cloneUrl: $repositories['clone_url'],
-            defaultBranch: $repositories['default_branch'],
-            pushedAt: $repositories['pushed_at'],
-            private: $repositories['private'],
-        );
-    }
-
-    private function github(string $accessToken): PendingRequest
-    {
-        return Http::withToken($accessToken)
-            ->acceptJson();
-    }
-
+    /**
+     * Resolve the last page from GitHub pagination Link header.
+     */
     private function resolveLastPage(Response $response): int
     {
         $linkHeader = $response->header('Link');
 
-        if ($linkHeader === null) {
+        if (blank($linkHeader)) {
             return 1;
         }
 
-        if (preg_match('/[?&]page=(\d+)[^>]*>; rel="last"/', $linkHeader, $matches)) {
+        if (preg_match(
+            '/[?&]page=(\d+)[^>]*>;\s*rel="last"/',
+            $linkHeader,
+            $matches,
+        )) {
             return (int) $matches[1];
-        }
-
-        if (str_contains($linkHeader, 'rel="next"')) {
-            return 2;
         }
 
         return 1;
     }
 
-    public function getUserRepositories(User $user, GetGithubRepositoryData $data): GithubRepoCollectionResponseData
-    {
-        $accessToken = $this->getAccessToken($user);
-
-        if (empty($accessToken) || $accessToken === null) {
-            return new GithubRepoCollectionResponseData(
-                repositories: [],
-                page: $data->page,
-                perPage: $data->perPage,
-            );
-        }
-
-        $response = $this->github($accessToken)->get(
-            'https://api.github.com/user/repos',
+    /**
+     * Get repositories owned by the authenticated GitHub user
+     * using GitHub's normal repository endpoint.
+     */
+    private function getUserRepositoriesPaginated(
+        string $accessToken,
+        GetGithubRepositoryData $data,
+    ): GithubRepoCollectionResponseData {
+        $response = $this->githubClient->get(
+            '/user/repos',
+            $accessToken,
             [
                 'visibility' => 'all',
                 'affiliation' => 'owner',
                 'sort' => 'updated',
+                'direction' => 'desc',
                 'page' => $data->page,
                 'per_page' => $data->perPage,
-            ]
+            ],
         );
+
         $response->throw();
 
-        $repositories = collect($response->json())
-            ->map(fn (array $repository) => $this->toRepository($repository))
-            ->when(
-                filled($data->search),
-                fn ($collection) => $collection->filter(fn ($repo) =>
-                    str_contains(
-                        mb_strtolower($repo->name),
-                        mb_strtolower($data->search)
-                    )
-                )
+        $repositoriesResponse = $response->json();
+
+        if (! is_array($repositoriesResponse)) {
+            throw new RuntimeException(
+                'Invalid repository response from GitHub.',
+            );
+        }
+
+        /** @var array<int, array<string, mixed>> $repositoriesResponse */
+        $repositories = collect($repositoriesResponse)
+            ->map(
+                fn (array $repository): GithubRepositoryData => $this->githubRepositoryMapper->toData($repository),
             )
             ->values()
             ->all();
-
 
         $lastPage = $this->resolveLastPage($response);
 
@@ -126,27 +118,116 @@ final class GithubRepositoryService
         );
     }
 
-    public function getRepositoryByUrl(
-        string $url,
-    ): GithubRepositoryData {
-        try {
-            $repository = $this->repositoryParser->parse($url);
-        } catch (InvalidArgumentException) {
-            throw ValidationException::withMessages([
-                'repository_url' => [
-                    'The repository url is not a valid GitHub repository URL.',
-                ],
-            ]);
+    /**
+     * Search repositories owned by the authenticated GitHub user.
+     */
+    private function searchUserRepositories(
+        User $user,
+        string $accessToken,
+        GetGithubRepositoryData $data,
+    ): GithubRepoCollectionResponseData {
+        $username = $this->githubOAuth->getUsername($user);
+
+        $response = $this->githubClient->get(
+            '/search/repositories',
+            $accessToken,
+            [
+                'q' => sprintf(
+                    'user:%s %s',
+                    $username,
+                    $data->search,
+                ),
+                'sort' => 'updated',
+                'order' => 'desc',
+                'page' => $data->page,
+                'per_page' => $data->perPage,
+            ],
+        );
+
+        $response->throw();
+
+        $items = $response->json('items', []);
+
+        if (! is_array($items)) {
+            throw new RuntimeException(
+                'Invalid repository response from GitHub.',
+            );
         }
 
-        $response = Http::acceptJson()->get(
-            "https://api.github.com/repos/{$repository->repository_full_name}",
+        /** @var array<int, array<string, mixed>> $items */
+        $repositories = collect($items)
+            ->map(
+                fn (array $repository): GithubRepositoryData => $this->githubRepositoryMapper->toData($repository),
+            )
+            ->values()
+            ->all();
+
+        $total = (int) $response->json('total_count', 0);
+
+        $lastPage = $total === 0
+            ? 1
+            : (int) ceil($total / $data->perPage);
+
+        return new GithubRepoCollectionResponseData(
+            repositories: $repositories,
+            page: $data->page,
+            perPage: $data->perPage,
+            lastPage: $lastPage,
+            hasNextPage: $lastPage > $data->page,
+            hasPreviousPage: $data->page > 1,
+        );
+    }
+
+    /**
+     * Get repositories owned by the authenticated GitHub user.
+     *
+     * Requires GitHub OAuth.
+     */
+    public function getUserRepositories(
+        User $user,
+        GetGithubRepositoryData $data,
+    ): GithubRepoCollectionResponseData {
+        $accessToken = $this->githubOAuth->getAccessToken($user);
+
+        if (filled($data->search)) {
+            return $this->searchUserRepositories(
+                $user,
+                $accessToken,
+                $data,
+            );
+        }
+
+        return $this->getUserRepositoriesPaginated(
+            $accessToken,
+            $data,
+        );
+    }
+
+    /**
+     * Get repository information from a GitHub URL.
+     *
+     * Supports:
+     * - Public repository without GitHub OAuth.
+     * - Private repository when the user has connected GitHub.
+     */
+    public function getRepositoryByUrl(
+        User $user,
+        string $url,
+    ): GithubRepositoryData {
+        $accessToken = $this->githubOAuth
+            ->getOptionalAccessToken($user);
+
+        $repositoryFullName = $this->parseRepository($url);
+
+        $response = $this->githubClient->get(
+            "/repos/{$repositoryFullName}",
+            $accessToken,
         );
 
         if ($response->status() === 404) {
             throw ValidationException::withMessages([
                 'repository_url' => [
-                    'Repository not found.',
+                    'Repository not found or inaccessible.',
                 ],
             ]);
         }
@@ -157,25 +238,30 @@ final class GithubRepositoryService
             );
         }
 
-        return $this->toRepository($response->json());
-    }
+        $repository = $response->json();
 
-    public function countRepositories(User $user): int
-    {
-        $accessToken = $this->getAccessToken($user);
-
-        if (empty($accessToken) || $accessToken === null) {
-            return 0;
+        if (! is_array($repository)) {
+            throw new RuntimeException(
+                'Invalid repository response from GitHub.',
+            );
         }
 
-        $response = $this->github($accessToken)->get(
-            'https://api.github.com/user',
-            [
-                'visibility' => 'all',
-                'affiliation' => 'owner',
-                'sort' => 'updated',
-                'per_page' => 1,
-            ]
+        /** @var array<string, mixed> $repository */
+        return $this->githubRepositoryMapper->toData($repository);
+    }
+
+    /**
+     * Count repositories owned by the authenticated GitHub user.
+     *
+     * Requires GitHub OAuth.
+     */
+    public function countRepositories(User $user): int
+    {
+        $accessToken = $this->githubOAuth->getAccessToken($user);
+
+        $response = $this->githubClient->get(
+            '/user',
+            $accessToken,
         );
 
         $response->throw();

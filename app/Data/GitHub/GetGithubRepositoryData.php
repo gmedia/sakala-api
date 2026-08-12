@@ -10,6 +10,5 @@ final readonly class GetGithubRepositoryData
         public int $page,
         public int $perPage,
         public string $search,
-    ) {
-    }
+    ) {}
 }

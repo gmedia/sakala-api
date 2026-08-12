@@ -2,15 +2,18 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\GitHub\GithubRepositoryController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\V1\GitHub\GithubRepositoryController;
 
 /*
 |--------------------------------------------------------------------------
 | Sakala Console App Routes
 |--------------------------------------------------------------------------
 */
+
+// pu
+
 Route::prefix('app')->middleware('auth:web')->group(function (): void {
     // Project routes
     Route::apiResource('projects', ProjectController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
@@ -22,5 +25,7 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
             ->name('api.v1.app.github.repositories.validate');
         Route::get('/repositories/count', [GithubRepositoryController::class, 'count'])
             ->name('api.v1.app.github.repositories.count');
+        Route::get('/repositories/branches', [GithubRepositoryController::class, 'branches'])
+            ->name('api.v1.app.github.repositories.branches');
     });
 });

@@ -1,16 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Actions\GitHub;
 
 use App\Models\User;
 use App\Services\GitHub\GithubRepositoryService;
-use App\Data\GitHub\GetGithubRepositoryData;
-use App\Data\GitHub\GithubRepoCollectionResponseData;
 
-final class GetGithubRepositoryCountAction
+final class GetRepositoryGithubCountAction
 {
     public function __construct(
-        private GithubRepositoryService $githubRepositoryService,
+        private readonly GithubRepositoryService $githubRepositoryService,
     ) {}
 
     public function handle(User $user): int

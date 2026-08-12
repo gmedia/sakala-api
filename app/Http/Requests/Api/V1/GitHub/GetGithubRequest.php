@@ -29,7 +29,7 @@ class GetGithubRequest extends FormRequest
             //
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'between:1,5'],
-            'search' => ['sometimes', 'string', 'max:255'],
+            'search' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
     }
 

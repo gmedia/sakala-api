@@ -9,7 +9,7 @@ use App\Rules\GithubRepositoryUrl;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
-final class ValidateUrlRequest extends FormRequest
+final class GetBranchRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -29,7 +29,7 @@ final class ValidateUrlRequest extends FormRequest
     public function toData(): GithubRepositoryUrlData
     {
         return new GithubRepositoryUrlData(
-            repositoryUrl: $this->validated('repository_url'),
+            repositoryUrl: $this->string('repository_url')->toString(),
         );
     }
 }
