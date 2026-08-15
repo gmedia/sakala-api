@@ -20,7 +20,6 @@ beforeEach(function () {
     ]);
 });
 
-
 test('github api failure is handled when listing repositories', function () {
     Http::fake([
         'https://api.github.com/user/repos*' => Http::response(

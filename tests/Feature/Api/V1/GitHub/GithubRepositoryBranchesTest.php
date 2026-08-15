@@ -20,7 +20,6 @@ beforeEach(function () {
     ]);
 });
 
-
 test('user can get repository branches', function () {
     Http::fake([
         'https://api.github.com/repos/gmedia/sakala-api/branches*' => Http::response([
@@ -87,4 +86,3 @@ test('user can get public repository branches without github oauth account', fun
         ->assertOk()
         ->assertJsonPath('data.0.name', 'main');
 });
-

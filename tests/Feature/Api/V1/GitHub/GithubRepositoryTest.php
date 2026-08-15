@@ -118,7 +118,6 @@ test('user can paginate github repositories', function () {
     });
 });
 
-
 test('github access token is not returned', function () {
     Http::fake([
         'https://api.github.com/user/repos*' => Http::response([

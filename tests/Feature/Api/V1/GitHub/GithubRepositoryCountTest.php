@@ -20,7 +20,6 @@ beforeEach(function () {
     ]);
 });
 
-
 test('user can get repository count using owned private repositories', function () {
     Http::fake([
         'https://api.github.com/user' => Http::response([
