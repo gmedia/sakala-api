@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\GitHub;
 
+use App\Data\GitHub\GithubRepoCollectionResponseData;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * @property GithubRepoCollectionResponseData $resource
+ */
 final class GithubRepositoryCollectionResource extends JsonResource
 {
     /**
@@ -15,7 +19,9 @@ final class GithubRepositoryCollectionResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'data' => GithubResource::collection($this->resource->repositories),
+            'data' => GithubResource::collection(
+                $this->resource->repositories
+            ),
             'meta' => [
                 'page' => $this->resource->page,
                 'per_page' => $this->resource->perPage,

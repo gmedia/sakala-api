@@ -268,7 +268,7 @@ final class GithubRepositoryService
 
         return (int) (
             $response->json('public_repos', 0)
-            + $response->json('total_private_repos', 0)
+            + $response->json('owned_private_repos', 0)
         );
     }
 }

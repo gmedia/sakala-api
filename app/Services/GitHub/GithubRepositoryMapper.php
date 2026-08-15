@@ -16,12 +16,12 @@ final class GithubRepositoryMapper
     public function toData(array $repository): GithubRepositoryData
     {
         return new GithubRepositoryData(
-            id: $repository['id'],
+            id: (string) $repository['id'],
             name: $repository['name'],
             fullName: $repository['full_name'],
             cloneUrl: $repository['clone_url'],
             defaultBranch: $repository['default_branch'],
-            pushedAt: $repository['pushed_at'],
+            pushedAt: $repository['pushed_at'] ?? null,
             private: $repository['private'],
         );
     }

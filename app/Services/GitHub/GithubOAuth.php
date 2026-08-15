@@ -50,11 +50,16 @@ final class GithubOAuth
      */
     public function getOptionalAccessToken(User $user): ?string
     {
-        $accessToken = $this->getAccount($user)->access_token;
+        $account = OAuthAccount::query()
+            ->where('user_id', $user->id)
+            ->where('provider', 'github')
+            ->first();
 
-        return filled($accessToken)
-            ? $accessToken
-            : null;
+        if ($account === null || blank($account->access_token)) {
+            return null;
+        }
+
+        return $account->access_token;
     }
 
     /**
