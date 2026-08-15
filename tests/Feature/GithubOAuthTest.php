@@ -30,7 +30,7 @@ test('the GitHub redirect uses Socialite state and only profile scopes needed fo
     expect($response->headers->get('Location'))->toStartWith('https://github.com/login/oauth/authorize?')
         ->and($query['redirect_uri'])->toBe('http://api.sakala.localhost:8000/auth/github/callback')
         ->and(explode(',', (string) $query['scope']))->toContain('read:user', 'user:email')
-        ->and(explode(',', (string) $query['scope']))->not->toContain('repo')
+        ->and(explode(',', (string) $query['scope']))->toContain('repo')
         ->and($query['state'])->toBeString()->not->toBeEmpty()
         ->and(session('state'))->toBe($query['state']);
 });
@@ -42,8 +42,10 @@ test('a GitHub callback creates the user, creates its provider identity, and sta
         'name' => 'Sakala Builder',
         'email' => 'builder@example.test',
         'avatar' => 'https://avatars.example.test/builder.png',
-        'token' => 'provider-token-that-must-not-be-persisted',
+        'token' => 'provider-access-token',
+        'refreshToken' => 'provider-refresh-token',
     ]);
+
     Socialite::fake('github', $socialiteUser);
 
     $sessionId = session()->getId();
@@ -54,15 +56,20 @@ test('a GitHub callback creates the user, creates its provider identity, and sta
     $user = User::query()->sole();
 
     $this->assertAuthenticatedAs($user, 'web');
+
     $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
         ->getJson(route('api.v1.auth.user'))
         ->assertOk()
         ->assertJsonPath('data.id', $user->id);
 
-    expect(session()->getId())->not->toBe($sessionId)
-        ->and($user->email_verified_at)->not->toBeNull()
-        ->and($user->last_login_at)->not->toBeNull()
-        ->and($user->tokens()->count())->toBe(0);
+    expect(session()->getId())
+        ->not->toBe($sessionId)
+        ->and($user->email_verified_at)
+        ->not->toBeNull()
+        ->and($user->last_login_at)
+        ->not->toBeNull()
+        ->and($user->tokens()->count())
+        ->toBe(0);
 
     $this->assertDatabaseHas('oauth_accounts', [
         'user_id' => $user->id,
@@ -70,9 +77,19 @@ test('a GitHub callback creates the user, creates its provider identity, and sta
         'provider_user_id' => '84290817',
         'provider_username' => 'sakala-builder',
         'avatar_url' => 'https://avatars.example.test/builder.png',
-        'access_token' => null,
-        'refresh_token' => null,
     ]);
+
+    $oauthAccount = OAuthAccount::query()
+        ->where('user_id', $user->id)
+        ->where('provider', OAuthProvider::Github->value)
+        ->sole();
+
+    expect($oauthAccount->access_token)
+        ->toBe('provider-access-token')
+        ->and($oauthAccount->refresh_token)
+        ->toBe('provider-refresh-token')
+        ->and($oauthAccount->token_expires_at)
+        ->not->toBeNull();
 });
 
 test('a numeric GitHub provider ID is stored as a string identity', function () {

@@ -6,7 +6,8 @@ namespace App\Data\Auth;
 
 use App\Enums\GithubOAuthFailure;
 use App\Exceptions\Auth\GithubOAuthIdentityException;
-use Laravel\Socialite\Contracts\User as SocialiteUser;
+use Laravel\Socialite\Contracts\User as SocialiteUserContract;
+use Laravel\Socialite\Two\User as SocialiteTwoUser;
 
 final readonly class GithubOAuthIdentityData
 {
@@ -16,10 +17,20 @@ final readonly class GithubOAuthIdentityData
         public string $name,
         public string $email,
         public ?string $avatarUrl,
+        public string $accessToken,
+        public ?string $refreshToken,
+        public ?int $expiresIn,
     ) {}
 
-    public static function fromSocialiteUser(SocialiteUser $user): self
-    {
+    public static function fromSocialiteUser(
+        SocialiteUserContract $user,
+    ): self {
+        if (! $user instanceof SocialiteTwoUser) {
+            throw new GithubOAuthIdentityException(
+                GithubOAuthFailure::ProviderFailure,
+            );
+        }
+
         $providerUserId = self::normalizedProviderId($user->getId());
         $email = self::normalized($user->getEmail());
         $providerUsername = self::normalized($user->getNickname());
@@ -40,6 +51,9 @@ final readonly class GithubOAuthIdentityData
             name: self::normalized($user->getName()) ?? $providerUsername ?? 'GitHub user',
             email: mb_strtolower($email),
             avatarUrl: self::normalized($user->getAvatar()),
+            accessToken: $user->token,
+            refreshToken: $user->refreshToken,
+            expiresIn: $user->expiresIn,
         );
     }
 

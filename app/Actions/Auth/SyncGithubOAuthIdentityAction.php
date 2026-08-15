@@ -28,6 +28,11 @@ final class SyncGithubOAuthIdentityAction
                 $account->update([
                     'provider_username' => $identity->providerUsername,
                     'avatar_url' => $identity->avatarUrl,
+                    'access_token' => $identity->accessToken,
+                    'refresh_token' => $identity->refreshToken,
+                    'token_expires_at' => $identity->expiresIn !== null
+                        ? now()->addSeconds($identity->expiresIn)
+                        : null,
                 ]);
 
                 $user = User::query()->lockForUpdate()->findOrFail($account->user_id);
@@ -61,6 +66,11 @@ final class SyncGithubOAuthIdentityAction
                 'provider_user_id' => $identity->providerUserId,
                 'provider_username' => $identity->providerUsername,
                 'avatar_url' => $identity->avatarUrl,
+                'access_token' => $identity->accessToken,
+                'refresh_token' => $identity->refreshToken,
+                'token_expires_at' => $identity->expiresIn !== null
+                    ? now()->addSeconds($identity->expiresIn)
+                    : null,
             ]);
 
             return $user;
