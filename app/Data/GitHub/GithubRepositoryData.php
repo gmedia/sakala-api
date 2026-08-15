@@ -12,7 +12,7 @@ final readonly class GithubRepositoryData
         public string $fullName,
         public string $cloneUrl,
         public string $defaultBranch,
-        public ?string $pushedAt,
+        public string $pushedAt,
         public bool $private,
     ) {}
 }
