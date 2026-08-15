@@ -21,7 +21,7 @@ final class GithubRepositoryMapper
             fullName: $repository['full_name'],
             cloneUrl: $repository['clone_url'],
             defaultBranch: $repository['default_branch'],
-            pushedAt: $repository['pushed_at'] ?? null,
+            pushedAt: $repository['pushed_at'],
             private: $repository['private'],
         );
     }
