@@ -51,39 +51,48 @@ final class GithubBranchService
         $accessToken = $this->githubOAuth
             ->getOptionalAccessToken($user);
 
-        $response = $this->githubClient->get(
-            "/repos/{$repositoryFullName}/branches",
-            $accessToken,
-        );
-
-        if ($response->status() === 404) {
-            throw ValidationException::withMessages([
-                'repository_url' => [
-                    'Repository not found or inaccessible.',
-                ],
-            ]);
-        }
-
-        if ($response->failed()) {
-            throw new RuntimeException(
-                'Failed to retrieve branches from GitHub.',
-            );
-        }
-
-        $branches = $response->json();
-
-        if (! is_array($branches)) {
-            throw new RuntimeException(
-                'Invalid branches response from GitHub.',
-            );
-        }
-
-        /** @var array<int, array{name: string}> $branches */
         $result = [];
+        $page = 1;
 
-        foreach ($branches as $branch) {
-            $result[] = $branch['name'];
-        }
+        do {
+            $response = $this->githubClient->get(
+                "/repos/{$repositoryFullName}/branches",
+                $accessToken,
+                [
+                    'page' => $page,
+                    'per_page' => 100,
+                ]
+            );
+
+            if ($response->status() === 404) {
+                throw ValidationException::withMessages([
+                    'repository_url' => [
+                        'Repository not found or inaccessible.',
+                    ],
+                ]);
+            }
+
+            if ($response->failed()) {
+                throw new RuntimeException(
+                    'Failed to retrieve branches from GitHub.',
+                );
+            }
+
+            $branches = $response->json();
+
+            if (! is_array($branches)) {
+                throw new RuntimeException(
+                    'Invalid branches response from GitHub.',
+                );
+            }
+
+            /** @var array<int, array{name: string}> $branches */
+            foreach ($branches as $branch) {
+                $result[] = $branch['name'];
+            }
+
+            $page++;
+        } while ($this->githubClient->hasNextPage($response));
 
         return $result;
     }

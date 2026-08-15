@@ -35,4 +35,12 @@ final class GithubAPIClient
     {
         return $this->request($accessToken)->get(self::BASE_URL.$uri, $query);
     }
+
+    public function hasNextPage(Response $response): bool
+    {
+        return str_contains(
+            $response->header('Link'),
+            'rel="next"',
+        );
+    }
 }

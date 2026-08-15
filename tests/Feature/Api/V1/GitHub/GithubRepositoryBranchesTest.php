@@ -86,3 +86,62 @@ test('user can get public repository branches without github oauth account', fun
         ->assertOk()
         ->assertJsonPath('data.0.name', 'main');
 });
+
+test('user can get all repository branches across github pagination', function () {
+    Http::fake(function ($request) {
+        $query = parse_url($request->url(), PHP_URL_QUERY);
+        parse_str($query ?? '', $params);
+
+        $page = (int) ($params['page'] ?? 1);
+
+        if ($page === 1) {
+            return Http::response(
+                [
+                    ['name' => 'main'],
+                    ['name' => 'develop'],
+                ],
+                200,
+                [
+                    'Link' => '<https://api.github.com/repos/gmedia/sakala-api/branches?page=2&per_page=100>; rel="next"',
+                ],
+            );
+        }
+
+        return Http::response([
+            ['name' => 'feature/foo'],
+            ['name' => 'feature/bar'],
+        ]);
+    });
+
+    $response = $this
+        ->actingAs($this->user, 'web')
+        ->getJson(
+            '/api/v1/app/github/repositories/branches?repository_url=https://github.com/gmedia/sakala-api',
+        );
+
+    $response
+        ->assertOk()
+        ->assertJsonCount(4, 'data')
+        ->assertJsonPath('data.0.name', 'main')
+        ->assertJsonPath('data.1.name', 'develop')
+        ->assertJsonPath('data.2.name', 'feature/foo')
+        ->assertJsonPath('data.3.name', 'feature/bar');
+
+    Http::assertSentCount(2);
+
+    Http::assertSent(function ($request) {
+        $query = parse_url($request->url(), PHP_URL_QUERY);
+        parse_str($query ?? '', $params);
+
+        return (int) ($params['page'] ?? 0) === 1
+            && (int) ($params['per_page'] ?? 0) === 100;
+    });
+
+    Http::assertSent(function ($request) {
+        $query = parse_url($request->url(), PHP_URL_QUERY);
+        parse_str($query ?? '', $params);
+
+        return (int) ($params['page'] ?? 0) === 2
+            && (int) ($params['per_page'] ?? 0) === 100;
+    });
+});
