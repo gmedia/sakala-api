@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
 use App\Http\Controllers\Api\V1\GitHub\GithubRepositoryController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
+use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -14,6 +15,10 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::prefix('app')->middleware('auth:web')->group(function (): void {
+    // Pilot runtime and quota limits
+    Route::get('/pilot-limits', [PilotLimitsController::class, 'show'])
+        ->name('api.v1.app.pilot-limits.show');
+
     // Project routes
     Route::apiResource('projects', ProjectController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
 

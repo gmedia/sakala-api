@@ -12,6 +12,7 @@ use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\GitHub\GithubBranchService;
+use App\Services\Runtime\PilotRuntimeLimitService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -45,6 +46,7 @@ final class CreateDeploymentAction
 
     public function __construct(
         private readonly GithubBranchService $githubBranchService,
+        private readonly PilotRuntimeLimitService $runtimeLimitService,
     ) {}
 
     public function handle(
@@ -75,13 +77,14 @@ final class CreateDeploymentAction
         $created = false;
 
         $deployment = DB::transaction(function () use ($project, $user, $data, $commit, &$created) {
-            $project = Project::query()
+            /** @var Project $lockedProject */
+            $lockedProject = Project::query()
                 ->whereKey($project->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             $existing = $this->findExistingDeployment(
-                project: $project,
+                project: $lockedProject,
                 user: $user,
                 data: $data,
             );
@@ -90,21 +93,28 @@ final class CreateDeploymentAction
                 return $existing;
             }
 
-            $sequence = (int) $project->deployments()->max('sequence') + 1;
+            // Enforce active deployment limits under project lock
+            $this->runtimeLimitService->checkActiveDeploymentLimit($user, $lockedProject);
+
+            // Resolve effective runtime limits
+            $effectiveLimits = $this->runtimeLimitService->resolveEffectiveLimits($data->requested_resources, $user);
+
+            $sequence = (int) $lockedProject->deployments()->max('sequence') + 1;
 
             $created = true;
 
             return Deployment::create([
-                'project_id' => $project->id,
+                'project_id' => $lockedProject->id,
                 'requested_by' => $user->id,
                 'idempotency_key' => $data->idempotencyKey,
                 'sequence' => $sequence,
                 'status' => DeploymentStatus::Queued,
-                'trigger' => DeploymentTrigger::Manual,
-
+                'trigger' => $data->trigger,
                 'branch' => $data->branch,
                 'commit_sha' => $commit['sha'],
                 'commit_message' => $commit['message'],
+                'requested_resources' => $data->requested_resources?->toArray(),
+                'effective_resources' => $effectiveLimits->toResourcesArray(),
             ]);
         });
 
