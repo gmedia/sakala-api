@@ -4,29 +4,43 @@ declare(strict_types=1);
 
 namespace App\Actions\Deployment;
 
+use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
+use App\Services\GitHub\GithubBranchService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class CreateDeploymentAction
 {
-    /**
-     * @param array{
-     *     branch: string,
-     *     commit_sha?: string|null,
-     *     commit_message?: string|null,
-     * } $data
-     */
+    public function __construct(
+        private readonly GithubBranchService $githubBranchService,
+    ) {}
+
     public function handle(
         Project $project,
         User $user,
-        array $data
+        CreateDeploymentData $data
     ): Deployment {
-        $deployment = DB::transaction(function () use ($project, $user, $data) {
+        if ($data->branch !== $project->branch) {
+            throw ValidationException::withMessages([
+                'branch' => [
+                    'The selected branch does not match the project branch.',
+                ],
+            ]);
+        }
+
+        $commit = $this->githubBranchService->getBranchCommit(
+            user: $user,
+            repositoryFullName: $project->repository_full_name,
+            branch: $data->branch,
+        );
+
+        $deployment = DB::transaction(function () use ($project, $user, $data, $commit) {
             $project = Project::query()
                 ->whereKey($project->id)
                 ->lockForUpdate()
@@ -41,9 +55,9 @@ final class CreateDeploymentAction
                 'status' => DeploymentStatus::Queued,
                 'trigger' => DeploymentTrigger::Manual,
 
-                'branch' => $data['branch'],
-                'commit_sha' => $data['commit_sha'] ?? null,
-                'commit_message' => $data['commit_message'] ?? null,
+                'branch' => $data->branch,
+                'commit_sha' => $commit['sha'],
+                'commit_message' => $commit['message'],
             ]);
         });
 

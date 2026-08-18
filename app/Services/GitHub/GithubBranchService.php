@@ -96,4 +96,55 @@ final class GithubBranchService
 
         return $result;
     }
+
+    /**
+     * @return array{sha: string, message: string}
+     */
+    public function getBranchCommit(
+        User $user,
+        string $repositoryFullName,
+        string $branch,
+    ): array {
+        $accessToken = $this->githubOAuth
+            ->getOptionalAccessToken($user);
+
+        $response = $this->githubClient->get(
+            "/repos/{$repositoryFullName}/commits",
+            $accessToken,
+            [
+                'sha' => $branch,
+                'per_page' => 1,
+            ]
+        );
+
+        if ($response->status() === 404) {
+            throw ValidationException::withMessages([
+                'branch' => [
+                    'The selected branch does not exist or is inaccessible.',
+                ],
+            ]);
+        }
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                'Failed to retrieve branch commit from GitHub.',
+            );
+        }
+        $commits = $response->json();
+
+        if (! is_array($commits) || $commits === []) {
+            throw ValidationException::withMessages([
+                'branch' => [
+                    'The selected branch has no commits.',
+                ],
+            ]);
+        }
+
+        return [
+            'sha' => $commits[0]['sha'],
+            'message' => trim(
+                explode("\n", $commits[0]['commit']['message'], 2)[0],
+            ),
+        ];
+    }
 }
