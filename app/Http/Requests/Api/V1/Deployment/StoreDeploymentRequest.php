@@ -25,7 +25,8 @@ final class StoreDeploymentRequest extends FormRequest
     public function getIdempotencyKey(): ?string
     {
         $key = $this->header('Idempotency-Key');
-        return is_string($key) && !empty($key) ? $key : null;
+
+        return is_string($key) && ! empty($key) ? $key : null;
     }
 
     public function toData(): CreateDeploymentData

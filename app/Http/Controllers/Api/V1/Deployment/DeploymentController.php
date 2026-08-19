@@ -17,10 +17,10 @@ use App\Http\Resources\Api\V1\Deployment\DeploymentLogResource;
 use App\Http\Resources\Api\V1\Deployment\DeploymentResource;
 use App\Models\Deployment;
 use App\Models\Project;
+use Dedoc\Scramble\Attributes\HeaderParameter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
-use Dedoc\Scramble\Attributes\HeaderParameter;
 
 final class DeploymentController extends Controller
 {

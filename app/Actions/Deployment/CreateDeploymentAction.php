@@ -54,7 +54,7 @@ final class CreateDeploymentAction
                     ->where('requested_by', $user->id)
                     ->where('idempotency_key', $data->idempotencyKey)
                     ->first();
-            
+
                 if ($existing !== null) {
                     if ($existing->branch !== $data->branch) {
                         throw ValidationException::withMessages([
@@ -63,7 +63,7 @@ final class CreateDeploymentAction
                             ],
                         ]);
                     }
-                
+
                     return $existing;
                 }
             }
