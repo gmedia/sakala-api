@@ -30,5 +30,14 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
     });
 
     // Deployment routes
-    Route::apiResource('projects.deployments', DeploymentController::class)->only(['store'])->scoped();
+    Route::scopeBindings()->group(function (): void {
+        Route::apiResource('projects.deployments', DeploymentController::class)
+            ->only(['store', 'show', 'index']);
+
+        Route::prefix('projects/{project}/deployments/{deployment}')
+            ->group(function (): void {
+                Route::get('/events', [DeploymentController::class, 'events']);
+                Route::get('/logs', [DeploymentController::class, 'logs']);
+            });
+    });
 });

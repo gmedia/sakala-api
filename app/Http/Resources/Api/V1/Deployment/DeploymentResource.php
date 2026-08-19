@@ -7,7 +7,7 @@ namespace App\Http\Resources\Api\V1\Deployment;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-final class CreateDeploymentResource extends JsonResource
+final class DeploymentResource extends JsonResource
 {
     /** @return array<string, mixed> */
     public function toArray(Request $request): array

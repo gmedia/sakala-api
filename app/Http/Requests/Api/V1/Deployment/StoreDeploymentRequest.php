@@ -11,7 +11,7 @@ final class StoreDeploymentRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user()->can('deploy', $this->route('project'));
     }
 
     /** @return array<string, mixed> */

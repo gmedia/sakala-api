@@ -10,7 +10,11 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property Carbon|null $occurred_at
+ */
 #[Fillable([
     'deployment_id',
     'agent_command_id',
@@ -21,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'metadata',
     'occurred_at',
 ])]
+
 class DeploymentEvent extends Model
 {
     /** @use HasFactory<DeploymentEventFactory> */
@@ -47,7 +52,7 @@ class DeploymentEvent extends Model
             'sequence' => 'integer',
             'level' => DeploymentEventLevel::class,
             'metadata' => 'array',
-            'occurred_at' => 'immutable_datetime',
+            'occurred_at' => 'datetime',
         ];
     }
 }

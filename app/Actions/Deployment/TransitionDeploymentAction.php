@@ -24,10 +24,8 @@ final class TransitionDeploymentAction
         DeploymentStatus $current,
         DeploymentStatus $next,
     ): bool {
-        if ($current === DeploymentStatus::HealthChecking) {
-            return $next === DeploymentStatus::Succeeded
-                || $next === DeploymentStatus::Failed
-                || $next === DeploymentStatus::Cancelled;
+        if ($next === DeploymentStatus::Failed) {
+            return ! $current->isTerminal();
         }
 
         return match ($current) {
@@ -37,6 +35,12 @@ final class TransitionDeploymentAction
             DeploymentStatus::Building => $next === DeploymentStatus::Deploying,
             DeploymentStatus::Deploying => $next === DeploymentStatus::Routing,
             DeploymentStatus::Routing => $next === DeploymentStatus::HealthChecking,
+
+            DeploymentStatus::HealthChecking => in_array($next, [
+                DeploymentStatus::Succeeded,
+                DeploymentStatus::Cancelled,
+            ], true),
+
             default => false,
         };
     }
@@ -57,6 +61,16 @@ final class TransitionDeploymentAction
         };
     }
 
+    private function eventLevel(
+        DeploymentStatus $status,
+    ): DeploymentEventLevel {
+        return match ($status) {
+            DeploymentStatus::Failed => DeploymentEventLevel::Error,
+            DeploymentStatus::Cancelled => DeploymentEventLevel::Warning,
+            default => DeploymentEventLevel::Info,
+        };
+    }
+
     private function updateProjectRuntime(
         Deployment $deployment,
         DeploymentStatus $status,
@@ -71,7 +85,6 @@ final class TransitionDeploymentAction
             DeploymentStatus::Failed => [
                 'runtime_status' => RuntimeStatus::Failed,
             ],
-
             default => [],
         };
 
@@ -79,7 +92,9 @@ final class TransitionDeploymentAction
             return;
         }
 
-        $deployment->project()->update($attributes);
+        $deployment->project()
+            ->lockForUpdate()
+            ->update($attributes);
     }
 
     public function handle(
@@ -115,20 +130,26 @@ final class TransitionDeploymentAction
                 $attributes['finished_at'] = now();
             }
 
+            if ($nextStatus === DeploymentStatus::Cancelled) {
+                $attributes['cancelled_at'] = now();
+            }
+
             $deployment->update($attributes);
 
             $message = $this->messageFor($nextStatus);
 
             $this->createDeploymentEventAction->handle(
                 deployment: $deployment,
-                level: DeploymentEventLevel::Info,
+                level: $this->eventLevel($nextStatus),
                 type: "deployment.{$nextStatus->value}",
                 message: $message,
             );
 
             $this->createDeploymentLogAction->handle(
                 deployment: $deployment,
-                logStream: LogStream::Stdout,
+                logStream: $nextStatus === DeploymentStatus::Failed
+                    ? LogStream::Stderr
+                    : LogStream::Stdout,
                 message: $message,
             );
 
