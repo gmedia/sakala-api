@@ -153,3 +153,20 @@ test('submitting empty payload returns validation error for source', function ()
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['source']);
 });
+
+test('a bearer token cannot submit onboarding source', function (): void {
+    $user = User::factory()->create();
+    $token = $user->createToken('onboarding-boundary')->plainTextToken;
+
+    $this->withToken($token)
+        ->postJson(route('api.v1.onboarding.source'), ['source' => 'github'])
+        ->assertUnauthorized();
+});
+
+test('onboarding endpoint requires web guard authentication', function (): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'sanctum')
+        ->postJson(route('api.v1.onboarding.source'), ['source' => 'github'])
+        ->assertUnauthorized();
+});

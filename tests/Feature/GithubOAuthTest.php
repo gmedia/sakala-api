@@ -191,3 +191,29 @@ test('a provider failure returns a safe recovery redirect', function () {
 
     $this->assertGuest('web');
 });
+
+test('OAuth callback does not create personal access tokens for console users', function () {
+    $socialiteUser = SocialiteUser::fake([
+        'id' => '99999999',
+        'nickname' => 'no-pat-user',
+        'name' => 'No PAT User',
+        'email' => 'nopat@example.test',
+        'avatar' => 'https://avatars.example.test/nopat.png',
+        'token' => 'provider-access-token',
+        'refreshToken' => 'provider-refresh-token',
+    ]);
+
+    Socialite::fake('github', $socialiteUser);
+
+    $originalSessionId = session()->getId();
+
+    $this->get(route('auth.github.callback'))
+        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+
+    $user = User::query()->sole();
+    $this->assertAuthenticatedAs($user, 'web');
+
+    expect($user->tokens()->count())->toBe(0)
+        ->and($user->tokens)->toBeEmpty()
+        ->and(session()->getId())->not->toBe($originalSessionId);
+});
