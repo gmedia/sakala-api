@@ -20,12 +20,21 @@ use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
+use Dedoc\Scramble\Attributes\HeaderParameter;
 
 final class DeploymentController extends Controller
 {
     /**
      * Store a newly created resource in storage.
      */
+
+    // Untuk Testing
+    #[HeaderParameter(
+        'Idempotency-Key',
+        description: 'Unique key used to safely retry a deployment request.',
+        type: 'string',
+        example: '550e8400-e29b-41d4-a716-446655440000',
+    )]
     public function store(
         StoreDeploymentRequest $request,
         Project $project,

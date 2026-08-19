@@ -22,12 +22,20 @@ final class StoreDeploymentRequest extends FormRequest
         ];
     }
 
+    public function getIdempotencyKey(): ?string
+    {
+        $key = $this->header('Idempotency-Key');
+        return is_string($key) && !empty($key) ? $key : null;
+    }
+
     public function toData(): CreateDeploymentData
     {
         $branch = $this->validated('branch');
+        $idempotencyKey = $this->getIdempotencyKey();
 
         return new CreateDeploymentData(
             branch: $branch,
+            idempotencyKey: $idempotencyKey,
         );
     }
 }

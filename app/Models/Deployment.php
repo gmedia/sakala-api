@@ -39,6 +39,7 @@ use Illuminate\Support\Carbon;
     'project_id',
     'requested_by',
     'agent_node_id',
+    'idempotency_key',
     'sequence',
     'status',
     'trigger',

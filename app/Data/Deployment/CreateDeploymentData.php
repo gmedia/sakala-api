@@ -8,5 +8,6 @@ final readonly class CreateDeploymentData
 {
     public function __construct(
         public string $branch,
+        public ?string $idempotencyKey = null,
     ) {}
 }

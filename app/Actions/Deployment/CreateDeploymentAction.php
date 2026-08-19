@@ -40,17 +40,42 @@ final class CreateDeploymentAction
             branch: $data->branch,
         );
 
-        $deployment = DB::transaction(function () use ($project, $user, $data, $commit) {
+        $created = false;
+
+        $deployment = DB::transaction(function () use ($project, $user, $data, $commit, &$created) {
             $project = Project::query()
                 ->whereKey($project->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            if ($data->idempotencyKey !== null) {
+                $existing = Deployment::query()
+                    ->where('project_id', $project->id)
+                    ->where('requested_by', $user->id)
+                    ->where('idempotency_key', $data->idempotencyKey)
+                    ->first();
+            
+                if ($existing !== null) {
+                    if ($existing->branch !== $data->branch) {
+                        throw ValidationException::withMessages([
+                            'Idempotency-Key' => [
+                                'The idempotency key has already been used for a different deployment.',
+                            ],
+                        ]);
+                    }
+                
+                    return $existing;
+                }
+            }
+
             $sequence = (int) $project->deployments()->max('sequence') + 1;
+
+            $created = true;
 
             return Deployment::create([
                 'project_id' => $project->id,
                 'requested_by' => $user->id,
+                'idempotency_key' => $data->idempotencyKey,
                 'sequence' => $sequence,
                 'status' => DeploymentStatus::Queued,
                 'trigger' => DeploymentTrigger::Manual,
@@ -61,7 +86,9 @@ final class CreateDeploymentAction
             ]);
         });
 
-        SimulatedDeploymentJob::dispatch($deployment);
+        if ($created) {
+            SimulatedDeploymentJob::dispatch($deployment);
+        }
 
         return $deployment;
     }
