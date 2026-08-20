@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Enums\DeploymentStatus;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
@@ -64,8 +63,7 @@ test('deployment collection only contains deployments from requested project', f
     expect(
         collect($response->json('data'))
             ->every(
-                fn (array $deployment): bool =>
-                    $deployment['project_id'] === $project->id
+                fn (array $deployment): bool => $deployment['project_id'] === $project->id
             )
     )->toBeTrue();
 });

@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Enums\DeploymentEventLevel;
-use App\Enums\DeploymentStatus;
 use App\Models\Deployment;
 use App\Models\DeploymentEvent;
 use App\Models\Project;

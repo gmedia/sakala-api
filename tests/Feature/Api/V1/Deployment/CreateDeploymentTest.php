@@ -87,7 +87,7 @@ test('user can create a deployment', function (): void {
     ]);
 
     Queue::assertPushed(
-        \App\Jobs\Deployment\SimulatedDeploymentJob::class,
+        SimulatedDeploymentJob::class,
     );
 });
 
@@ -134,7 +134,7 @@ test('deployment sequence increments for the same project', function (): void {
     ]);
 
     Queue::assertPushed(
-        \App\Jobs\Deployment\SimulatedDeploymentJob::class,
+        SimulatedDeploymentJob::class,
         2,
     );
 });
