@@ -23,6 +23,9 @@ final class DeploymentResource extends JsonResource
             'commit_message' => $this->resource->commit_message,
             'started_at' => $this->resource->started_at,
             'finished_at' => $this->resource->finished_at,
+            'cancelled_at' => $this->resource->cancelled_at,
+            'failure_code' => $this->resource->failure_code,
+            'failure_summary' => $this->resource->failure_summary,
             'created_at' => $this->resource->created_at,
             'updated_at' => $this->resource->updated_at,
         ];
