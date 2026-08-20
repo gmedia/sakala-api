@@ -13,11 +13,33 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property string $id
+ * @property string $project_id
+ * @property int|null $requested_by
+ * @property string|null $agent_node_id
+ * @property int $sequence
+ * @property DeploymentStatus $status
+ * @property DeploymentTrigger $trigger
+ * @property string $branch
+ * @property string $commit_sha
+ * @property string|null $commit_message
+ * @property string|null $image_reference
+ * @property string|null $failure_code
+ * @property string|null $failure_summary
+ * @property Carbon|null $started_at
+ * @property Carbon|null $finished_at
+ * @property Carbon|null $cancelled_at
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
+ */
 #[Fillable([
     'project_id',
     'requested_by',
     'agent_node_id',
+    'idempotency_key',
     'sequence',
     'status',
     'trigger',
