@@ -17,6 +17,32 @@ use Illuminate\Validation\ValidationException;
 
 final class CreateDeploymentAction
 {
+    private function findExistingDeployment(
+        Project $project,
+        User $user,
+        CreateDeploymentData $data
+    ): ?Deployment {
+        if ($data->idempotencyKey === null) {
+            return null;
+        }
+
+        $existing = Deployment::query()
+            ->where('project_id', $project->id)
+            ->where('requested_by', $user->id)
+            ->where('idempotency_key', $data->idempotencyKey)
+            ->first();
+
+        if ($existing !== null && $existing->branch !== $data->branch) {
+            throw ValidationException::withMessages([
+                'Idempotency-Key' => [
+                    'The idempotency key has already been used for a different deployment.',
+                ],
+            ]);
+        }
+
+        return $existing;
+    }
+
     public function __construct(
         private readonly GithubBranchService $githubBranchService,
     ) {}
@@ -34,6 +60,12 @@ final class CreateDeploymentAction
             ]);
         }
 
+        $existing = $this->findExistingDeployment($project, $user, $data);
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
         $commit = $this->githubBranchService->getBranchCommit(
             user: $user,
             repositoryFullName: $project->repository_full_name,
@@ -48,24 +80,14 @@ final class CreateDeploymentAction
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($data->idempotencyKey !== null) {
-                $existing = Deployment::query()
-                    ->where('project_id', $project->id)
-                    ->where('requested_by', $user->id)
-                    ->where('idempotency_key', $data->idempotencyKey)
-                    ->first();
+            $existing = $this->findExistingDeployment(
+                project: $project,
+                user: $user,
+                data: $data,
+            );
 
-                if ($existing !== null) {
-                    if ($existing->branch !== $data->branch) {
-                        throw ValidationException::withMessages([
-                            'Idempotency-Key' => [
-                                'The idempotency key has already been used for a different deployment.',
-                            ],
-                        ]);
-                    }
-
-                    return $existing;
-                }
+            if ($existing !== null) {
+                return $existing;
             }
 
             $sequence = (int) $project->deployments()->max('sequence') + 1;

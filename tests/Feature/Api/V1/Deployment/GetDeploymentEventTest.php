@@ -98,3 +98,87 @@ test('deployment events only belong to requested deployment', function (): void 
         ->assertOk()
         ->assertJsonCount(2, 'data');
 });
+
+test('deployment events support cursor pagination in sequence order', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'sequence' => 1,
+    ]);
+
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'sequence' => 1,
+    ]);
+
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'sequence' => 2,
+    ]);
+
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'sequence' => 3,
+    ]);
+
+    $firstResponse = $this
+        ->actingAs($user)
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}/events?per_page=2"
+        );
+
+    $firstResponse
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.sequence', 1)
+        ->assertJsonPath('data.1.sequence', 2)
+        ->assertJsonPath('meta.per_page', 2);
+
+    $cursor = $firstResponse->json('meta.next_cursor');
+
+    expect($cursor)->not->toBeNull();
+
+    $secondResponse = $this
+        ->actingAs($user)
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}/events"
+            .'?per_page=2&cursor='.urlencode($cursor)
+        );
+
+    $secondResponse
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.sequence', 3);
+});
+
+test('deployment events do not expose internal id', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+    ]);
+
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'sequence' => 1,
+    ]);
+
+    $response = $this
+        ->actingAs($user)
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}/events"
+        );
+
+    $response
+        ->assertOk()
+        ->assertJsonMissingPath('data.0.id');
+});

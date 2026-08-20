@@ -19,7 +19,6 @@ final class DeploymentEventResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
             'sequence' => $this->sequence,
             'level' => $this->level,
             'type' => $this->type,

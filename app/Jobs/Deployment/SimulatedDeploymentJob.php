@@ -22,14 +22,9 @@ final class SimulatedDeploymentJob implements ShouldBeUnique, ShouldQueue
         private readonly Deployment $deployment,
     ) {}
 
-    protected function shouldSimulateFail(): bool
+    private function shouldSimulateFail(): bool
     {
-        $failureRate = (int) config(
-            'deployment.simulation_failure_rate',
-            10,
-        );
-
-        return random_int(1, 100) <= $failureRate;
+        return hexdec(substr($this->deployment->commit_sha, -2)) % 10 === 0;
     }
 
     public function uniqueId(): string

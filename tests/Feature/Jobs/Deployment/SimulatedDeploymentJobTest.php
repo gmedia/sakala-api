@@ -12,14 +12,13 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 uses(RefreshDatabase::class);
 
 test('simulated deployment job completes deployment successfully', function (): void {
-    config()->set('deployment.simulation_failure_rate', 0);
-
     $project = Project::factory()->create();
 
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'status' => DeploymentStatus::Queued,
         'sequence' => 1,
+        'commit_sha' => 'abc123456789',
     ]);
 
     $job = new SimulatedDeploymentJob($deployment);
@@ -46,15 +45,14 @@ test('simulated deployment job completes deployment successfully', function (): 
         ->toBe(7);
 });
 
-test('simulated deployment job fails deployment when failure is forced', function (): void {
-    config()->set('deployment.simulation_failure_rate', 100);
-
+test('simulated deployment job fails deployment deterministically', function (): void {
     $project = Project::factory()->create();
 
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'status' => DeploymentStatus::Queued,
         'sequence' => 1,
+        'commit_sha' => 'abc1234567a0',
     ]);
 
     $job = new SimulatedDeploymentJob($deployment);

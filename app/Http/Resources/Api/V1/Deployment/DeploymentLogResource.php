@@ -19,7 +19,6 @@ final class DeploymentLogResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
             'sequence' => $this->sequence,
             'stream' => $this->stream,
             'message' => $this->message,

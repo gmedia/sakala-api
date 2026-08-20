@@ -470,3 +470,64 @@ test('creating deployment dispatches simulated deployment job', function (): voi
         },
     );
 });
+
+test('same idempotency key returns existing deployment without creating another deployment', function (): void {
+    Queue::fake();
+
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+        'branch' => 'main',
+    ]);
+
+    Http::fakeSequence()
+        ->push([
+            [
+                'sha' => 'abc123456789',
+                'commit' => [
+                    'message' => 'feat: latest deployment',
+                ],
+            ],
+        ], 200)
+        ->push([
+            'message' => 'Internal Server Error',
+        ], 500);
+
+    $firstResponse = $this
+        ->actingAs($user, 'web')
+        ->withHeader('Idempotency-Key', 'deployment-idempotency-test')
+        ->postJson(
+            "/api/v1/app/projects/{$project->id}/deployments",
+            [
+                'branch' => 'main',
+            ],
+        );
+
+    $firstResponse->assertCreated();
+
+    $firstDeploymentId = $firstResponse->json('data.id');
+
+    $secondResponse = $this
+        ->actingAs($user, 'web')
+        ->withHeader('Idempotency-Key', 'deployment-idempotency-test')
+        ->postJson(
+            "/api/v1/app/projects/{$project->id}/deployments",
+            [
+                'branch' => 'main',
+            ],
+        );
+
+    $secondResponse
+        ->assertCreated()
+        ->assertJsonPath('data.id', $firstDeploymentId);
+
+    $this->assertDatabaseCount('deployments', 1);
+
+    Queue::assertPushed(
+        SimulatedDeploymentJob::class,
+        1,
+    );
+
+    Http::assertSentCount(1);
+});

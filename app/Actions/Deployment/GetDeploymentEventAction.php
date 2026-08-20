@@ -7,24 +7,24 @@ namespace App\Actions\Deployment;
 use App\Data\Deployment\DeploymentPaginateData;
 use App\Models\Deployment;
 use App\Models\DeploymentEvent;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Contracts\Pagination\CursorPaginator;
 
 final class GetDeploymentEventAction
 {
     /**
-     * @return LengthAwarePaginator<int, DeploymentEvent>
+     * @return CursorPaginator<int, DeploymentEvent>
      */
     public function handle(
         Deployment $deployment,
         DeploymentPaginateData $data
-    ): LengthAwarePaginator {
+    ): CursorPaginator {
         return DeploymentEvent::query()
             ->whereBelongsTo($deployment)
             ->orderBy('sequence')
             ->orderBy('id')
-            ->paginate(
+            ->cursorPaginate(
                 perPage: $data->perPage,
-                page: $data->page
+                cursor: $data->cursor
             )
             ->withQueryString();
     }

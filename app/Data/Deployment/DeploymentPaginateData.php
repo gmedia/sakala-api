@@ -7,7 +7,7 @@ namespace App\Data\Deployment;
 final readonly class DeploymentPaginateData
 {
     public function __construct(
-        public int $page,
         public int $perPage,
+        public ?string $cursor = null,
     ) {}
 }

@@ -18,7 +18,7 @@ final class PaginateDeploymentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'page' => ['sometimes', 'integer', 'min:1'],
+            'cursor' => ['sometimes', 'string'],
             'per_page' => ['sometimes', 'integer', 'between:1,10'],
         ];
     }
@@ -26,8 +26,8 @@ final class PaginateDeploymentRequest extends FormRequest
     public function toData(): DeploymentPaginateData
     {
         return new DeploymentPaginateData(
-            page: $this->integer('page', 1),
             perPage: $this->integer('per_page', 6),
+            cursor: $this->input('cursor'),
         );
     }
 }

@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 use App\Actions\Deployment\TransitionDeploymentAction;
+use App\Enums\DeploymentStatus;
+use App\Enums\ProjectStatus;
+use App\Enums\RuntimeStatus;
 use App\Models\Deployment;
 use App\Models\Project;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use InvalidArgumentException;
 
 uses(RefreshDatabase::class);
 
@@ -27,9 +29,14 @@ test('queued deployment can transition to cloning', function (): void {
     expect($result->status)
         ->toBe(DeploymentStatus::Cloning);
 
-    expect($result->started_at)->not->toBeNull();
-    expect($result->events()->first())->not->toBeNull();
-    expect($result->logs()->first())->not->toBeNull();
+    expect($result->started_at)
+        ->not->toBeNull();
+
+    expect($result->events()->first())
+        ->not->toBeNull();
+
+    expect($result->logs()->first())
+        ->not->toBeNull();
 });
 
 test('invalid deployment transition is rejected', function (): void {
@@ -67,7 +74,8 @@ test('failed transition is allowed from a non terminal state', function (): void
     expect($result->status)
         ->toBe(DeploymentStatus::Failed);
 
-    expect($result->finished_at)->not->toBeNull();
+    expect($result->finished_at)
+        ->not->toBeNull();
 });
 
 test('succeeded transition updates project runtime', function (): void {
