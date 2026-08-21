@@ -149,3 +149,28 @@ test('health checking deployment can be cancelled', function (): void {
     expect($result->finished_at)
         ->not->toBeNull();
 });
+
+test('broadcast dispatch does not prevent deployment persistence', function (): void {
+    $deployment = Deployment::factory()->create([
+        'status' => DeploymentStatus::Queued,
+    ]);
+
+    $result = app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Cloning,
+    );
+
+    $result->refresh();
+
+    expect($result->status)
+        ->toBe(DeploymentStatus::Cloning);
+
+    expect($result->started_at)
+        ->not->toBeNull();
+
+    expect($result->events()->count())
+        ->toBe(1);
+
+    expect($result->logs()->count())
+        ->toBe(1);
+});

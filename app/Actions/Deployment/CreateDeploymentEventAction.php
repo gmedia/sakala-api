@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Deployment;
 
 use App\Enums\DeploymentEventLevel;
+use App\Events\Deployment\DeploymentEventCreated;
 use App\Models\Deployment;
 
 final class CreateDeploymentEventAction
@@ -19,7 +20,7 @@ final class CreateDeploymentEventAction
     ): void {
         $sequence = (int) $deployment->events()->max('sequence') + 1;
 
-        $deployment->events()->create([
+        $deploymentEvent = $deployment->events()->create([
             'sequence' => $sequence,
             'level' => $level,
             'type' => $type,
@@ -27,5 +28,7 @@ final class CreateDeploymentEventAction
             'metadata' => $metadata,
             'occurred_at' => now(),
         ]);
+
+        DeploymentEventCreated::dispatch($deploymentEvent);
     }
 }

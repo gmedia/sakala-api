@@ -9,6 +9,7 @@ use App\Enums\DeploymentStatus;
 use App\Enums\LogStream;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Events\Deployment\DeploymentUpdated;
 use App\Models\Deployment;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -135,6 +136,8 @@ final class TransitionDeploymentAction
             }
 
             $deployment->update($attributes);
+
+            DeploymentUpdated::dispatch($deployment);
 
             $message = $this->messageFor($nextStatus);
 

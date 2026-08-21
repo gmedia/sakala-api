@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
+ * @property DeploymentEventLevel $level
  * @property Carbon|null $occurred_at
  */
 #[Fillable([
