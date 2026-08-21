@@ -20,13 +20,25 @@ test('deployment updated broadcasts expected payload', function (): void {
         'sequence' => 7,
     ]);
 
-    $event = new DeploymentUpdated($deployment);
+    $event = new DeploymentUpdated(
+        [
+            'deployment_id' => $deployment->id,
+            'project_id' => $deployment->project_id,
+            'sequence' => 8,
+            'status' => 'succeeded',
+            'trigger' => 'manual',
+            'branch' => 'main',
+            'commit_sha' => 'abc123',
+            'commit_message' => 'fix: deploy application',
+        ],
+        $deployment->id,
+    );
 
     expect($event->broadcastWith())
         ->toMatchArray([
             'deployment_id' => $deployment->id,
             'project_id' => $deployment->project_id,
-            'sequence' => 7,
+            'sequence' => 8,
             'status' => 'succeeded',
             'trigger' => 'manual',
             'branch' => 'main',

@@ -10,6 +10,10 @@ use App\Models\Deployment;
 
 final class CreateDeploymentLogAction
 {
+    public function __construct(
+        private readonly AllocateDeploymentRealtimeSequenceAction $allocateDeploymentRealtimeSequenceAction
+    ) {}
+
     public function handle(
         Deployment $deployment,
         LogStream $logStream,
@@ -24,6 +28,11 @@ final class CreateDeploymentLogAction
             'recorded_at' => now(),
         ]);
 
-        DeploymentLogCreated::dispatch($deploymentLog);
+        $realtimeSequence = $this->allocateDeploymentRealtimeSequenceAction->handle($deployment);
+
+        DeploymentLogCreated::dispatch(
+            deploymentLog: $deploymentLog,
+            realtimeSequence: $realtimeSequence
+        );
     }
 }

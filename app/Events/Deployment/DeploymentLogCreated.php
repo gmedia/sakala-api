@@ -18,7 +18,8 @@ final class DeploymentLogCreated implements ShouldBroadcast
     public bool $afterCommit = true;
 
     public function __construct(
-        private readonly DeploymentLog $deploymentLog
+        private readonly DeploymentLog $deploymentLog,
+        private readonly int $realtimeSequence
     ) {}
 
     public function broadcastOn(): array
@@ -38,7 +39,7 @@ final class DeploymentLogCreated implements ShouldBroadcast
     {
         return [
             'deployment_id' => $this->deploymentLog->deployment_id,
-            'sequence' => $this->deploymentLog->sequence,
+            'sequence' => $this->realtimeSequence,
             'stream' => $this->deploymentLog->stream->value,
             'message' => $this->deploymentLog->message,
             'recorded_at' => $this->deploymentLog->recorded_at?->toISOString(),

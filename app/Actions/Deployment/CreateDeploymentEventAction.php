@@ -10,6 +10,10 @@ use App\Models\Deployment;
 
 final class CreateDeploymentEventAction
 {
+    public function __construct(
+        private readonly AllocateDeploymentRealtimeSequenceAction $allocateDeploymentRealtimeSequenceAction
+    ) {}
+
     /** @param array<string, mixed>|null $metadata */
     public function handle(
         Deployment $deployment,
@@ -29,6 +33,11 @@ final class CreateDeploymentEventAction
             'occurred_at' => now(),
         ]);
 
-        DeploymentEventCreated::dispatch($deploymentEvent);
+        $realtimeSequence = $this->allocateDeploymentRealtimeSequenceAction->handle($deployment);
+
+        DeploymentEventCreated::dispatch(
+            deploymentEvent: $deploymentEvent,
+            realtimeSequence: $realtimeSequence
+        );
     }
 }

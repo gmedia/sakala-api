@@ -68,16 +68,30 @@ test('deployment events broadcast after transaction commit', function (): void {
     $deployment = Deployment::factory()->create();
 
     $events = [
-        new DeploymentUpdated($deployment),
+        new DeploymentUpdated(
+            [
+                'deployment_id' => $deployment->id,
+                'project_id' => $deployment->project_id,
+                'sequence' => 1,
+                'status' => $deployment->status->value,
+                'trigger' => $deployment->trigger->value,
+                'branch' => $deployment->branch,
+                'commit_sha' => $deployment->commit_sha,
+                'commit_message' => $deployment->commit_message,
+            ],
+            $deployment->id,
+        ),
         new DeploymentEventCreated(
             DeploymentEvent::factory()->create([
                 'deployment_id' => $deployment->id,
-            ])
+            ]),
+            2,
         ),
         new DeploymentLogCreated(
             DeploymentLog::factory()->create([
                 'deployment_id' => $deployment->id,
-            ])
+            ]),
+            3,
         ),
     ];
 
@@ -89,7 +103,19 @@ test('deployment events broadcast after transaction commit', function (): void {
 test('deployment updated broadcasts on deployment private channel', function (): void {
     $deployment = Deployment::factory()->create();
 
-    $event = new DeploymentUpdated($deployment);
+    $event = new DeploymentUpdated(
+        [
+            'deployment_id' => $deployment->id,
+            'project_id' => $deployment->project_id,
+            'sequence' => 1,
+            'status' => $deployment->status->value,
+            'trigger' => $deployment->trigger->value,
+            'branch' => $deployment->branch,
+            'commit_sha' => $deployment->commit_sha,
+            'commit_message' => $deployment->commit_message,
+        ],
+        $deployment->id,
+    );
 
     expect($event->broadcastOn()[0]->name)
         ->toBe("private-deployment.{$deployment->id}");
@@ -102,7 +128,10 @@ test('deployment event created broadcasts on deployment private channel', functi
         'deployment_id' => $deployment->id,
     ]);
 
-    $event = new DeploymentEventCreated($deploymentEvent);
+    $event = new DeploymentEventCreated(
+        $deploymentEvent,
+        1,
+    );
 
     expect($event->broadcastOn()[0]->name)
         ->toBe("private-deployment.{$deployment->id}");
@@ -115,7 +144,10 @@ test('deployment log created broadcasts on deployment private channel', function
         'deployment_id' => $deployment->id,
     ]);
 
-    $event = new DeploymentLogCreated($deploymentLog);
+    $event = new DeploymentLogCreated(
+        $deploymentLog,
+        1,
+    );
 
     expect($event->broadcastOn()[0]->name)
         ->toBe("private-deployment.{$deployment->id}");

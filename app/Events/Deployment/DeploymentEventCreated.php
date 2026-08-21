@@ -18,7 +18,8 @@ final class DeploymentEventCreated implements ShouldBroadcast
     public bool $afterCommit = true;
 
     public function __construct(
-        private readonly DeploymentEvent $deploymentEvent
+        private readonly DeploymentEvent $deploymentEvent,
+        private readonly int $realtimeSequence
     ) {}
 
     public function broadcastOn(): array
@@ -38,7 +39,7 @@ final class DeploymentEventCreated implements ShouldBroadcast
     {
         return [
             'deployment_id' => $this->deploymentEvent->deployment_id,
-            'sequence' => $this->deploymentEvent->sequence,
+            'sequence' => $this->realtimeSequence,
             'level' => $this->deploymentEvent->level->value,
             'type' => $this->deploymentEvent->type,
             'message' => $this->deploymentEvent->message,

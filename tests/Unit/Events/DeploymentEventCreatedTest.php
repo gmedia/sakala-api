@@ -11,7 +11,10 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 uses(RefreshDatabase::class);
 
 test('deployment event created broadcasts expected payload', function (): void {
-    $deployment = Deployment::factory()->create();
+    $deployment = Deployment::factory()->create([
+        'sequence' => 15,
+        'realtime_sequence' => 7,
+    ]);
 
     $deploymentEvent = DeploymentEvent::factory()->create([
         'deployment_id' => $deployment->id,
@@ -21,14 +24,20 @@ test('deployment event created broadcasts expected payload', function (): void {
         'message' => 'Building the application.',
     ]);
 
-    $event = new DeploymentEventCreated($deploymentEvent);
+    $event = new DeploymentEventCreated(
+        $deploymentEvent,
+        8,
+    );
 
     expect($event->broadcastWith())
         ->toMatchArray([
             'deployment_id' => $deployment->id,
-            'sequence' => 3,
+            'sequence' => 8,
             'level' => 'info',
             'type' => 'deployment.building',
             'message' => 'Building the application.',
-        ]);
+        ])
+        ->and($event->broadcastWith()['sequence'])
+        ->not->toBe($deploymentEvent->sequence)
+        ->not->toBe($deployment->sequence);
 });
