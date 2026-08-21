@@ -47,6 +47,11 @@ test('authenticated user can view pilot limits and current quota usage', functio
                     'start_timeout_seconds',
                     'command_timeout_seconds',
                 ],
+                'log_bounds' => [
+                    'max_line_length',
+                    'max_batch_lines',
+                    'max_total_bytes',
+                ],
             ],
         ])
         ->assertJsonPath('data.quotas.current_projects_count', 1)

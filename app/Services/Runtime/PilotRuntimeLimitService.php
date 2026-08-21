@@ -94,7 +94,7 @@ class PilotRuntimeLimitService
 
         $maxProjects = (int) config('sakala.pilot_limits.max_projects_per_user', 3);
 
-        // Lock user record if inside an active transaction to ensure atomicity
+        // Assumes caller holds a lock on the user record (e.g. User::lockForUpdate()) within an active transaction for atomicity
         $currentCount = Project::where('user_id', $user->id)->count();
 
         if ($currentCount >= $maxProjects) {

@@ -32,6 +32,9 @@ beforeEach(function () {
     ]);
 });
 
+use App\Enums\AgentCommandType;
+use App\Models\AgentCommand;
+
 test('create deployment action resolves effective runtime limits and persists snapshot on deployment', function () {
     Queue::fake();
 
@@ -52,11 +55,46 @@ test('create deployment action resolves effective runtime limits and persists sn
 
     expect($deployment->requested_resources)->toBeNull()
         ->and($deployment->effective_resources)->toBe([
-            'memory_mb' => 256,
-            'cpu_millis' => 500,
-            'pids_limit' => 128,
+            'resources' => [
+                'memory_mb' => 256,
+                'cpu_millis' => 500,
+                'pids_limit' => 128,
+            ],
+            'timeouts' => [
+                'build_timeout_seconds' => 600,
+                'start_timeout_seconds' => 120,
+                'command_timeout_seconds' => 900,
+            ],
+            'log_bounds' => [
+                'max_line_length' => 4096,
+                'max_batch_lines' => 500,
+                'max_total_bytes' => 10485760,
+            ],
         ])
         ->and($deployment->status)->toBe(DeploymentStatus::Queued);
+
+    $this->assertDatabaseHas('agent_commands', [
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'type' => AgentCommandType::DeployProject->value,
+    ]);
+
+    $command = AgentCommand::where('deployment_id', $deployment->id)->first();
+    expect($command->payload['resources'])->toBe([
+        'memory_mb' => 256,
+        'cpu_millis' => 500,
+        'pids_limit' => 128,
+    ])
+        ->and($command->payload['timeouts'])->toBe([
+            'build_timeout_seconds' => 600,
+            'start_timeout_seconds' => 120,
+            'command_timeout_seconds' => 900,
+        ])
+        ->and($command->payload['log_bounds'])->toBe([
+            'max_line_length' => 4096,
+            'max_batch_lines' => 500,
+            'max_total_bytes' => 10485760,
+        ]);
 
     Queue::assertPushed(SimulatedDeploymentJob::class);
 });
@@ -88,7 +126,7 @@ test('create deployment action stores custom requested resources when within pil
         'memory_mb' => 512,
         'cpu_millis' => 750,
         'pids_limit' => 200,
-    ])->and($deployment->effective_resources)->toBe([
+    ])->and($deployment->effective_resources['resources'])->toBe([
         'memory_mb' => 512,
         'cpu_millis' => 750,
         'pids_limit' => 200,
@@ -213,9 +251,11 @@ test('api endpoint stores requested resources and returns effective resources in
         ->assertJsonPath('data.requested_resources.memory_mb', 512)
         ->assertJsonPath('data.requested_resources.cpu_millis', 750)
         ->assertJsonPath('data.requested_resources.pids_limit', 200)
-        ->assertJsonPath('data.effective_resources.memory_mb', 512)
-        ->assertJsonPath('data.effective_resources.cpu_millis', 750)
-        ->assertJsonPath('data.effective_resources.pids_limit', 200);
+        ->assertJsonPath('data.effective_resources.resources.memory_mb', 512)
+        ->assertJsonPath('data.effective_resources.resources.cpu_millis', 750)
+        ->assertJsonPath('data.effective_resources.resources.pids_limit', 200)
+        ->assertJsonPath('data.effective_resources.timeouts.build_timeout_seconds', 600)
+        ->assertJsonPath('data.effective_resources.log_bounds.max_line_length', 4096);
 });
 
 test('api endpoint returns 422 with structured code when active deployment limit is exceeded', function () {

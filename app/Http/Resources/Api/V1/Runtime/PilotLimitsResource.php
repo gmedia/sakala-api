@@ -45,6 +45,11 @@ final class PilotLimitsResource extends JsonResource
                 'start_timeout_seconds' => (int) config('sakala.pilot_limits.timeouts.start_timeout_seconds', 120),
                 'command_timeout_seconds' => (int) config('sakala.pilot_limits.timeouts.command_timeout_seconds', 900),
             ],
+            'log_bounds' => [
+                'max_line_length' => (int) config('sakala.pilot_limits.log_bounds.max_line_length', 4096),
+                'max_batch_lines' => (int) config('sakala.pilot_limits.log_bounds.max_batch_lines', 500),
+                'max_total_bytes' => (int) config('sakala.pilot_limits.log_bounds.max_total_bytes', 10 * 1024 * 1024),
+            ],
         ];
     }
 }

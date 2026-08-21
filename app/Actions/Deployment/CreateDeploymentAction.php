@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace App\Actions\Deployment;
 
 use App\Data\Deployment\CreateDeploymentData;
+use App\Enums\AgentCommandStatus;
+use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
+use App\Models\AgentCommand;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 final class CreateDeploymentAction
@@ -76,6 +80,12 @@ final class CreateDeploymentAction
         $created = false;
 
         $deployment = DB::transaction(function () use ($project, $user, $data, $commit, &$created) {
+            // Lock user record to ensure atomic active deployment quota across different projects
+            User::query()
+                ->whereKey($user->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
             /** @var Project $lockedProject */
             $lockedProject = Project::query()
                 ->whereKey($project->id)
@@ -92,7 +102,7 @@ final class CreateDeploymentAction
                 return $existing;
             }
 
-            // Enforce active deployment limits under project lock
+            // Enforce active deployment limits under user and project lock
             $this->runtimeLimitService->checkActiveDeploymentLimit($user, $lockedProject);
 
             // Resolve effective runtime limits
@@ -102,7 +112,7 @@ final class CreateDeploymentAction
 
             $created = true;
 
-            return Deployment::create([
+            $deployment = Deployment::create([
                 'project_id' => $lockedProject->id,
                 'requested_by' => $user->id,
                 'idempotency_key' => $data->idempotencyKey,
@@ -113,8 +123,34 @@ final class CreateDeploymentAction
                 'commit_sha' => $commit['sha'],
                 'commit_message' => $commit['message'],
                 'requested_resources' => $data->requested_resources?->toArray(),
-                'effective_resources' => $effectiveLimits->toResourcesArray(),
+                'effective_resources' => $effectiveLimits->toArray(),
             ]);
+
+            // Create pending DeployProject agent command with explicit limits contract
+            $commandPayload = [
+                'repository_url' => $lockedProject->repository_url,
+                'commit_sha' => $deployment->commit_sha,
+                'domain' => $lockedProject->default_domain,
+                'container_port' => $lockedProject->detected_port ?? 3000,
+                'builder' => 'auto',
+                'environment' => $lockedProject->environmentVariables->pluck('value', 'key')->all(),
+                'resources' => $effectiveLimits->toResourcesArray(),
+                'timeouts' => $effectiveLimits->timeouts->toArray(),
+                'log_bounds' => $effectiveLimits->log_bounds->toArray(),
+            ];
+
+            AgentCommand::create([
+                'project_id' => $lockedProject->id,
+                'deployment_id' => $deployment->id,
+                'type' => AgentCommandType::DeployProject,
+                'status' => AgentCommandStatus::Pending,
+                'payload' => $commandPayload,
+                'idempotency_key' => (string) Str::uuid(),
+                'available_at' => now(),
+                'expires_at' => now()->addSeconds($effectiveLimits->timeouts->command_timeout_seconds),
+            ]);
+
+            return $deployment;
         });
 
         if ($created) {
