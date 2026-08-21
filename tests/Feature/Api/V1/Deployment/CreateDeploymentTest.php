@@ -112,6 +112,8 @@ test('deployment sequence increments for the same project', function (): void {
         ->assertCreated()
         ->assertJsonPath('data.sequence', 1);
 
+    $project->deployments()->firstOrFail()->update(['status' => DeploymentStatus::Succeeded]);
+
     $this
         ->actingAs($user, 'web')
         ->postJson(
@@ -165,6 +167,8 @@ test('deployment sequence is independent between projects', function (): void {
         ->assertCreated()
         ->assertJsonPath('data.sequence', 1);
 
+    $projectA->deployments()->firstOrFail()->update(['status' => DeploymentStatus::Succeeded]);
+
     $this
         ->actingAs($user, 'web')
         ->postJson(
@@ -173,6 +177,8 @@ test('deployment sequence is independent between projects', function (): void {
         )
         ->assertCreated()
         ->assertJsonPath('data.sequence', 2);
+
+    $projectA->deployments()->where('sequence', 2)->firstOrFail()->update(['status' => DeploymentStatus::Succeeded]);
 
     $this
         ->actingAs($user, 'web')

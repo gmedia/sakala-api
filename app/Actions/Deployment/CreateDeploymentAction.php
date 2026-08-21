@@ -6,7 +6,6 @@ namespace App\Actions\Deployment;
 
 use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\DeploymentStatus;
-use App\Enums\DeploymentTrigger;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\Deployment;
 use App\Models\Project;
