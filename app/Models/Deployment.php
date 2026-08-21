@@ -42,6 +42,7 @@ use Illuminate\Support\Carbon;
     'idempotency_key',
     'sequence',
     'status',
+    'realtime_sequence',
     'trigger',
     'branch',
     'commit_sha',
@@ -100,6 +101,7 @@ class Deployment extends Model
         return [
             'sequence' => 'integer',
             'status' => DeploymentStatus::class,
+            'realtime_sequence' => 'integer',
             'trigger' => DeploymentTrigger::class,
             'started_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',

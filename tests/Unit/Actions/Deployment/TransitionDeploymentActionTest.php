@@ -8,7 +8,10 @@ use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Models\Deployment;
 use App\Models\Project;
+use Illuminate\Broadcasting\BroadcastEvent;
+use Illuminate\Contracts\Broadcasting\Factory as BroadcastingFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
 
@@ -148,4 +151,55 @@ test('health checking deployment can be cancelled', function (): void {
 
     expect($result->finished_at)
         ->not->toBeNull();
+});
+
+test('broadcast failure does not prevent deployment persistence', function (): void {
+    Queue::fake();
+
+    $deployment = Deployment::factory()->create([
+        'status' => DeploymentStatus::Queued,
+    ]);
+
+    $result = app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Cloning,
+    );
+
+    $result->refresh();
+
+    expect($result->status)
+        ->toBe(DeploymentStatus::Cloning);
+
+    expect($result->started_at)
+        ->not->toBeNull();
+
+    expect($result->events()->count())
+        ->toBe(1);
+
+    expect($result->logs()->count())
+        ->toBe(1);
+
+    Queue::assertPushed(BroadcastEvent::class);
+
+    $broadcastJob = Queue::pushed(BroadcastEvent::class)->first();
+
+    $manager = Mockery::mock(BroadcastingFactory::class);
+
+    $manager->shouldReceive('connection')
+        ->once()
+        ->andThrow(new RuntimeException('Broadcasting failed.'));
+
+    expect(fn () => $broadcastJob->handle($manager))
+        ->toThrow(RuntimeException::class, 'Broadcasting failed.');
+
+    $result->refresh();
+
+    expect($result->status)
+        ->toBe(DeploymentStatus::Cloning);
+
+    expect($result->events()->count())
+        ->toBe(1);
+
+    expect($result->logs()->count())
+        ->toBe(1);
 });

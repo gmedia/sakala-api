@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace App\Actions\Deployment;
 
 use App\Enums\DeploymentEventLevel;
+use App\Events\Deployment\DeploymentEventCreated;
 use App\Models\Deployment;
 
 final class CreateDeploymentEventAction
 {
+    public function __construct(
+        private readonly AllocateDeploymentRealtimeSequenceAction $allocateDeploymentRealtimeSequenceAction
+    ) {}
+
     /** @param array<string, mixed>|null $metadata */
     public function handle(
         Deployment $deployment,
@@ -19,7 +24,7 @@ final class CreateDeploymentEventAction
     ): void {
         $sequence = (int) $deployment->events()->max('sequence') + 1;
 
-        $deployment->events()->create([
+        $deploymentEvent = $deployment->events()->create([
             'sequence' => $sequence,
             'level' => $level,
             'type' => $type,
@@ -27,5 +32,12 @@ final class CreateDeploymentEventAction
             'metadata' => $metadata,
             'occurred_at' => now(),
         ]);
+
+        $realtimeSequence = $this->allocateDeploymentRealtimeSequenceAction->handle($deployment);
+
+        DeploymentEventCreated::dispatch(
+            deploymentEvent: $deploymentEvent,
+            realtimeSequence: $realtimeSequence
+        );
     }
 }

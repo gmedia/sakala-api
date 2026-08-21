@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
+ * @property LogStream $stream
  * @property Carbon|null $recorded_at
  */
 #[Fillable([
