@@ -11,10 +11,12 @@ use App\Enums\DeploymentStatus;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\AgentCommand;
 use App\Models\Deployment;
+use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\Runtime\PilotRuntimeLimitService;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -133,7 +135,11 @@ final class CreateDeploymentAction
                 'domain' => $lockedProject->default_domain,
                 'container_port' => $lockedProject->detected_port ?? 3000,
                 'builder' => 'auto',
-                'environment' => $lockedProject->environmentVariables->pluck('value', 'key')->all(),
+                'environment' => $lockedProject->environmentVariables
+                    ->mapWithKeys(fn (EnvironmentVariable $env): array => [
+                        $env->key => (string) ($env->getRawOriginal('encrypted_value') ?? Crypt::encryptString((string) $env->encrypted_value)),
+                    ])
+                    ->all(),
                 'resources' => $effectiveLimits->toResourcesArray(),
                 'timeouts' => $effectiveLimits->timeouts->toArray(),
                 'log_bounds' => $effectiveLimits->log_bounds->toArray(),

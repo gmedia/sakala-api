@@ -34,6 +34,9 @@ beforeEach(function () {
 
 use App\Enums\AgentCommandType;
 use App\Models\AgentCommand;
+use App\Models\EnvironmentVariable;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 
 test('create deployment action resolves effective runtime limits and persists snapshot on deployment', function () {
     Queue::fake();
@@ -200,6 +203,99 @@ test('create deployment action prevents exceeding active deployments per user ac
         user: $user,
         data: new CreateDeploymentData(branch: 'main'),
     ))->toThrow(ActiveDeploymentLimitExceededException::class);
+});
+
+test('create deployment action includes encrypted environment variables in agent command payload without leaking plaintext at rest', function () {
+    Queue::fake();
+
+    $user = User::factory()->create(['role' => UserRole::User]);
+    $project = Project::factory()->for($user)->create([
+        'repository_url' => 'https://github.com/example/secure-app',
+        'branch' => 'main',
+    ]);
+
+    EnvironmentVariable::create([
+        'project_id' => $project->id,
+        'key' => 'APP_ENV',
+        'encrypted_value' => 'production',
+        'is_secret' => false,
+    ]);
+
+    EnvironmentVariable::create([
+        'project_id' => $project->id,
+        'key' => 'DEMO_SECRET_KEY',
+        'encrypted_value' => 'my-super-secret-token-999',
+        'is_secret' => true,
+    ]);
+
+    $action = app(CreateDeploymentAction::class);
+
+    $deployment = $action->handle(
+        project: $project,
+        user: $user,
+        data: new CreateDeploymentData(branch: 'main'),
+    );
+
+    $command = AgentCommand::where('deployment_id', $deployment->id)->firstOrFail();
+
+    // Verify command payload contains environment keys
+    expect($command->payload)->toHaveKey('environment')
+        ->and($command->payload['environment'])->toHaveKeys(['APP_ENV', 'DEMO_SECRET_KEY']);
+
+    // Ensure raw database column does NOT contain plaintext secret value
+    $rawPayloadJson = DB::table('agent_commands')->where('id', $command->id)->value('payload');
+    expect($rawPayloadJson)->not->toContain('my-super-secret-token-999');
+
+    // Ensure stored values are valid ciphertexts that can be safely decrypted
+    $decryptedSecret = Crypt::decryptString($command->payload['environment']['DEMO_SECRET_KEY']);
+    $decryptedEnv = Crypt::decryptString($command->payload['environment']['APP_ENV']);
+
+    expect($decryptedSecret)->toBe('my-super-secret-token-999')
+        ->and($decryptedEnv)->toBe('production');
+});
+
+test('create deployment action atomically prevents concurrent active deployment limit races across multiple projects for same user', function () {
+    Queue::fake();
+
+    config([
+        'sakala.pilot_limits.max_active_deployments_per_user' => 1,
+        'sakala.pilot_limits.max_active_deployments_per_project' => 1,
+    ]);
+
+    $user = User::factory()->create(['role' => UserRole::User]);
+    $projectA = Project::factory()->for($user)->create(['branch' => 'main']);
+    $projectB = Project::factory()->for($user)->create(['branch' => 'main']);
+
+    $action = app(CreateDeploymentAction::class);
+
+    // Simulate concurrent requests on project A and project B for the same user
+    // First deployment succeeds and acquires active status (Queued)
+    $deploymentA = $action->handle(
+        project: $projectA,
+        user: $user,
+        data: new CreateDeploymentData(branch: 'main'),
+    );
+
+    expect($deploymentA->status->isActive())->toBeTrue();
+
+    // Second deployment on a different project (Project B) is serialized under the user lock
+    // and must be blocked because the user has already reached max_active_deployments_per_user (1)
+    expect(fn () => $action->handle(
+        project: $projectB,
+        user: $user,
+        data: new CreateDeploymentData(branch: 'main'),
+    ))->toThrow(function (ActiveDeploymentLimitExceededException $e) {
+        expect($e->scope)->toBe('user')
+            ->and($e->limit)->toBe(1)
+            ->and($e->current)->toBe(1);
+    });
+
+    // Total active deployments remains strictly 1
+    $activeCount = Deployment::whereHas('project', fn ($q) => $q->where('user_id', $user->id))
+        ->active()
+        ->count();
+
+    expect($activeCount)->toBe(1);
 });
 
 test('terminal deployments do not count against active deployment limit', function () {

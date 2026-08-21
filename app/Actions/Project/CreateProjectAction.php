@@ -22,7 +22,7 @@ final class CreateProjectAction
     public function handle(User $user, CreateProjectData $data): Project
     {
         return DB::transaction(function () use ($user, $data): Project {
-            User::where('id', $user->id)->lockForUpdate()->first();
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
             $this->runtimeLimitService->checkProjectCreationLimit($user);
 
