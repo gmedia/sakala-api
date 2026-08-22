@@ -6,8 +6,10 @@ namespace App\Models;
 
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use Database\Factories\AgentCommandFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -33,7 +35,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class AgentCommand extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<AgentCommandFactory> */
+    use HasFactory, HasUuids;
 
     /** @return BelongsTo<Project, $this> */
     public function project(): BelongsTo

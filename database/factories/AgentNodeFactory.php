@@ -19,6 +19,7 @@ class AgentNodeFactory extends Factory
     public function definition(): array
     {
         return [
+            'agent_id' => 'agent-'.$this->faker->unique()->uuid(),
             'name' => $this->faker->unique()->word(),
             'token_hash' => bcrypt('test-token-'.$this->faker->uuid),
             'token_prefix' => $this->faker->regexify('[A-Za-z0-9]{10}'),
