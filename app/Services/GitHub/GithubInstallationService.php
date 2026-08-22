@@ -11,7 +11,6 @@ use App\Models\OAuthAccount;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\Response;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Http;
@@ -20,7 +19,6 @@ final class GithubInstallationService
 {
     public function __construct(
         private readonly GithubAppOAuthService $oauth,
-        private readonly GithubInstallationTokenService $tokens,
         private readonly GithubRepositoryMapper $repositoryMapper,
     ) {}
 
@@ -38,10 +36,9 @@ final class GithubInstallationService
             throw new AuthorizationException('GitHub installation is not available to this user.');
         }
 
-        return GithubInstallation::query()->updateOrCreate(
+        $githubInstallation = GithubInstallation::query()->updateOrCreate(
             ['github_installation_id' => $githubInstallationId],
             [
-                'user_id' => $user->id,
                 'account_id' => (int) $installation['account']['id'],
                 'account_login' => (string) $installation['account']['login'],
                 'account_type' => (string) $installation['account']['type'],
@@ -52,13 +49,20 @@ final class GithubInstallationService
                 'removed_at' => null,
             ],
         );
+
+        $githubInstallation->users()->syncWithoutDetaching([
+            $user->id => ['last_verified_at' => now()],
+        ]);
+
+        return $githubInstallation;
     }
 
     /** @return LengthAwarePaginator<int, GithubRepositoryData> */
-    public function repositories(GithubInstallation $installation, int $page, int $perPage): LengthAwarePaginator
+    public function repositories(User $user, GithubInstallation $installation, int $page, int $perPage): LengthAwarePaginator
     {
-        $response = $this->installationRequest($installation)->get(
-            "https://api.github.com/installation/repositories?page={$page}&per_page={$perPage}",
+        $this->ensureActive($installation);
+        $response = $this->userRequest($user)->get(
+            "https://api.github.com/user/installations/{$installation->github_installation_id}/repositories?page={$page}&per_page={$perPage}",
         )->throw();
         $payload = $response->json();
         if (! is_array($payload)) {
@@ -79,19 +83,13 @@ final class GithubInstallationService
     }
 
     /** @return list<string> */
-    public function branches(GithubInstallation $installation, int $repositoryId): array
+    public function branches(User $user, GithubInstallation $installation, int $repositoryId): array
     {
-        $repositoryResponse = $this->installationRequest($installation)
-            ->get("https://api.github.com/repositories/{$repositoryId}");
-        $this->throwIfRepositoryAccessRemoved($repositoryResponse);
-        $repository = $repositoryResponse->throw()->json();
-        if (! is_array($repository) || ! is_string($repository['full_name'] ?? null)) {
-            throw new \RuntimeException('GitHub repository response is invalid.');
-        }
+        $this->ensureActive($installation);
+        $repository = $this->repositoryForUser($user, $installation, $repositoryId);
 
-        $response = $this->installationRequest($installation)
+        $response = $this->userRequest($user)
             ->get("https://api.github.com/repos/{$repository['full_name']}/branches?per_page=100");
-        $this->throwIfRepositoryAccessRemoved($response);
         $response = $response->throw()->json();
         if (! is_array($response)) {
             throw new \RuntimeException('GitHub branches response is invalid.');
@@ -108,39 +106,48 @@ final class GithubInstallationService
     }
 
     /** @return array<string, mixed> */
-    public function repository(GithubInstallation $installation, int $repositoryId): array
+    public function repositoryForUser(User $user, GithubInstallation $installation, int $repositoryId): array
     {
-        $response = $this->installationRequest($installation)
-            ->get("https://api.github.com/repositories/{$repositoryId}");
-        $this->throwIfRepositoryAccessRemoved($response);
-        $repository = $response->throw()->json();
-        if (! is_array($repository)) {
-            throw new \RuntimeException('GitHub repository response is invalid.');
-        }
+        $this->ensureActive($installation);
 
-        return $repository;
+        $page = 1;
+        do {
+            $response = $this->userRequest($user)->get(
+                "https://api.github.com/user/installations/{$installation->github_installation_id}/repositories?page={$page}&per_page=100",
+            );
+            if ($response->status() === 404) {
+                break;
+            }
+            $payload = $response->throw()->json();
+            if (! is_array($payload)) {
+                throw new \RuntimeException('GitHub installation repositories response is invalid.');
+            }
+            $repositories = is_array($payload['repositories'] ?? null) ? $payload['repositories'] : [];
+            foreach ($repositories as $repository) {
+                if (is_array($repository) && ($repository['id'] ?? null) === $repositoryId) {
+                    return $repository;
+                }
+            }
+            $page++;
+        } while ($repositories !== [] && $page <= (int) ceil(((int) ($payload['total_count'] ?? 0)) / 100));
+
+        throw new AuthorizationException('GitHub repository is not available to this user.');
     }
 
-    private function installationRequest(GithubInstallation $installation): PendingRequest
+    private function ensureActive(GithubInstallation $installation): void
     {
-        if ($installation->status !== GithubInstallationStatus::Active) {
-            throw new HttpResponseException(response()->json([
-                'message' => 'GitHub installation is no longer active. Reconnect GitHub and try again.',
-            ], 409));
-        }
-
-        return Http::withToken($this->tokens->for($installation))->acceptJson();
-    }
-
-    private function throwIfRepositoryAccessRemoved(Response $response): void
-    {
-        if ($response->status() !== 404) {
+        if ($installation->status === GithubInstallationStatus::Active) {
             return;
         }
 
         throw new HttpResponseException(response()->json([
-            'message' => 'GitHub App no longer has access to this repository. Reconnect GitHub or choose another repository.',
+            'message' => 'GitHub installation is no longer active. Reconnect GitHub and try again.',
         ], 409));
+    }
+
+    private function userRequest(User $user): PendingRequest
+    {
+        return Http::withToken($this->oauth->accessToken($this->account($user)))->acceptJson();
     }
 
     private function account(User $user): OAuthAccount

@@ -14,7 +14,8 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | --- | --- |
 | `users` | Identitas console, role, onboarding, dan waktu login terakhir. |
 | `oauth_accounts` | Identitas provider OAuth dan token terenkripsi, terpisah dari user. |
-| `github_installations` | Hubungan user Sakala dengan GitHub App installation dan status akses repository. |
+| `github_installations` | Entity global GitHub App installation, metadata akun GitHub, dan status akses repository. |
+| `github_installation_user` | Relasi user Sakala dengan installation GitHub yang telah diverifikasi. |
 | `github_webhook_deliveries` | Delivery ID webhook GitHub untuk pemrosesan lifecycle yang idempoten. |
 | `projects` | Metadata repository, generated domain, dan status runtime. |
 | `environment_variables` | Key dan value terenkripsi per project. |
@@ -58,7 +59,7 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 
 ## Secret dan Retention
 
-Kolom token OAuth dan environment value memakai encrypted cast Laravel bila memang digunakan. Flow login GitHub saat ini tidak menyimpan token provider; penyimpanan token hanya dapat ditambahkan pada flow persetujuan repository yang terpisah. Agent bearer token tidak disimpan; database hanya menyimpan SHA-256/HMAC hash dan prefix untuk identifikasi. Model menyembunyikan seluruh nilai sensitif dari serialization.
+Kolom token OAuth dan environment value memakai encrypted cast Laravel bila memang digunakan. Flow login GitHub App menyimpan user access token dan refresh token terenkripsi pada `oauth_accounts`; token tersebut hanya dipakai untuk memverifikasi akses user ke installation/repository. Installation token pendek untuk operasi service disimpan sementara di cache dalam bentuk terenkripsi dan tidak masuk database. Agent bearer token tidak disimpan; database hanya menyimpan SHA-256/HMAC hash dan prefix untuk identifikasi. Model menyembunyikan seluruh nilai sensitif dari serialization.
 
 Log/event disimpan di database untuk MVP. Sebelum volume produksi meningkat, tentukan retention policy dan evaluasi partitioning PostgreSQL atau object storage. Jangan membuat pencarian tanpa batas atas; endpoint timeline/log harus memakai cursor pagination dan urutan sequence.
 

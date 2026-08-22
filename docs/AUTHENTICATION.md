@@ -53,9 +53,10 @@ Flow browser:
 
 GitHub App tidak memakai OAuth scope URL. Permission user dan repository
 ditentukan pada registrasi GitHub App. User access token dan refresh token
-disimpan terenkripsi untuk menjaga session koneksi; token installation untuk
-repository tidak disimpan di database dan hanya dicache terenkripsi sebelum
-kedaluwarsa.
+disimpan terenkripsi untuk menjaga session koneksi dan mengotorisasi pilihan
+installation maupun repository pengguna. Token installation hanya dipakai API
+untuk operasi layanan setelah project terikat, tidak disimpan di database, dan
+hanya dicache terenkripsi sebelum kedaluwarsa.
 
 ### GitHub installation
 

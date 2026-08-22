@@ -24,15 +24,15 @@ final class GithubInstallationController extends Controller
 
     public function repositories(IndexGithubInstallationRepositoryRequest $request, GithubInstallation $installation, GithubInstallationService $service): AnonymousResourceCollection
     {
-        abort_unless($installation->user_id === $request->user()->id || $request->user()->isAdmin(), 403);
+        abort_unless($installation->users()->whereKey($request->user()->id)->exists(), 403);
 
-        return GithubResource::collection($service->repositories($installation, $request->integer('page', 1), $request->integer('per_page', 30)));
+        return GithubResource::collection($service->repositories($request->user(), $installation, $request->integer('page', 1), $request->integer('per_page', 30)));
     }
 
     public function branches(IndexGithubInstallationBranchRequest $request, GithubInstallation $installation, int $repositoryId, GithubInstallationService $service): AnonymousResourceCollection
     {
-        abort_unless($installation->user_id === $request->user()->id || $request->user()->isAdmin(), 403);
+        abort_unless($installation->users()->whereKey($request->user()->id)->exists(), 403);
 
-        return GithubBranchResource::collection($service->branches($installation, $repositoryId));
+        return GithubBranchResource::collection($service->branches($request->user(), $installation, $repositoryId));
     }
 }

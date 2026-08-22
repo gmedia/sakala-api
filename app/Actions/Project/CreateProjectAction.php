@@ -63,8 +63,10 @@ final class CreateProjectAction
     /** @return array<string, mixed> */
     private function installationRepositoryAttributes(User $user, CreateProjectData $data): array
     {
-        $installation = GithubInstallation::query()->whereKey($data->githubInstallationId)->where('user_id', $user->id)->firstOrFail();
-        $repository = $this->githubInstallationService->repository($installation, $data->githubRepositoryId ?? 0);
+        $installation = GithubInstallation::query()->whereKey($data->githubInstallationId)
+            ->whereHas('users', fn ($query) => $query->whereKey($user->id))
+            ->firstOrFail();
+        $repository = $this->githubInstallationService->repositoryForUser($user, $installation, $data->githubRepositoryId ?? 0);
 
         return [
             'repository_provider' => 'github',

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\GitHub;
 
+use App\Enums\GithubInstallationStatus;
 use App\Models\GithubInstallation;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
@@ -16,6 +18,12 @@ final class GithubInstallationTokenService
 
     public function for(GithubInstallation $installation): string
     {
+        if ($installation->status !== GithubInstallationStatus::Active) {
+            throw new HttpResponseException(response()->json([
+                'message' => 'GitHub installation is no longer active. Reconnect GitHub and try again.',
+            ], 409));
+        }
+
         $cacheKey = $this->cacheKey($installation);
         $cached = Cache::get($cacheKey);
         if (is_string($cached)) {

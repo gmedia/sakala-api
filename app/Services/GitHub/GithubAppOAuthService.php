@@ -35,7 +35,9 @@ final class GithubAppOAuthService
 
     public function identityFromCallback(Request $request): GithubOAuthIdentityData
     {
-        if (! hash_equals((string) $request->session()->pull('github_app_oauth_state'), (string) $request->query('state'))) {
+        $expectedState = $request->session()->pull('github_app_oauth_state');
+        $providedState = $request->query('state');
+        if (! is_string($expectedState) || $expectedState === '' || ! is_string($providedState) || $providedState === '' || ! hash_equals($expectedState, $providedState)) {
             throw new GithubOAuthIdentityException(GithubOAuthFailure::InvalidState);
         }
 

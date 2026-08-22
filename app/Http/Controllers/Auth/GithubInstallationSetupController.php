@@ -14,7 +14,9 @@ final class GithubInstallationSetupController extends Controller
 {
     public function __invoke(Request $request, GithubInstallationService $installations, ConsoleAuthenticationRedirect $redirect): RedirectResponse
     {
-        abort_unless(hash_equals((string) $request->session()->pull('github_app_installation_state'), (string) $request->query('state')), 403);
+        $expectedState = $request->session()->pull('github_app_installation_state');
+        $providedState = $request->query('state');
+        abort_unless(is_string($expectedState) && $expectedState !== '' && is_string($providedState) && $providedState !== '' && hash_equals($expectedState, $providedState), 403);
         $id = $request->integer('installation_id');
         abort_if($id < 1, 422);
 

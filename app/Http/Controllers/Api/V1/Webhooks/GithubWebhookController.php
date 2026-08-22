@@ -33,10 +33,17 @@ final class GithubWebhookController extends Controller
         }
 
         $created = DB::transaction(function () use ($deliveryId, $event, $payload, $tokens): bool {
-            if (GithubWebhookDelivery::query()->where('delivery_id', $deliveryId)->exists()) {
+            $inserted = GithubWebhookDelivery::query()->insertOrIgnore([
+                'delivery_id' => $deliveryId,
+                'event' => $event,
+                'action' => $payload['action'] ?? null,
+                'processed_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            if ($inserted !== 1) {
                 return false;
             }
-            GithubWebhookDelivery::create(['delivery_id' => $deliveryId, 'event' => $event, 'action' => $payload['action'] ?? null, 'processed_at' => now()]);
             $this->handle($event, $payload, $tokens);
 
             return true;

@@ -10,25 +10,24 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property string $id
- * @property int $user_id
  * @property int $github_installation_id
  * @property GithubInstallationStatus $status
  */
-#[Fillable(['user_id', 'github_installation_id', 'account_id', 'account_login', 'account_type', 'repository_selection', 'permissions', 'status', 'suspended_at', 'removed_at'])]
+#[Fillable(['github_installation_id', 'account_id', 'account_login', 'account_type', 'repository_selection', 'permissions', 'status', 'suspended_at', 'removed_at'])]
 class GithubInstallation extends Model
 {
     /** @use HasFactory<GithubInstallationFactory> */
     use HasFactory, HasUuids;
 
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
+    /** @return BelongsToMany<User, $this> */
+    public function users(): BelongsToMany
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsToMany(User::class)->withPivot('last_verified_at')->withTimestamps();
     }
 
     /** @return HasMany<Project, $this> */

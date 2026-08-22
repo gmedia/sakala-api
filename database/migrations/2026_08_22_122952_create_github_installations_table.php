@@ -15,7 +15,6 @@ return new class extends Migration
     {
         Schema::create('github_installations', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignId('user_id')->constrained()->restrictOnDelete();
             $table->unsignedBigInteger('github_installation_id')->unique();
             $table->unsignedBigInteger('account_id');
             $table->string('account_login', 255);
@@ -27,7 +26,6 @@ return new class extends Migration
             $table->timestampTz('removed_at')->nullable();
             $table->timestamps();
 
-            $table->index(['user_id', 'status']);
             $table->index(['account_id', 'status']);
         });
     }
