@@ -6,7 +6,6 @@ namespace App\Http\Requests\Api\V1\Agent;
 
 use App\Data\Agent\CreateAgentData;
 use App\Models\AgentNode;
-use App\Policies\AgentNodePolicy;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 

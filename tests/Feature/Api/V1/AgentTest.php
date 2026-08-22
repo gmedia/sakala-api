@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Feature\Api\V1;
 
 use App\Enums\AgentAuthStatus;
-use App\Enums\AgentNodeStatus;
 use App\Enums\UserRole;
 use App\Models\AgentNode;
 use App\Models\User;
@@ -49,12 +48,21 @@ final class AgentTest extends TestCase
                 'created_at',
                 'updated_at',
             ],
+            'token',
         ]);
 
         $this->assertDatabaseHas('agent_nodes', [
             'name' => 'Test Agent',
             'auth_status' => AgentAuthStatus::Active->value,
         ]);
+
+        // Verify token is returned and matches the hash stored in DB
+        $token = $response->json('token');
+        $this->assertIsString($token);
+        $this->assertEquals(64, strlen($token));
+        $agent = AgentNode::first();
+        $this->assertTrue(password_verify($token, $agent->token_hash));
+        $this->assertStringStartsWith($agent->token_prefix, $token);
     }
 
     public function test_store_agent_without_name_fails(): void
@@ -231,6 +239,27 @@ final class AgentTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonMissingPath('data.token_hash');
+    }
+
+    public function test_token_not_returned_in_show_response(): void
+    {
+        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+
+        $response = $this->getJson("/api/v1/agents/{$agent->id}");
+
+        $response->assertOk();
+        $response->assertJsonMissingPath('token');
+    }
+
+    public function test_token_not_returned_in_index_response(): void
+    {
+        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+
+        $response = $this->getJson('/api/v1/agents');
+
+        $response->assertOk();
+        $response->assertJsonMissingPath('data.0.token');
     }
 
     public function test_token_not_stored_in_plain_text(): void

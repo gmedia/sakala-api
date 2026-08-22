@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
-use App\Enums\AgentAuthStatus;
 use App\Enums\UserRole;
 use App\Models\AgentNode;
 use App\Models\User;

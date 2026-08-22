@@ -13,7 +13,6 @@ use App\Http\Requests\Api\V1\Agent\RotateAgentTokenRequest;
 use App\Http\Requests\Api\V1\Agent\StoreAgentRequest;
 use App\Http\Resources\Api\V1\Agent\AgentResource;
 use App\Models\AgentNode;
-use App\Policies\AgentNodePolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
@@ -42,9 +41,10 @@ final class AgentController extends Controller
         StoreAgentRequest $request,
         ProvisionAgentAction $provisionAgent
     ): JsonResponse {
-        $agent = $provisionAgent->handle($request->user(), $request->toData());
+        $result = $provisionAgent->handle($request->user(), $request->toData());
 
-        return (new AgentResource($agent))
+        return (new AgentResource($result['agent']))
+            ->additional(['token' => $result['token']])
             ->response()
             ->setStatusCode(201);
     }

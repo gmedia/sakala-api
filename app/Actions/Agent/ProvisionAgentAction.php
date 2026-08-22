@@ -10,16 +10,15 @@ use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
 use App\Models\User;
 use Illuminate\Support\Str;
-use App\Policies\AgentNodePolicy;
 
 final class ProvisionAgentAction
 {
-    public function handle(User $user, CreateAgentData $data): AgentNode
+    public function handle(User $user, CreateAgentData $data): array
     {
         $token = Str::random(64);
         $tokenPrefix = Str::substr($token, 0, 10);
 
-        return AgentNode::create([
+        $agentNode = AgentNode::create([
             'agent_id' => 'agent-'.Str::uuid(),
             'name' => $data->name,
             'description' => $data->description,
@@ -29,13 +28,10 @@ final class ProvisionAgentAction
             'status' => AgentNodeStatus::Ready,
             'registered_at' => now(),
         ]);
-    }
 
-    /**
-     * Generate a new token for an agent (used during provisioning).
-     */
-    public function generateToken(): string
-    {
-        return Str::random(64);
+        return [
+            'agent' => $agentNode,
+            'token' => $token,
+        ];
     }
 }
