@@ -27,4 +27,20 @@ enum DeploymentStatus: string
             default => false,
         };
     }
+
+    public function isActive(): bool
+    {
+        return ! $this->isTerminal();
+    }
+
+    /**
+     * @return array<int, self>
+     */
+    public static function activeCases(): array
+    {
+        return array_values(array_filter(
+            self::cases(),
+            fn (self $status) => $status->isActive()
+        ));
+    }
 }
