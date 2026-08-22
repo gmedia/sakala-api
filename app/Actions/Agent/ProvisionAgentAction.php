@@ -5,24 +5,29 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Data\Agent\CreateAgentData;
-use App\Enums\AgentStatus;
-use App\Models\Agent;
+use App\Enums\AgentAuthStatus;
+use App\Enums\AgentNodeStatus;
+use App\Models\AgentNode;
 use App\Models\User;
 use Illuminate\Support\Str;
+use App\Policies\AgentNodePolicy;
 
 final class ProvisionAgentAction
 {
-    public function handle(User $user, CreateAgentData $data): Agent
+    public function handle(User $user, CreateAgentData $data): AgentNode
     {
         $token = Str::random(64);
         $tokenPrefix = Str::substr($token, 0, 10);
 
-        return Agent::create([
+        return AgentNode::create([
+            'agent_id' => 'agent-'.Str::uuid(),
             'name' => $data->name,
             'description' => $data->description,
             'token_hash' => bcrypt($token),
             'token_prefix' => $tokenPrefix,
-            'status' => AgentStatus::Active,
+            'auth_status' => AgentAuthStatus::Active,
+            'status' => AgentNodeStatus::Ready,
+            'registered_at' => now(),
         ]);
     }
 

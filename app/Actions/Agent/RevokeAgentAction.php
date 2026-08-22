@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace App\Actions\Agent;
 
-use App\Enums\AgentStatus;
-use App\Models\Agent;
+use App\Enums\AgentAuthStatus;
+use App\Models\AgentNode;
 
 final class RevokeAgentAction
 {
-    public function handle(Agent $agent): void
+    public function handle(AgentNode $agent): void
     {
         $agent->update([
-            'status' => AgentStatus::Revoked,
+            'auth_status' => AgentAuthStatus::Revoked,
         ]);
     }
 }

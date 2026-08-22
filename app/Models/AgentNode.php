@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeStatus;
 use Database\Factories\AgentNodeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -13,19 +14,21 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable([
-    'agent_id',
-    'name',
-    'token_hash',
-    'token_prefix',
-    'status',
-    'hostname',
-    'runtime_network',
-    'capabilities',
-    'metadata',
-    'registered_at',
-    'last_seen_at',
-])]
+    #[Fillable([
+        'agent_id',
+        'name',
+        'token_hash',
+        'token_prefix',
+        'status',
+        'auth_status',
+        'description',
+        'hostname',
+        'runtime_network',
+        'capabilities',
+        'metadata',
+        'registered_at',
+        'last_seen_at',
+    ])]
 #[Hidden(['token_hash'])]
 class AgentNode extends Model
 {
@@ -49,6 +52,7 @@ class AgentNode extends Model
     {
         return [
             'status' => AgentNodeStatus::class,
+            'auth_status' => AgentAuthStatus::class,
             'capabilities' => 'array',
             'metadata' => 'array',
             'registered_at' => 'immutable_datetime',

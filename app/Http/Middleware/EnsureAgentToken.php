@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
-use App\Enums\AgentStatus;
-use App\Models\Agent;
+use App\Enums\AgentAuthStatus;
+use App\Models\AgentNode;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -33,7 +33,7 @@ final class EnsureAgentToken
 
         $token = Str::substr($authHeader, 7);
 
-        $agent = Agent::where('id', $agentId)->first();
+        $agent = AgentNode::where('id', $agentId)->first();
 
         if (! $agent) {
             abort(401, 'Unauthorized');
@@ -43,7 +43,7 @@ final class EnsureAgentToken
             abort(401, 'Unauthorized');
         }
 
-        if ($agent->status !== AgentStatus::Active) {
+        if ($agent->auth_status !== AgentAuthStatus::Active) {
             abort(403, 'Forbidden');
         }
 

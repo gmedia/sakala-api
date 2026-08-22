@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\V1\Agent;
 
 use App\Data\Agent\CreateAgentData;
-use App\Models\Agent;
+use App\Models\AgentNode;
+use App\Policies\AgentNodePolicy;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -16,7 +17,7 @@ final class StoreAgentRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()->can('create', Agent::class);
+        return $this->user()->can('create', AgentNode::class);
     }
 
     /**

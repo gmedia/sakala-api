@@ -12,7 +12,8 @@ use App\Http\Requests\Api\V1\Agent\RevokeAgentRequest;
 use App\Http\Requests\Api\V1\Agent\RotateAgentTokenRequest;
 use App\Http\Requests\Api\V1\Agent\StoreAgentRequest;
 use App\Http\Resources\Api\V1\Agent\AgentResource;
-use App\Models\Agent;
+use App\Models\AgentNode;
+use App\Policies\AgentNodePolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
@@ -25,10 +26,10 @@ final class AgentController extends Controller
      */
     public function index(): AnonymousResourceCollection
     {
-        Gate::authorize('viewAny', Agent::class);
+        Gate::authorize('viewAny', AgentNode::class);
 
         return AgentResource::collection(
-            Agent::query()->latest()->get()
+            AgentNode::query()->latest()->get()
         );
     }
 
@@ -53,7 +54,7 @@ final class AgentController extends Controller
      *
      * @scramble-return AgentResource
      */
-    public function show(Agent $agent): AgentResource
+    public function show(AgentNode $agent): AgentResource
     {
         Gate::authorize('view', $agent);
 
@@ -68,7 +69,7 @@ final class AgentController extends Controller
     public function rotate(
         RotateAgentTokenRequest $request,
         RotateAgentTokenAction $rotateAgentToken,
-        Agent $agent
+        AgentNode $agent
     ): AgentResource {
         Gate::authorize('update', $agent);
 
@@ -87,7 +88,7 @@ final class AgentController extends Controller
     public function revoke(
         RevokeAgentRequest $request,
         RevokeAgentAction $revokeAgent,
-        Agent $agent
+        AgentNode $agent
     ): Response {
         Gate::authorize('delete', $agent);
 
