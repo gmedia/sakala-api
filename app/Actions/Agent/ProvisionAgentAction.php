@@ -13,6 +13,7 @@ use Illuminate\Support\Str;
 
 final class ProvisionAgentAction
 {
+    /** @return array{agent: AgentNode, token: string} */
     public function handle(User $user, CreateAgentData $data): array
     {
         $token = Str::random(64);

@@ -14,6 +14,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property AgentAuthStatus $auth_status
+ * @property AgentNodeStatus $status
+ */
 #[Fillable([
     'agent_id',
     'name',
