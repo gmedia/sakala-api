@@ -157,7 +157,7 @@ test('an expired GitHub App user token refresh uses an account-scoped cache lock
         ]),
     ]);
     $lock = Mockery::mock(Lock::class);
-    $lock->shouldReceive('block')->once()->with(10, Mockery::type(Closure::class))->andReturnUsing(
+    $lock->shouldReceive('block')->once()->with(20, Mockery::type(Closure::class))->andReturnUsing(
         fn (int $seconds, Closure $callback): string => $callback(),
     );
     Cache::shouldReceive('lock')->once()->with("github-app-oauth-refresh:{$account->id}", 30)->andReturn($lock);

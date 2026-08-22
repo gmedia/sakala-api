@@ -24,7 +24,7 @@ final class GithubAppOAuthService
 
     private const REFRESH_LOCK_SECONDS = 30;
 
-    private const REFRESH_LOCK_WAIT_SECONDS = 10;
+    private const REFRESH_LOCK_WAIT_SECONDS = 20;
 
     public function redirect(Request $request): RedirectResponse
     {
