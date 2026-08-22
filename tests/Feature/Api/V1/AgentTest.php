@@ -31,7 +31,7 @@ final class AgentTest extends TestCase
 
     public function test_store_agent_with_valid_data(): void
     {
-        $response = $this->postJson('/api/v1/agents', [
+        $response = $this->postJson('/api/agent/v1/agents', [
             'name' => 'Test Agent',
             'description' => 'Test Description',
         ]);
@@ -67,7 +67,7 @@ final class AgentTest extends TestCase
 
     public function test_store_agent_without_name_fails(): void
     {
-        $response = $this->postJson('/api/v1/agents', [
+        $response = $this->postJson('/api/agent/v1/agents', [
             'description' => 'Test Description',
         ]);
 
@@ -88,7 +88,7 @@ final class AgentTest extends TestCase
         AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
         AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
 
-        $response = $this->getJson('/api/v1/agents');
+        $response = $this->getJson('/api/agent/v1/agents');
 
         $response->assertOk();
         $response->assertJsonCount(3, 'data');
@@ -100,7 +100,7 @@ final class AgentTest extends TestCase
     {
         $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
 
-        $response = $this->getJson("/api/v1/agents/{$agent->id}");
+        $response = $this->getJson("/api/agent/v1/agents/{$agent->id}");
 
         $response->assertOk();
         $response->assertJson([
@@ -117,7 +117,7 @@ final class AgentTest extends TestCase
     {
         $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
 
-        $response = $this->postJson("/api/v1/agents/{$agent->id}/rotate");
+        $response = $this->postJson("/api/agent/v1/agents/{$agent->id}/rotate");
 
         $response->assertOk();
         $response->assertJsonStructure([
@@ -143,7 +143,7 @@ final class AgentTest extends TestCase
     {
         $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
 
-        $response = $this->postJson("/api/v1/agents/{$agent->id}/revoke");
+        $response = $this->postJson("/api/agent/v1/agents/{$agent->id}/revoke");
 
         $response->assertNoContent();
 
@@ -158,7 +158,7 @@ final class AgentTest extends TestCase
     public function test_middleware_rejects_missing_authorization_header(): void
     {
         $response = $this->withHeader('X-Agent-Id', 'test-id')
-            ->postJson('/api/v1/agent/heartbeat');
+            ->postJson('/api/agent/v1/heartbeat');
 
         $response->assertUnauthorized();
     }
@@ -166,7 +166,7 @@ final class AgentTest extends TestCase
     public function test_middleware_rejects_missing_agent_id_header(): void
     {
         $response = $this->withHeader('Authorization', 'Bearer test-token')
-            ->postJson('/api/v1/agent/heartbeat');
+            ->postJson('/api/agent/v1/heartbeat');
 
         $response->assertUnauthorized();
     }
@@ -176,7 +176,7 @@ final class AgentTest extends TestCase
         $response = $this->withHeaders([
             'Authorization' => 'Basic test-token',
             'X-Agent-Id' => 'test-id',
-        ])->postJson('/api/v1/agent/heartbeat');
+        ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertUnauthorized();
     }
@@ -188,7 +188,7 @@ final class AgentTest extends TestCase
         $response = $this->withHeaders([
             'Authorization' => 'Bearer invalid-token',
             'X-Agent-Id' => $agent->id,
-        ])->postJson('/api/v1/agent/heartbeat');
+        ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertUnauthorized();
     }
@@ -208,7 +208,7 @@ final class AgentTest extends TestCase
         $response = $this->withHeaders([
             'Authorization' => "Bearer {$token}",
             'X-Agent-Id' => $agent->id,
-        ])->postJson('/api/v1/agent/heartbeat');
+        ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertForbidden();
     }
@@ -224,7 +224,7 @@ final class AgentTest extends TestCase
         $response = $this->withHeaders([
             'Authorization' => "Bearer {$token}",
             'X-Agent-Id' => $agent->id,
-        ])->postJson('/api/v1/agent/heartbeat');
+        ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertOk(); // Middleware passed, route exists
     }
@@ -235,7 +235,7 @@ final class AgentTest extends TestCase
     {
         $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
 
-        $response = $this->getJson("/api/v1/agents/{$agent->id}");
+        $response = $this->getJson("/api/agent/v1/agents/{$agent->id}");
 
         $response->assertOk();
         $response->assertJsonMissingPath('data.token_hash');
@@ -245,7 +245,7 @@ final class AgentTest extends TestCase
     {
         $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
 
-        $response = $this->getJson("/api/v1/agents/{$agent->id}");
+        $response = $this->getJson("/api/agent/v1/agents/{$agent->id}");
 
         $response->assertOk();
         $response->assertJsonMissingPath('token');
@@ -256,7 +256,7 @@ final class AgentTest extends TestCase
         AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
         AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
 
-        $response = $this->getJson('/api/v1/agents');
+        $response = $this->getJson('/api/agent/v1/agents');
 
         $response->assertOk();
         $response->assertJsonMissingPath('data.0.token');
@@ -264,7 +264,7 @@ final class AgentTest extends TestCase
 
     public function test_token_not_stored_in_plain_text(): void
     {
-        $response = $this->postJson('/api/v1/agents', [
+        $response = $this->postJson('/api/agent/v1/agents', [
             'name' => 'Test Agent',
         ]);
 
