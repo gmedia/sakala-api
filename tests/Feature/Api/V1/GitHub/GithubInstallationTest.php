@@ -48,7 +48,8 @@ test('multiple Sakala users can verify the same GitHub installation without chan
     OAuthAccount::factory()->for($firstUser)->create(['access_token' => 'first-user-token']);
     OAuthAccount::factory()->for($secondUser)->create(['access_token' => 'second-user-token']);
     Http::fake([
-        'https://api.github.com/user/installations' => Http::response([
+        'https://api.github.com/user/installations*' => Http::response([
+            'total_count' => 1,
             'installations' => [[
                 'id' => 100,
                 'account' => ['id' => 10, 'login' => 'sakala', 'type' => 'Organization'],
@@ -65,6 +66,35 @@ test('multiple Sakala users can verify the same GitHub installation without chan
     expect($secondInstallation->id)->toBe($firstInstallation->id)
         ->and($firstInstallation->fresh()->users()->pluck('users.id')->all())
         ->toContain($firstUser->id, $secondUser->id);
+});
+
+test('installation setup finds an installation on a later GitHub page', function (): void {
+    $user = User::factory()->create();
+    OAuthAccount::factory()->for($user)->create(['access_token' => 'user-access-token']);
+    Http::fake([
+        'https://api.github.com/user/installations?page=1&per_page=100' => Http::response([
+            'total_count' => 101,
+            'installations' => array_fill(0, 100, [
+                'id' => 1,
+                'account' => ['id' => 1, 'login' => 'other', 'type' => 'User'],
+                'repository_selection' => 'selected',
+                'permissions' => [],
+            ]),
+        ]),
+        'https://api.github.com/user/installations?page=2&per_page=100' => Http::response([
+            'total_count' => 101,
+            'installations' => [[
+                'id' => 101,
+                'account' => ['id' => 10, 'login' => 'sakala', 'type' => 'Organization'],
+                'repository_selection' => 'selected',
+                'permissions' => ['contents' => 'read'],
+            ]],
+        ]),
+    ]);
+
+    $installation = app(GithubInstallationService::class)->setup($user, 101);
+
+    expect($installation->github_installation_id)->toBe(101);
 });
 
 test('repository discovery uses the user access token and user-scoped installation endpoint', function (): void {

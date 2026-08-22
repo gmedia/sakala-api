@@ -26,11 +26,7 @@ final class GithubInstallationService
     {
         $account = $this->account($user);
         $accessToken = $this->oauth->accessToken($account);
-        $installations = Http::withToken($accessToken)->acceptJson()->get('https://api.github.com/user/installations')->throw()->json('installations', []);
-        if (! is_array($installations)) {
-            throw new \RuntimeException('GitHub installations response is invalid.');
-        }
-        $installation = collect($installations)->first(fn (mixed $item): bool => is_array($item) && ($item['id'] ?? null) === $githubInstallationId);
+        $installation = $this->installationForUser($accessToken, $githubInstallationId);
 
         if (! is_array($installation) || ! is_array($installation['account'] ?? null)) {
             throw new AuthorizationException('GitHub installation is not available to this user.');
@@ -143,6 +139,29 @@ final class GithubInstallationService
         throw new HttpResponseException(response()->json([
             'message' => 'GitHub installation is no longer active. Reconnect GitHub and try again.',
         ], 409));
+    }
+
+    /** @return array<string, mixed>|null */
+    private function installationForUser(string $accessToken, int $githubInstallationId): ?array
+    {
+        $page = 1;
+        do {
+            $payload = Http::withToken($accessToken)->acceptJson()->get(
+                "https://api.github.com/user/installations?page={$page}&per_page=100",
+            )->throw()->json();
+            if (! is_array($payload)) {
+                throw new \RuntimeException('GitHub installations response is invalid.');
+            }
+            $installations = is_array($payload['installations'] ?? null) ? $payload['installations'] : [];
+            foreach ($installations as $installation) {
+                if (is_array($installation) && ($installation['id'] ?? null) === $githubInstallationId) {
+                    return $installation;
+                }
+            }
+            $page++;
+        } while ($installations !== [] && $page <= (int) ceil(((int) ($payload['total_count'] ?? 0)) / 100));
+
+        return null;
     }
 
     private function userRequest(User $user): PendingRequest

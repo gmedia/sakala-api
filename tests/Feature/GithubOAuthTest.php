@@ -140,3 +140,23 @@ test('an expired GitHub App user token is refreshed before it is used', function
         ->and($account->fresh()->refresh_token)->toBe('refreshed-refresh-token')
         ->and($account->fresh()->token_expires_at)->not->toBeNull();
 });
+
+test('a stale OAuth account instance uses the token refreshed by another request', function (): void {
+    $account = OAuthAccount::factory()->create([
+        'access_token' => 'expired-token',
+        'refresh_token' => 'refresh-token',
+        'token_expires_at' => now()->subMinute(),
+    ]);
+    $staleAccount = $account->fresh();
+    $account->update([
+        'access_token' => 'refreshed-by-other-request',
+        'refresh_token' => 'rotated-refresh-token',
+        'token_expires_at' => now()->addHours(8),
+    ]);
+    Http::fake();
+
+    $token = app(GithubAppOAuthService::class)->accessToken($staleAccount);
+
+    expect($token)->toBe('refreshed-by-other-request');
+    Http::assertNothingSent();
+});

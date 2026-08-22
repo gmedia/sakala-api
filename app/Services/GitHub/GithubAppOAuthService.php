@@ -10,6 +10,7 @@ use App\Exceptions\Auth\GithubOAuthIdentityException;
 use App\Models\OAuthAccount;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -80,32 +81,35 @@ final class GithubAppOAuthService
 
     public function accessToken(OAuthAccount $account): string
     {
-        if ($account->token_expires_at === null || $account->token_expires_at->isAfter(now()->addMinute())) {
+        return DB::transaction(function () use ($account): string {
+            $account = OAuthAccount::query()->lockForUpdate()->findOrFail($account->id);
+            if ($account->token_expires_at === null || $account->token_expires_at->isAfter(now()->addMinute())) {
+                return $account->access_token;
+            }
+
+            if (blank($account->refresh_token)) {
+                throw new \RuntimeException('GitHub authorization has expired. Please sign in again.');
+            }
+
+            $token = Http::asForm()->acceptJson()->post(self::TOKEN_URL, [
+                'client_id' => $this->config('client_id'),
+                'client_secret' => $this->config('client_secret'),
+                'grant_type' => 'refresh_token',
+                'refresh_token' => $account->refresh_token,
+            ])->throw()->json();
+
+            if (! is_string($token['access_token'] ?? null)) {
+                throw new \RuntimeException('GitHub token refresh failed.');
+            }
+
+            $account->update([
+                'access_token' => $token['access_token'],
+                'refresh_token' => is_string($token['refresh_token'] ?? null) ? $token['refresh_token'] : null,
+                'token_expires_at' => is_int($token['expires_in'] ?? null) ? now()->addSeconds($token['expires_in']) : null,
+            ]);
+
             return $account->access_token;
-        }
-
-        if (blank($account->refresh_token)) {
-            throw new \RuntimeException('GitHub authorization has expired. Please sign in again.');
-        }
-
-        $token = Http::asForm()->acceptJson()->post(self::TOKEN_URL, [
-            'client_id' => $this->config('client_id'),
-            'client_secret' => $this->config('client_secret'),
-            'grant_type' => 'refresh_token',
-            'refresh_token' => $account->refresh_token,
-        ])->throw()->json();
-
-        if (! is_string($token['access_token'] ?? null)) {
-            throw new \RuntimeException('GitHub token refresh failed.');
-        }
-
-        $account->update([
-            'access_token' => $token['access_token'],
-            'refresh_token' => is_string($token['refresh_token'] ?? null) ? $token['refresh_token'] : null,
-            'token_expires_at' => is_int($token['expires_in'] ?? null) ? now()->addSeconds($token['expires_in']) : null,
-        ]);
-
-        return $account->access_token;
+        });
     }
 
     private function config(string $key): string
