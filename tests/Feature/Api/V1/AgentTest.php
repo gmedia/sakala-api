@@ -309,7 +309,7 @@ final class AgentTest extends TestCase
 
         $response = $this->withHeaders([
             'Authorization' => "Bearer {$token}",
-            'X-Agent-Id' => $agentB->id, 
+            'X-Agent-Id' => $agentB->id,
         ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertUnauthorized();
