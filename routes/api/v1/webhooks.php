@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Webhooks\GithubWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -10,5 +11,5 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 Route::prefix('webhooks')->group(function (): void {
-    // e.g. Route::post('github', GitHubWebhookController::class);
+    Route::post('github', GithubWebhookController::class)->name('api.v1.webhooks.github');
 });

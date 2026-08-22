@@ -14,6 +14,8 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | --- | --- |
 | `users` | Identitas console, role, onboarding, dan waktu login terakhir. |
 | `oauth_accounts` | Identitas provider OAuth dan token terenkripsi, terpisah dari user. |
+| `github_installations` | Hubungan user Sakala dengan GitHub App installation dan status akses repository. |
+| `github_webhook_deliveries` | Delivery ID webhook GitHub untuk pemrosesan lifecycle yang idempoten. |
 | `projects` | Metadata repository, generated domain, dan status runtime. |
 | `environment_variables` | Key dan value terenkripsi per project. |
 | `deployments` | Satu attempt deployment dan snapshot source yang dijalankan. |
@@ -23,7 +25,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `deployment_logs` | Output redacted dari build/runtime. |
 | `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. |
 
-Project dimiliki langsung oleh user selama MVP. Model workspace/team baru boleh ditambahkan setelah ownership dan policy multi-user disetujui.
+Project dimiliki langsung oleh user selama MVP. Project dari GitHub App menyimpan installation UUID dan repository ID; project URL publik tidak memerlukan installation. Model workspace/team baru boleh ditambahkan setelah ownership dan policy multi-user disetujui.
 
 ## Status dan Enum
 

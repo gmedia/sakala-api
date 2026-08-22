@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
+use App\Http\Controllers\Api\V1\GitHub\GithubInstallationController;
 use App\Http\Controllers\Api\V1\GitHub\GithubRepositoryController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
@@ -24,12 +25,11 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
 
     // GitHub routes
     Route::prefix('github')->group(function (): void {
-        Route::get('/repositories', [GithubRepositoryController::class, 'index'])
-            ->name('api.v1.app.github.repositories.index');
+        Route::get('/installations', [GithubInstallationController::class, 'index'])->name('api.v1.app.github.installations.index');
+        Route::get('/installations/{installation}/repositories', [GithubInstallationController::class, 'repositories'])->name('api.v1.app.github.installations.repositories.index');
+        Route::get('/installations/{installation}/repositories/{repositoryId}/branches', [GithubInstallationController::class, 'branches'])->whereNumber('repositoryId')->name('api.v1.app.github.installations.repositories.branches.index');
         Route::post('/repositories/validate', [GithubRepositoryController::class, 'validate'])
             ->name('api.v1.app.github.repositories.validate');
-        Route::get('/repositories/count', [GithubRepositoryController::class, 'count'])
-            ->name('api.v1.app.github.repositories.count');
         Route::get('/repositories/branches', [GithubRepositoryController::class, 'branches'])
             ->name('api.v1.app.github.repositories.branches');
     });

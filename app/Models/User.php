@@ -64,6 +64,12 @@ class User extends Authenticatable
         return $this->hasMany(Project::class);
     }
 
+    /** @return HasMany<GithubInstallation, $this> */
+    public function githubInstallations(): HasMany
+    {
+        return $this->hasMany(GithubInstallation::class);
+    }
+
     /** @return HasMany<Deployment, $this> */
     public function requestedDeployments(): HasMany
     {

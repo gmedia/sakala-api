@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 return [
 
-    'github' => [
-        'client_id' => env('GITHUB_CLIENT_ID'),
-        'client_secret' => env('GITHUB_CLIENT_SECRET'),
-        'redirect' => env('GITHUB_REDIRECT_URI'),
-        'scopes' => ['read:user', 'user:email', 'repo'],
+    'github_app' => [
+        'app_id' => env('GITHUB_APP_ID'),
+        'slug' => env('GITHUB_APP_SLUG'),
+        'client_id' => env('GITHUB_APP_CLIENT_ID'),
+        'client_secret' => env('GITHUB_APP_CLIENT_SECRET'),
+        'private_key_path' => env('GITHUB_APP_PRIVATE_KEY_PATH'),
+        'redirect' => env('GITHUB_APP_REDIRECT_URI'),
+        'setup' => env('GITHUB_APP_SETUP_URI'),
+        'webhook_secret' => env('GITHUB_APP_WEBHOOK_SECRET'),
     ],
 
     /*

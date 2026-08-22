@@ -26,6 +26,9 @@ test('Authenticated user can create a project', function () {
                 'id',
                 'name',
                 'repository_full_name',
+                'repository_source',
+                'github_installation_id',
+                'github_repository_id',
                 'branch',
                 'runtime_status',
                 'created_at',
@@ -37,6 +40,7 @@ test('Authenticated user can create a project', function () {
         'repository_url' => 'https://github.com/Ngab-Rio/ichikiwir',
         'branch' => 'main',
     ]);
+    $response->assertJsonPath('data.repository_source', 'public_url');
 });
 
 test('Guest cannot create a project', function () {
@@ -61,7 +65,7 @@ test('Repository url must be string', function () {
     ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors([
-            'repository_url',
+            'repository.url',
         ]);
 });
 
@@ -76,7 +80,7 @@ test('Repository url must be valid github repository', function () {
     ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors([
-            'repository_url',
+            'repository.url',
         ]);
 });
 
@@ -92,7 +96,7 @@ test('Repository url must use https', function () {
     ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors([
-            'repository_url',
+            'repository.url',
         ]);
 });
 
@@ -108,7 +112,7 @@ test('Repository url must not contain query string', function () {
     ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors([
-            'repository_url',
+            'repository.url',
         ]);
 });
 
@@ -124,7 +128,7 @@ test('Repository url must not contain fragment', function () {
     ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors([
-            'repository_url',
+            'repository.url',
         ]);
 });
 
@@ -156,7 +160,7 @@ test('Repository url must not contain credentials', function () {
     ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors([
-            'repository_url',
+            'repository.url',
         ]);
 });
 

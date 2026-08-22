@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace App\Actions\Project;
 
 use App\Data\Project\CreateProjectData;
+use App\Enums\GithubRepositorySource;
+use App\Models\GithubInstallation;
 use App\Models\Project;
 use App\Models\User;
+use App\Services\GitHub\GithubInstallationService;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\GitHub\RepositoryParser;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +20,7 @@ final class CreateProjectAction
         protected GenerateProjectIdentity $generateIdentity,
         protected RepositoryParser $repositoryParser,
         protected PilotRuntimeLimitService $runtimeLimitService,
+        private readonly GithubInstallationService $githubInstallationService,
     ) {}
 
     public function handle(User $user, CreateProjectData $data): Project
@@ -28,20 +32,46 @@ final class CreateProjectAction
 
             $projectIdentity = $this->generateIdentity->handle($data->name);
 
-            $parsedRepository = $this->repositoryParser->parse(
-                $data->repository_url
-            );
+            $attributes = match ($data->repositorySource) {
+                GithubRepositorySource::PublicUrl => $this->publicRepositoryAttributes($data),
+                GithubRepositorySource::GithubInstallation => $this->installationRepositoryAttributes($user, $data),
+            };
 
             return Project::create([
                 'user_id' => $user->id,
                 'name' => $data->name,
                 'slug' => $projectIdentity->slug,
-                'repository_provider' => $parsedRepository->repository_provider,
-                'repository_url' => $parsedRepository->repository_url,
-                'repository_full_name' => $parsedRepository->repository_full_name,
+                ...$attributes,
                 'branch' => $data->branch,
                 'default_domain' => $projectIdentity->defaultDomain,
             ]);
         });
+    }
+
+    /** @return array<string, mixed> */
+    private function publicRepositoryAttributes(CreateProjectData $data): array
+    {
+        $parsed = $this->repositoryParser->parse($data->repositoryUrl ?? '');
+
+        return [
+            'repository_provider' => $parsed->repository_provider,
+            'repository_url' => $parsed->repository_url,
+            'repository_full_name' => $parsed->repository_full_name,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function installationRepositoryAttributes(User $user, CreateProjectData $data): array
+    {
+        $installation = GithubInstallation::query()->whereKey($data->githubInstallationId)->where('user_id', $user->id)->firstOrFail();
+        $repository = $this->githubInstallationService->repository($installation, $data->githubRepositoryId ?? 0);
+
+        return [
+            'repository_provider' => 'github',
+            'repository_url' => (string) $repository['clone_url'],
+            'repository_full_name' => (string) $repository['full_name'],
+            'github_installation_id' => $installation->id,
+            'github_repository_id' => (int) $repository['id'],
+        ];
     }
 }
