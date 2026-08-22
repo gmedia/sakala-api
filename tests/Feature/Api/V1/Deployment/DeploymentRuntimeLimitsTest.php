@@ -254,7 +254,7 @@ test('create deployment action includes encrypted environment variables in agent
         ->and($decryptedEnv)->toBe('production');
 });
 
-test('create deployment action atomically prevents concurrent active deployment limit races across multiple projects for same user', function () {
+test('create deployment action atomically prevents concurrent active deployment limit races across multiple projects during overlapping transactions', function () {
     Queue::fake();
 
     config([
@@ -268,34 +268,58 @@ test('create deployment action atomically prevents concurrent active deployment 
 
     $action = app(CreateDeploymentAction::class);
 
-    // Simulate concurrent requests on project A and project B for the same user
-    // First deployment succeeds and acquires active status (Queued)
+    $secondRequestTriggered = false;
+    /** @var ActiveDeploymentLimitExceededException|null $secondRequestException */
+    $secondRequestException = null;
+
+    // Intercept Transaction A while in-flight (uncommitted)
+    Deployment::created(function (Deployment $deployment) use ($action, $projectB, $user, &$secondRequestTriggered, &$secondRequestException) {
+        if ($deployment->project_id !== $projectB->id && ! $secondRequestTriggered) {
+            $secondRequestTriggered = true;
+
+            // Verify Transaction A is actively open and uncommitted
+            expect(DB::transactionLevel())->toBeGreaterThan(0);
+
+            // Trigger overlapping Request B for the same user across projects
+            try {
+                $action->handle(
+                    project: $projectB,
+                    user: $user,
+                    data: new CreateDeploymentData(branch: 'main'),
+                );
+            } catch (ActiveDeploymentLimitExceededException $e) {
+                $secondRequestException = $e;
+            }
+        }
+    });
+
+    // Execute Request A
     $deploymentA = $action->handle(
         project: $projectA,
         user: $user,
         data: new CreateDeploymentData(branch: 'main'),
     );
 
-    expect($deploymentA->status->isActive())->toBeTrue();
+    // Verify Transaction A completed and Request B was rejected during Transaction A
+    expect($secondRequestTriggered)->toBeTrue()
+        ->and($secondRequestException)->toBeInstanceOf(ActiveDeploymentLimitExceededException::class);
 
-    // Second deployment on a different project (Project B) is serialized under the user lock
-    // and must be blocked because the user has already reached max_active_deployments_per_user (1)
-    expect(fn () => $action->handle(
-        project: $projectB,
-        user: $user,
-        data: new CreateDeploymentData(branch: 'main'),
-    ))->toThrow(function (ActiveDeploymentLimitExceededException $e) {
-        expect($e->scope)->toBe('user')
-            ->and($e->limit)->toBe(1)
-            ->and($e->current)->toBe(1);
-    });
+    assert($secondRequestException instanceof ActiveDeploymentLimitExceededException);
 
-    // Total active deployments remains strictly 1
-    $activeCount = Deployment::whereHas('project', fn ($q) => $q->where('user_id', $user->id))
-        ->active()
-        ->count();
+    expect($secondRequestException->scope)->toBe('user')
+        ->and($secondRequestException->limit)->toBe(1)
+        ->and($secondRequestException->current)->toBe(1);
 
-    expect($activeCount)->toBe(1);
+    expect($deploymentA->status)->toBe(DeploymentStatus::Queued)
+        ->and($deploymentA->project_id)->toBe($projectA->id);
+
+    // Assert only 1 deployment exists in total
+    expect(Deployment::count())->toBe(1)
+        ->and(Deployment::where('project_id', $projectA->id)->count())->toBe(1)
+        ->and(Deployment::where('project_id', $projectB->id)->count())->toBe(0);
+
+    // Assert only 1 simulated deployment job was pushed
+    Queue::assertPushed(SimulatedDeploymentJob::class, 1);
 });
 
 test('terminal deployments do not count against active deployment limit', function () {
