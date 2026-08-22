@@ -16,8 +16,11 @@ final class GithubInstallationSetupController extends Controller
     {
         $expectedState = $request->session()->pull('github_app_installation_state');
         $providedState = $request->query('state');
-        abort_unless(is_string($expectedState) && $expectedState !== '' && is_string($providedState) && $providedState !== '' && hash_equals($expectedState, $providedState), 403);
         $id = $request->integer('installation_id');
+        $configuredInstallationId = $request->session()->pull('github_app_configure_installation_id');
+        $validState = is_string($expectedState) && $expectedState !== '' && is_string($providedState) && $providedState !== '' && hash_equals($expectedState, $providedState);
+        $validConfiguration = is_int($configuredInstallationId) && $configuredInstallationId === $id;
+        abort_unless($validState || $validConfiguration, 403);
         abort_if($id < 1, 422);
 
         $installations->setup($request->user(), $id);

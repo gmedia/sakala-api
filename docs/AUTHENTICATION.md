@@ -67,6 +67,13 @@ dan API memverifikasi installation tersebut terhadap user GitHub yang sedang
 login sebelum menyimpannya. Webhook `POST /api/v1/webhooks/github` memverifikasi
 `X-Hub-Signature-256` dan memperbarui status installation ketika akses berubah.
 
+Untuk mengubah cakupan repository installation yang sudah terhubung, Console
+menavigasi browser ke `GET /auth/github/installations/{installation}/configure`.
+API memverifikasi kepemilikan installation terlebih dahulu, lalu redirect ke
+halaman Configure GitHub yang sesuai untuk akun personal atau organisasi. Saat
+GitHub mengirim setup callback setelah perubahan, API kembali memverifikasi
+akses user sebelum memperbarui relasi installation.
+
 Callback yang gagal selalu mengarahkan user ke halaman login Console dengan
 kode error non-sensitif: `github_access_denied`, `github_invalid_state`,
 `github_email_unavailable`, `github_email_conflict`, atau

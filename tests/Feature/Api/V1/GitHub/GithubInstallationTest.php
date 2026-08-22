@@ -139,3 +139,78 @@ test('installation setup rejects missing state', function (): void {
         ->get(route('auth.github.setup', ['installation_id' => 100]))
         ->assertForbidden();
 });
+
+test('user can configure their personal GitHub App installation', function (): void {
+    $user = User::factory()->create();
+    $installation = GithubInstallation::query()->create([
+        'github_installation_id' => 100,
+        'account_id' => 10,
+        'account_login' => 'sakala-user',
+        'account_type' => 'User',
+        'repository_selection' => 'selected',
+        'permissions' => ['contents' => 'read'],
+        'status' => GithubInstallationStatus::Active,
+    ]);
+    $installation->users()->attach($user, ['last_verified_at' => now()]);
+
+    $this->actingAs($user, 'web')
+        ->get(route('auth.github.installations.configure', $installation))
+        ->assertRedirect('https://github.com/settings/installations/100');
+
+    expect(session('github_app_configure_installation_id'))->toBe(100);
+});
+
+test('user can configure their organization GitHub App installation', function (): void {
+    $user = User::factory()->create();
+    $installation = GithubInstallation::query()->create([
+        'github_installation_id' => 100,
+        'account_id' => 10,
+        'account_login' => 'sakala-organization',
+        'account_type' => 'Organization',
+        'repository_selection' => 'selected',
+        'permissions' => ['contents' => 'read'],
+        'status' => GithubInstallationStatus::Active,
+    ]);
+    $installation->users()->attach($user, ['last_verified_at' => now()]);
+
+    $this->actingAs($user, 'web')
+        ->get(route('auth.github.installations.configure', $installation))
+        ->assertRedirect('https://github.com/organizations/sakala-organization/settings/installations/100');
+});
+
+test('user cannot configure another user GitHub App installation', function (): void {
+    $installation = GithubInstallation::query()->create([
+        'github_installation_id' => 100,
+        'account_id' => 10,
+        'account_login' => 'sakala',
+        'account_type' => 'User',
+        'repository_selection' => 'selected',
+        'permissions' => ['contents' => 'read'],
+        'status' => GithubInstallationStatus::Active,
+    ]);
+    $installation->users()->attach(User::factory()->create(), ['last_verified_at' => now()]);
+
+    $this->actingAs(User::factory()->create(), 'web')
+        ->get(route('auth.github.installations.configure', $installation))
+        ->assertForbidden();
+});
+
+test('installation setup accepts a configuration callback for the intended installation', function (): void {
+    $user = User::factory()->create();
+    OAuthAccount::factory()->for($user)->create(['access_token' => 'user-access-token']);
+    Http::fake([
+        'https://api.github.com/user/installations*' => Http::response([
+            'total_count' => 1,
+            'installations' => [[
+                'id' => 100,
+                'account' => ['id' => 10, 'login' => 'sakala', 'type' => 'User'],
+                'repository_selection' => 'selected',
+                'permissions' => ['contents' => 'read'],
+            ]],
+        ]),
+    ]);
+
+    $this->actingAs($user, 'web')->withSession(['github_app_configure_installation_id' => 100])
+        ->get(route('auth.github.setup', ['installation_id' => 100]))
+        ->assertRedirect('http://app.sakala.localhost:5173/dashboard?github_installation=connected');
+});
