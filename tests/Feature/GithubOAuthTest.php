@@ -5,7 +5,9 @@ declare(strict_types=1);
 use App\Models\OAuthAccount;
 use App\Models\User;
 use App\Services\GitHub\GithubAppOAuthService;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 uses(LazilyRefreshDatabase::class);
@@ -139,6 +141,28 @@ test('an expired GitHub App user token is refreshed before it is used', function
     expect($token)->toBe('refreshed-token')
         ->and($account->fresh()->refresh_token)->toBe('refreshed-refresh-token')
         ->and($account->fresh()->token_expires_at)->not->toBeNull();
+});
+
+test('an expired GitHub App user token refresh uses an account-scoped cache lock', function (): void {
+    $account = OAuthAccount::factory()->create([
+        'access_token' => 'expired-token',
+        'refresh_token' => 'refresh-token',
+        'token_expires_at' => now()->subMinute(),
+    ]);
+    Http::fake([
+        'https://github.com/login/oauth/access_token' => Http::response([
+            'access_token' => 'refreshed-token',
+            'refresh_token' => 'refreshed-refresh-token',
+            'expires_in' => 28800,
+        ]),
+    ]);
+    $lock = Mockery::mock(Lock::class);
+    $lock->shouldReceive('block')->once()->with(10, Mockery::type(Closure::class))->andReturnUsing(
+        fn (int $seconds, Closure $callback): string => $callback(),
+    );
+    Cache::shouldReceive('lock')->once()->with("github-app-oauth-refresh:{$account->id}", 30)->andReturn($lock);
+
+    app(GithubAppOAuthService::class)->accessToken($account);
 });
 
 test('a stale OAuth account instance uses the token refreshed by another request', function (): void {

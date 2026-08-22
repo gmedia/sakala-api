@@ -10,7 +10,7 @@ use App\Exceptions\Auth\GithubOAuthIdentityException;
 use App\Models\OAuthAccount;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -21,6 +21,10 @@ final class GithubAppOAuthService
     private const TOKEN_URL = 'https://github.com/login/oauth/access_token';
 
     private const API_URL = 'https://api.github.com';
+
+    private const REFRESH_LOCK_SECONDS = 30;
+
+    private const REFRESH_LOCK_WAIT_SECONDS = 10;
 
     public function redirect(Request $request): RedirectResponse
     {
@@ -81,9 +85,13 @@ final class GithubAppOAuthService
 
     public function accessToken(OAuthAccount $account): string
     {
-        return DB::transaction(function () use ($account): string {
-            $account = OAuthAccount::query()->lockForUpdate()->findOrFail($account->id);
-            if ($account->token_expires_at === null || $account->token_expires_at->isAfter(now()->addMinute())) {
+        if ($this->hasUsableAccessToken($account)) {
+            return $account->access_token;
+        }
+
+        return Cache::lock($this->refreshLockKey($account), self::REFRESH_LOCK_SECONDS)->block(self::REFRESH_LOCK_WAIT_SECONDS, function () use ($account): string {
+            $account = OAuthAccount::query()->findOrFail($account->id);
+            if ($this->hasUsableAccessToken($account)) {
                 return $account->access_token;
             }
 
@@ -91,7 +99,7 @@ final class GithubAppOAuthService
                 throw new \RuntimeException('GitHub authorization has expired. Please sign in again.');
             }
 
-            $token = Http::asForm()->acceptJson()->post(self::TOKEN_URL, [
+            $token = Http::asForm()->acceptJson()->connectTimeout(5)->timeout(15)->post(self::TOKEN_URL, [
                 'client_id' => $this->config('client_id'),
                 'client_secret' => $this->config('client_secret'),
                 'grant_type' => 'refresh_token',
@@ -110,6 +118,16 @@ final class GithubAppOAuthService
 
             return $account->access_token;
         });
+    }
+
+    private function hasUsableAccessToken(OAuthAccount $account): bool
+    {
+        return $account->token_expires_at === null || $account->token_expires_at->isAfter(now()->addMinute());
+    }
+
+    private function refreshLockKey(OAuthAccount $account): string
+    {
+        return "github-app-oauth-refresh:{$account->id}";
     }
 
     private function config(string $key): string
