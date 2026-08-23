@@ -41,3 +41,26 @@ request dengan credentials agar cookie session dan CSRF dapat dipakai.
 - `REVERB_ALLOWED_ORIGINS`: allowlist origin WebSocket dipisahkan koma.
 
 Nilai credential sengaja kosong di `.env.example`; buat nilai lokal sendiri dan gunakan GitLab File variable untuk private key di environment deployment. Private key, webhook secret, dan installation token tidak boleh masuk log, OpenAPI, atau database.
+
+### Pengaturan di GitHub App
+
+Selain environment API, konfigurasi GitHub App harus memakai nilai berikut agar
+flow installation dan perubahan cakupan repository bekerja:
+
+```text
+Setup URL:
+https://api.sakala.dev/auth/github/setup
+
+Redirect on update:
+ON
+
+Request user authorization (OAuth) during installation:
+OFF
+```
+
+Sesuaikan host pada Setup URL dengan nilai `GITHUB_APP_SETUP_URI`. `Redirect on
+update` membuat GitHub memanggil Setup URL setelah user menambah atau menghapus
+repository dari installation. OAuth saat installation harus dimatikan karena
+Sakala memulai user-to-server OAuth sendiri melalui
+`GET /auth/github/redirect`; bila dinyalakan GitHub mengarahkan flow tersebut
+ke OAuth callback, bukan Setup URL.
