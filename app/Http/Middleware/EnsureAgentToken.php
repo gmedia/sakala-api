@@ -33,7 +33,7 @@ final class EnsureAgentToken
 
         $token = Str::substr($authHeader, 7);
 
-        $agent = AgentNode::where('id', $agentId)->first();
+        $agent = AgentNode::where('agent_id', $agentId)->first();
 
         if (! $agent) {
             abort(401, 'Unauthorized');

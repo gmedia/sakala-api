@@ -9,7 +9,6 @@ use App\Enums\UserRole;
 use App\Models\AgentNode;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -41,6 +40,7 @@ final class AgentTest extends TestCase
         $response->assertJsonStructure([
             'data' => [
                 'id',
+                'agent_id',
                 'name',
                 'description',
                 'token_prefix',
@@ -55,6 +55,7 @@ final class AgentTest extends TestCase
         $this->assertDatabaseHas('agent_nodes', [
             'name' => 'Test Agent',
             'auth_status' => AgentAuthStatus::Active->value,
+            'status' => 'offline',
         ]);
 
         // Verify token is returned and matches the hash stored in DB
@@ -78,28 +79,25 @@ final class AgentTest extends TestCase
 
     public function test_store_agent_without_auth_fails(): void
     {
-        // Test that the route has the auth:sanctum middleware
+        $this->actingAsGuest();
 
-        // Use withoutExceptionHandling to see the actual error
-        $response = $this->withoutExceptionHandling()->postJson('/api/agent/v1/agents', [
+        $response = $this->postJson('/api/agent/v1/agents', [
             'name' => 'Test Agent',
         ]);
 
-        // If we get here, Sanctum is not blocking, so we need to test the route middleware
-        $this->assertTrue(true); // Placeholder
+        $response->assertUnauthorized();
+    }
 
-        // Instead, let's test that the route has the auth:sanctum middleware
-        $router = $this->app->make(Router::class);
-        $routes = $router->getRoutes()->getRoutes();
-        $agentStoreRoute = null;
-        foreach ($routes as $route) {
-            if ($route->getAction('controller') === 'App\\Http\\Controllers\\Api\\V1\\Agent\\AgentController@store') {
-                $agentStoreRoute = $route;
-                break;
-            }
-        }
-        $this->assertNotNull($agentStoreRoute, 'Agent store route not found');
-        $this->assertContains('auth:sanctum', $agentStoreRoute->gatherMiddleware());
+    public function test_store_agent_without_admin_role_fails(): void
+    {
+        $user = User::factory()->create(['role' => UserRole::User]);
+        $this->actingAs($user, 'sanctum');
+
+        $response = $this->postJson('/api/agent/v1/agents', [
+            'name' => 'Test Agent',
+        ]);
+
+        $response->assertForbidden();
     }
 
     // ========== Index Agent Tests ==========
@@ -133,11 +131,13 @@ final class AgentTest extends TestCase
         ]);
     }
 
-    // ========== Rotate Token Tests ==========
+    // ========== Token Tests ==========
 
     public function test_rotate_agent_token(): void
     {
         $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+
+        $statusBeforeRotate = $agent->status;
 
         $response = $this->postJson("/api/agent/v1/agents/{$agent->id}/rotate");
 
@@ -157,6 +157,10 @@ final class AgentTest extends TestCase
             'id' => $agent->id,
             'auth_status' => AgentAuthStatus::Active->value,
         ]);
+
+        // Token rotation must not change runtime status
+        $agent->refresh();
+        $this->assertEquals($statusBeforeRotate, $agent->status);
     }
 
     // ========== Revoke Agent Tests ==========
@@ -209,7 +213,7 @@ final class AgentTest extends TestCase
 
         $response = $this->withHeaders([
             'Authorization' => 'Bearer invalid-token',
-            'X-Agent-Id' => $agent->id,
+            'X-Agent-Id' => $agent->agent_id,
         ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertUnauthorized();
@@ -229,7 +233,7 @@ final class AgentTest extends TestCase
 
         $response = $this->withHeaders([
             'Authorization' => "Bearer {$token}",
-            'X-Agent-Id' => $agent->id,
+            'X-Agent-Id' => $agent->agent_id,
         ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertForbidden();
@@ -245,7 +249,7 @@ final class AgentTest extends TestCase
 
         $response = $this->withHeaders([
             'Authorization' => "Bearer {$token}",
-            'X-Agent-Id' => $agent->id,
+            'X-Agent-Id' => $agent->agent_id,
         ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertOk(); // Middleware passed, route exists
@@ -309,7 +313,7 @@ final class AgentTest extends TestCase
 
         $response = $this->withHeaders([
             'Authorization' => "Bearer {$token}",
-            'X-Agent-Id' => $agentB->id,
+            'X-Agent-Id' => $agentB->agent_id,
         ])->postJson('/api/agent/v1/heartbeat');
 
         $response->assertUnauthorized();

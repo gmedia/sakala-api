@@ -39,6 +39,15 @@ class AgentNode extends Model
     /** @use HasFactory<AgentNodeFactory> */
     use HasFactory, HasUuids;
 
+    protected static function booted(): void
+    {
+        static::creating(function (AgentNode $node): void {
+            if (! isset($node->attributes['status'])) {
+                $node->status = AgentNodeStatus::Offline;
+            }
+        });
+    }
+
     /** @return HasMany<Deployment, $this> */
     public function deployments(): HasMany
     {

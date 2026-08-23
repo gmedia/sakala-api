@@ -20,6 +20,7 @@ final class AgentResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'agent_id' => $this->agent_id,
             'name' => $this->name,
             'description' => $this->description,
             'token_prefix' => $this->token_prefix,

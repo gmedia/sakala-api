@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Enums\AgentAuthStatus;
-use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
 use Illuminate\Support\Str;
 
@@ -20,7 +19,6 @@ final class RotateAgentTokenAction
             'token_hash' => bcrypt($newToken),
             'token_prefix' => $newPrefix,
             'auth_status' => AgentAuthStatus::Active,
-            'status' => AgentNodeStatus::Ready,
         ]);
 
         return $newToken;
