@@ -102,6 +102,12 @@ class Deployment extends Model
         return $this->hasMany(DeploymentLog::class);
     }
 
+    /** @return HasMany<Feedback, $this> */
+    public function feedbacks(): HasMany
+    {
+        return $this->hasMany(Feedback::class);
+    }
+
     /**
      * Scope a query to only include active (non-terminal) deployments.
      *

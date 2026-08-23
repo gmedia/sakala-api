@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
+use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
 use App\Http\Controllers\Api\V1\GitHub\GithubInstallationController;
 use App\Http\Controllers\Api\V1\GitHub\GithubRepositoryController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
@@ -16,6 +17,11 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::prefix('app')->middleware('auth:web')->group(function (): void {
+    // Feedback routes
+    Route::post('/feedback', [FeedbackController::class, 'store'])
+        ->middleware('throttle:feedback')
+        ->name('api.v1.app.feedback.store');
+
     // Pilot runtime and quota limits
     Route::get('/pilot-limits', [PilotLimitsController::class, 'show'])
         ->name('api.v1.app.pilot-limits.show');

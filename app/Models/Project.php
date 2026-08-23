@@ -89,6 +89,12 @@ class Project extends Model
         return $this->hasMany(AgentCommand::class);
     }
 
+    /** @return HasMany<Feedback, $this> */
+    public function feedbacks(): HasMany
+    {
+        return $this->hasMany(Feedback::class);
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {
