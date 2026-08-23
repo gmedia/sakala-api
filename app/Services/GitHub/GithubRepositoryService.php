@@ -214,14 +214,17 @@ final class GithubRepositoryService
         User $user,
         string $url,
     ): GithubRepositoryData {
-        $accessToken = $this->githubOAuth
-            ->getOptionalAccessToken($user);
+        return $this->getPublicRepositoryByUrl($url);
+    }
+
+    public function getPublicRepositoryByUrl(string $url): GithubRepositoryData
+    {
 
         $repositoryFullName = $this->parseRepository($url);
 
         $response = $this->githubClient->get(
             "/repos/{$repositoryFullName}",
-            $accessToken,
+            null,
         );
 
         if ($response->status() === 404) {
@@ -244,6 +247,12 @@ final class GithubRepositoryService
             throw new RuntimeException(
                 'Invalid repository response from GitHub.',
             );
+        }
+
+        if (($repository['private'] ?? false) === true) {
+            throw ValidationException::withMessages([
+                'repository_url' => ['Private repositories must be selected from a connected GitHub installation.'],
+            ]);
         }
 
         /** @var array<string, mixed> $repository */

@@ -10,6 +10,8 @@ use RuntimeException;
 
 final class GithubOAuth
 {
+    public function __construct(private readonly GithubAppOAuthService $githubAppOAuth) {}
+
     /**
      * Get GitHub OAuth account for the user.
      */
@@ -34,7 +36,7 @@ final class GithubOAuth
      */
     public function getAccessToken(User $user): string
     {
-        $accessToken = $this->getAccount($user)->access_token;
+        $accessToken = $this->githubAppOAuth->accessToken($this->getAccount($user));
 
         if (blank($accessToken)) {
             throw new RuntimeException('GitHub access token is missing for the user.');
@@ -59,7 +61,7 @@ final class GithubOAuth
             return null;
         }
 
-        return $account->access_token;
+        return $this->githubAppOAuth->accessToken($account);
     }
 
     /**

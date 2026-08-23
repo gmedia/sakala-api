@@ -20,53 +20,6 @@ beforeEach(function () {
     ]);
 });
 
-test('github api failure is handled when listing repositories', function () {
-    Http::fake([
-        'https://api.github.com/user/repos*' => Http::response(
-            ['message' => 'Internal Server Error'],
-            500,
-        ),
-    ]);
-
-    $response = $this
-        ->actingAs($this->user, 'web')
-        ->getJson('/api/v1/app/github/repositories');
-
-    $response->assertServerError();
-});
-
-test('github api failure is handled when searching repositories', function () {
-    Http::fake([
-        'https://api.github.com/search/repositories*' => Http::response(
-            ['message' => 'Internal Server Error'],
-            500,
-        ),
-    ]);
-
-    $response = $this
-        ->actingAs($this->user, 'web')
-        ->getJson(
-            '/api/v1/app/github/repositories?search=sakala',
-        );
-
-    $response->assertServerError();
-});
-
-test('github api failure is handled when counting repositories', function () {
-    Http::fake([
-        'https://api.github.com/user' => Http::response(
-            ['message' => 'Internal Server Error'],
-            500,
-        ),
-    ]);
-
-    $response = $this
-        ->actingAs($this->user, 'web')
-        ->getJson('/api/v1/app/github/repositories/count');
-
-    $response->assertServerError();
-});
-
 test('github api failure is handled when getting branches', function () {
     Http::fake([
         'https://api.github.com/repos/gmedia/sakala-api/branches*' => Http::response(

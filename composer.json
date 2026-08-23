@@ -13,6 +13,7 @@
     "require": {
         "php": "^8.5",
         "dedoc/scramble": "^0.13",
+        "firebase/php-jwt": "^7.1",
         "laravel/framework": "^13.8",
         "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.3",

@@ -74,8 +74,7 @@ final class CreateDeploymentAction
         }
 
         $commit = $this->githubBranchService->getBranchCommit(
-            user: $user,
-            repositoryFullName: $project->repository_full_name,
+            project: $project,
             branch: $data->branch,
         );
 

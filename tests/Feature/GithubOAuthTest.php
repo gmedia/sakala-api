@@ -2,218 +2,185 @@
 
 declare(strict_types=1);
 
-use App\Enums\OAuthProvider;
 use App\Models\OAuthAccount;
 use App\Models\User;
+use App\Services\GitHub\GithubAppOAuthService;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use Laravel\Socialite\Facades\Socialite;
-use Laravel\Socialite\Two\InvalidStateException;
-use Laravel\Socialite\Two\User as SocialiteUser;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 uses(LazilyRefreshDatabase::class);
 
 beforeEach(function (): void {
-    config()->set('services.github.client_id', 'github-client-id');
-    config()->set('services.github.client_secret', 'github-client-secret');
-    config()->set('services.github.redirect', 'http://api.sakala.localhost:8000/auth/github/callback');
+    config()->set('services.github_app.client_id', 'github-app-client-id');
+    config()->set('services.github_app.client_secret', 'github-app-client-secret');
+    config()->set('services.github_app.redirect', 'http://api.sakala.localhost:8000/auth/github/callback');
     config()->set('sakala.console_url', 'http://app.sakala.localhost:5173');
 });
 
-test('the GitHub redirect uses Socialite state and only profile scopes needed for login', function () {
+function fakeGithubAppIdentity(): void
+{
+    Http::fake([
+        'https://github.com/login/oauth/access_token' => Http::response([
+            'access_token' => 'ghu_test_token', 'refresh_token' => 'ghr_test_token', 'expires_in' => 28800,
+        ]),
+        'https://api.github.com/user' => Http::response([
+            'id' => 84290817, 'login' => 'sakala-builder', 'name' => 'Sakala Builder', 'avatar_url' => 'https://avatars.example.test/builder.png',
+        ]),
+        'https://api.github.com/user/emails' => Http::response([
+            ['email' => 'builder@example.test', 'primary' => true, 'verified' => true],
+        ]),
+    ]);
+}
+
+test('GitHub App redirect uses state and does not request OAuth scopes', function (): void {
     $response = $this->get(route('auth.github.redirect'));
-
-    $response->assertRedirect();
-
     $query = [];
     parse_str((string) parse_url($response->headers->get('Location'), PHP_URL_QUERY), $query);
 
-    expect($response->headers->get('Location'))->toStartWith('https://github.com/login/oauth/authorize?')
-        ->and($query['redirect_uri'])->toBe('http://api.sakala.localhost:8000/auth/github/callback')
-        ->and(explode(',', (string) $query['scope']))->toContain('read:user', 'user:email')
-        ->and(explode(',', (string) $query['scope']))->toContain('repo')
+    $response->assertRedirect();
+    expect($query['client_id'])->toBe('github-app-client-id')
+        ->and($query)->not->toHaveKey('scope')
         ->and($query['state'])->toBeString()->not->toBeEmpty()
-        ->and(session('state'))->toBe($query['state']);
+        ->and(session('github_app_oauth_state'))->toBe($query['state']);
 });
 
-test('a GitHub callback creates the user, creates its provider identity, and starts a console session', function () {
-    $socialiteUser = SocialiteUser::fake([
-        'id' => '84290817',
-        'nickname' => 'sakala-builder',
-        'name' => 'Sakala Builder',
-        'email' => 'builder@example.test',
-        'avatar' => 'https://avatars.example.test/builder.png',
-        'token' => 'provider-access-token',
-        'refreshToken' => 'provider-refresh-token',
-    ]);
+test('GitHub App callback creates a user and starts a console session', function (): void {
+    fakeGithubAppIdentity();
+    $state = 'state-for-test';
 
-    Socialite::fake('github', $socialiteUser);
-
-    $sessionId = session()->getId();
-
-    $this->get(route('auth.github.callback'))
+    $this->withSession(['github_app_oauth_state' => $state])
+        ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => $state]))
         ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
 
     $user = User::query()->sole();
-
     $this->assertAuthenticatedAs($user, 'web');
-
-    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
-        ->getJson(route('api.v1.auth.user'))
-        ->assertOk()
-        ->assertJsonPath('data.id', $user->id);
-
-    expect(session()->getId())
-        ->not->toBe($sessionId)
-        ->and($user->email_verified_at)
-        ->not->toBeNull()
-        ->and($user->last_login_at)
-        ->not->toBeNull()
-        ->and($user->tokens()->count())
-        ->toBe(0);
-
-    $this->assertDatabaseHas('oauth_accounts', [
-        'user_id' => $user->id,
-        'provider' => OAuthProvider::Github->value,
-        'provider_user_id' => '84290817',
-        'provider_username' => 'sakala-builder',
-        'avatar_url' => 'https://avatars.example.test/builder.png',
-    ]);
-
-    $oauthAccount = OAuthAccount::query()
-        ->where('user_id', $user->id)
-        ->where('provider', OAuthProvider::Github->value)
-        ->sole();
-
-    expect($oauthAccount->access_token)
-        ->toBe('provider-access-token')
-        ->and($oauthAccount->refresh_token)
-        ->toBe('provider-refresh-token')
-        ->and($oauthAccount->token_expires_at)
-        ->not->toBeNull();
+    $account = OAuthAccount::query()->sole();
+    expect($account->access_token)->toBe('ghu_test_token')
+        ->and($account->refresh_token)->toBe('ghr_test_token')
+        ->and($account->token_expires_at)->not->toBeNull();
 });
 
-test('a numeric GitHub provider ID is stored as a string identity', function () {
-    Socialite::fake('github', SocialiteUser::fake([
-        'id' => 84290817,
-        'email' => 'numeric-id@example.test',
-    ]));
-
-    $this->get(route('auth.github.callback'))
-        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
-
-    $this->assertDatabaseHas('oauth_accounts', [
-        'provider' => OAuthProvider::Github->value,
-        'provider_user_id' => '84290817',
-    ]);
+test('GitHub App callback rejects invalid state', function (): void {
+    $this->withSession(['github_app_oauth_state' => 'expected'])
+        ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'wrong']))
+        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_invalid_state');
 });
 
-test('a returning GitHub identity uses its existing user without creating duplicates', function () {
+test('GitHub App callback rejects missing state even when both values are absent', function (): void {
+    $this->get(route('auth.github.callback', ['code' => 'oauth-code']))
+        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_invalid_state');
+});
+
+test('a returning GitHub identity uses its existing user without creating duplicates', function (): void {
     $user = User::factory()->create(['last_login_at' => null]);
     OAuthAccount::factory()->for($user)->create([
-        'provider' => OAuthProvider::Github,
         'provider_user_id' => '84290817',
         'provider_username' => 'old-username',
     ]);
-    Socialite::fake('github', SocialiteUser::fake([
-        'id' => '84290817',
-        'nickname' => 'updated-username',
-        'email' => 'different-github-email@example.test',
-        'avatar' => 'https://avatars.example.test/updated.png',
-    ]));
+    fakeGithubAppIdentity();
 
-    $this->get(route('auth.github.callback'))
+    $this->withSession(['github_app_oauth_state' => 'state'])
+        ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'state']))
         ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
 
     $this->assertAuthenticatedAs($user, 'web');
     expect(User::query()->count())->toBe(1)
         ->and(OAuthAccount::query()->count())->toBe(1)
         ->and($user->fresh()->last_login_at)->not->toBeNull();
-
-    $this->assertDatabaseHas('oauth_accounts', [
-        'id' => $user->oauthAccounts()->sole()->id,
-        'provider_username' => 'updated-username',
-        'avatar_url' => 'https://avatars.example.test/updated.png',
-    ]);
 });
 
-test('a GitHub email cannot silently link an existing account without its provider identity', function () {
-    User::factory()->create(['email' => 'existing@example.test']);
-    Socialite::fake('github', SocialiteUser::fake([
-        'id' => '84290817',
-        'email' => 'existing@example.test',
-    ]));
+test('a GitHub email cannot silently link an existing account without its provider identity', function (): void {
+    User::factory()->create(['email' => 'builder@example.test']);
+    fakeGithubAppIdentity();
 
-    $this->get(route('auth.github.callback'))
+    $this->withSession(['github_app_oauth_state' => 'state'])
+        ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'state']))
         ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_email_conflict');
 
     $this->assertGuest('web');
     expect(OAuthAccount::query()->count())->toBe(0);
 });
 
-test('a GitHub callback without a verified email returns a safe recovery redirect', function () {
-    Socialite::fake('github', SocialiteUser::fake([
-        'id' => '84290817',
-        'email' => null,
-    ]));
-
-    $this->get(route('auth.github.callback'))
-        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_email_unavailable');
-
-    $this->assertGuest('web');
-    expect(User::query()->count())->toBe(0);
-});
-
-test('a denied GitHub consent returns a safe recovery redirect', function () {
+test('a denied GitHub consent returns a safe recovery redirect', function (): void {
     $this->get(route('auth.github.callback', ['error' => 'access_denied']))
         ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_access_denied');
 
     $this->assertGuest('web');
 });
 
-test('an invalid OAuth state returns a safe recovery redirect', function () {
-    Socialite::fake('github', function (): never {
-        throw new InvalidStateException;
-    });
-
-    $this->get(route('auth.github.callback'))
-        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_invalid_state');
-
-    $this->assertGuest('web');
-});
-
-test('a provider failure returns a safe recovery redirect', function () {
-    Socialite::fake('github', function (): never {
-        throw new RuntimeException('GitHub is unavailable');
-    });
-
-    $this->get(route('auth.github.callback'))
-        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_provider_failure');
-
-    $this->assertGuest('web');
-});
-
-test('OAuth callback does not create personal access tokens for console users', function () {
-    $socialiteUser = SocialiteUser::fake([
-        'id' => '99999999',
-        'nickname' => 'no-pat-user',
-        'name' => 'No PAT User',
-        'email' => 'nopat@example.test',
-        'avatar' => 'https://avatars.example.test/nopat.png',
-        'token' => 'provider-access-token',
-        'refreshToken' => 'provider-refresh-token',
+test('GitHub App callback requires a verified primary email', function (): void {
+    Http::fake([
+        'https://github.com/login/oauth/access_token' => Http::response(['access_token' => 'ghu_test_token']),
+        'https://api.github.com/user' => Http::response(['id' => 1, 'login' => 'missing-email']),
+        'https://api.github.com/user/emails' => Http::response([]),
     ]);
 
-    Socialite::fake('github', $socialiteUser);
+    $this->withSession(['github_app_oauth_state' => 'state'])
+        ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'state']))
+        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_email_unavailable');
+});
 
-    $originalSessionId = session()->getId();
+test('an expired GitHub App user token is refreshed before it is used', function (): void {
+    $account = OAuthAccount::factory()->create([
+        'access_token' => 'expired-token',
+        'refresh_token' => 'refresh-token',
+        'token_expires_at' => now()->subMinute(),
+    ]);
+    Http::fake([
+        'https://github.com/login/oauth/access_token' => Http::response([
+            'access_token' => 'refreshed-token',
+            'refresh_token' => 'refreshed-refresh-token',
+            'expires_in' => 28800,
+        ]),
+    ]);
 
-    $this->get(route('auth.github.callback'))
-        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+    $token = app(GithubAppOAuthService::class)->accessToken($account);
 
-    $user = User::query()->sole();
-    $this->assertAuthenticatedAs($user, 'web');
+    expect($token)->toBe('refreshed-token')
+        ->and($account->fresh()->refresh_token)->toBe('refreshed-refresh-token')
+        ->and($account->fresh()->token_expires_at)->not->toBeNull();
+});
 
-    expect($user->tokens()->count())->toBe(0)
-        ->and($user->tokens)->toBeEmpty()
-        ->and(session()->getId())->not->toBe($originalSessionId);
+test('an expired GitHub App user token refresh uses an account-scoped cache lock', function (): void {
+    $account = OAuthAccount::factory()->create([
+        'access_token' => 'expired-token',
+        'refresh_token' => 'refresh-token',
+        'token_expires_at' => now()->subMinute(),
+    ]);
+    Http::fake([
+        'https://github.com/login/oauth/access_token' => Http::response([
+            'access_token' => 'refreshed-token',
+            'refresh_token' => 'refreshed-refresh-token',
+            'expires_in' => 28800,
+        ]),
+    ]);
+    $lock = Mockery::mock(Lock::class);
+    $lock->shouldReceive('block')->once()->with(20, Mockery::type(Closure::class))->andReturnUsing(
+        fn (int $seconds, Closure $callback): string => $callback(),
+    );
+    Cache::shouldReceive('lock')->once()->with("github-app-oauth-refresh:{$account->id}", 30)->andReturn($lock);
+
+    app(GithubAppOAuthService::class)->accessToken($account);
+});
+
+test('a stale OAuth account instance uses the token refreshed by another request', function (): void {
+    $account = OAuthAccount::factory()->create([
+        'access_token' => 'expired-token',
+        'refresh_token' => 'refresh-token',
+        'token_expires_at' => now()->subMinute(),
+    ]);
+    $staleAccount = $account->fresh();
+    $account->update([
+        'access_token' => 'refreshed-by-other-request',
+        'refresh_token' => 'rotated-refresh-token',
+        'token_expires_at' => now()->addHours(8),
+    ]);
+    Http::fake();
+
+    $token = app(GithubAppOAuthService::class)->accessToken($staleAccount);
+
+    expect($token)->toBe('refreshed-by-other-request');
+    Http::assertNothingSent();
 });

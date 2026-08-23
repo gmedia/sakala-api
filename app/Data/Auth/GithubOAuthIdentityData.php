@@ -6,8 +6,6 @@ namespace App\Data\Auth;
 
 use App\Enums\GithubOAuthFailure;
 use App\Exceptions\Auth\GithubOAuthIdentityException;
-use Laravel\Socialite\Contracts\User as SocialiteUserContract;
-use Laravel\Socialite\Two\User as SocialiteTwoUser;
 
 final readonly class GithubOAuthIdentityData
 {
@@ -22,25 +20,19 @@ final readonly class GithubOAuthIdentityData
         public ?int $expiresIn,
     ) {}
 
-    public static function fromSocialiteUser(
-        SocialiteUserContract $user,
-    ): self {
-        if (! $user instanceof SocialiteTwoUser) {
-            throw new GithubOAuthIdentityException(
-                GithubOAuthFailure::ProviderFailure,
-            );
-        }
-
-        $providerUserId = self::normalizedProviderId($user->getId());
-        $email = self::normalized($user->getEmail());
-        $providerUsername = self::normalized($user->getNickname());
+    /** @param array<string, mixed> $profile */
+    public static function fromGithubProfile(array $profile, string $email, string $accessToken, ?string $refreshToken, ?int $expiresIn): self
+    {
+        $providerUserId = self::normalizedProviderId($profile['id'] ?? null);
+        $email = self::normalized($email);
+        $providerUsername = self::normalized(is_string($profile['login'] ?? null) ? $profile['login'] : null);
 
         if ($providerUserId === null) {
             throw new GithubOAuthIdentityException(GithubOAuthFailure::ProviderFailure);
         }
 
-        // GitHub Socialite requests user:email and returns only a primary,
-        // verified email address. Never infer one from an unverified profile.
+        // GitHub App email data must be primary and verified. Never infer an
+        // address from an unverified profile.
         if ($email === null || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             throw new GithubOAuthIdentityException(GithubOAuthFailure::EmailUnavailable);
         }
@@ -48,12 +40,12 @@ final readonly class GithubOAuthIdentityData
         return new self(
             providerUserId: $providerUserId,
             providerUsername: $providerUsername,
-            name: self::normalized($user->getName()) ?? $providerUsername ?? 'GitHub user',
+            name: self::normalized(is_string($profile['name'] ?? null) ? $profile['name'] : null) ?? $providerUsername ?? 'GitHub user',
             email: mb_strtolower($email),
-            avatarUrl: self::normalized($user->getAvatar()),
-            accessToken: $user->token,
-            refreshToken: $user->refreshToken,
-            expiresIn: $user->expiresIn,
+            avatarUrl: self::normalized(is_string($profile['avatar_url'] ?? null) ? $profile['avatar_url'] : null),
+            accessToken: $accessToken,
+            refreshToken: $refreshToken,
+            expiresIn: $expiresIn,
         );
     }
 

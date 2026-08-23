@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\GitHub;
 
+use App\Models\Project;
 use App\Models\User;
 use App\Support\GitHub\RepositoryParser;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use RuntimeException;
@@ -14,7 +16,7 @@ final class GithubBranchService
 {
     public function __construct(
         private readonly GithubAPIClient $githubClient,
-        private readonly GithubOAuth $githubOAuth,
+        private readonly GithubInstallationTokenService $installationTokens,
         private readonly RepositoryParser $repositoryParser,
     ) {}
 
@@ -48,16 +50,13 @@ final class GithubBranchService
     ): array {
         $repositoryFullName = $this->parseRepository($repositoryUrl);
 
-        $accessToken = $this->githubOAuth
-            ->getOptionalAccessToken($user);
-
         $result = [];
         $page = 1;
 
         do {
             $response = $this->githubClient->get(
                 "/repos/{$repositoryFullName}/branches",
-                $accessToken,
+                null,
                 [
                     'page' => $page,
                     'per_page' => 100,
@@ -101,16 +100,17 @@ final class GithubBranchService
      * @return array{sha: string, message: string}
      */
     public function getBranchCommit(
-        User $user,
-        string $repositoryFullName,
+        Project $project,
         string $branch,
     ): array {
-        $accessToken = $this->githubOAuth
-            ->getOptionalAccessToken($user);
+        $installation = $project->github_installation_id === null ? null : $project->githubInstallation;
+        if ($project->github_installation_id !== null && $installation === null) {
+            $this->throwRepositoryAccessRemoved();
+        }
 
         $response = $this->githubClient->get(
-            "/repos/{$repositoryFullName}/commits",
-            $accessToken,
+            "/repos/{$project->repository_full_name}/commits",
+            $installation === null ? null : $this->installationTokens->for($installation),
             [
                 'sha' => $branch,
                 'per_page' => 1,
@@ -118,6 +118,10 @@ final class GithubBranchService
         );
 
         if ($response->status() === 404) {
+            if ($installation !== null) {
+                $this->throwRepositoryAccessRemoved();
+            }
+
             throw ValidationException::withMessages([
                 'branch' => [
                     'The selected branch does not exist or is inaccessible.',
@@ -146,5 +150,12 @@ final class GithubBranchService
                 explode("\n", $commits[0]['commit']['message'], 2)[0],
             ),
         ];
+    }
+
+    private function throwRepositoryAccessRemoved(): never
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'GitHub App no longer has access to this repository. Reconnect GitHub or choose another repository.',
+        ], 409));
     }
 }

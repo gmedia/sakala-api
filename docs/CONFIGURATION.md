@@ -28,13 +28,39 @@ Untuk Sanctum SPA session, `CORS_ALLOWED_ORIGINS` harus berisi origin Console
 secara eksplisit dan tidak boleh menggunakan wildcard. Console harus mengirim
 request dengan credentials agar cookie session dan CSRF dapat dipakai.
 
-## GitHub OAuth dan Realtime
+## GitHub App dan Realtime
 
-- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`: credential OAuth App GitHub.
-- `GITHUB_REDIRECT_URI`: callback URI OAuth yang harus identik dengan yang
-  didaftarkan pada GitHub OAuth App. Local default:
+- `GITHUB_APP_ID`, `GITHUB_APP_SLUG`: identitas GitHub App.
+- `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`: credential user-to-server OAuth GitHub App.
+- `GITHUB_APP_PRIVATE_KEY_PATH`: path File variable private key PEM GitHub App.
+- `GITHUB_APP_WEBHOOK_SECRET`: secret HMAC SHA-256 webhook GitHub App.
+- `GITHUB_APP_REDIRECT_URI`, `GITHUB_APP_SETUP_URI`: callback login dan setup installation.
+  Callback login local default:
   `http://api.sakala.localhost:8000/auth/github/callback`.
 - `REVERB_APP_*`: credential aplikasi Reverb.
 - `REVERB_ALLOWED_ORIGINS`: allowlist origin WebSocket dipisahkan koma.
 
-Nilai credential sengaja kosong di `.env.example`; buat nilai lokal sendiri dan gunakan secret manager di environment deployment.
+Nilai credential sengaja kosong di `.env.example`; buat nilai lokal sendiri dan gunakan GitLab File variable untuk private key di environment deployment. Private key, webhook secret, dan installation token tidak boleh masuk log, OpenAPI, atau database.
+
+### Pengaturan di GitHub App
+
+Selain environment API, konfigurasi GitHub App harus memakai nilai berikut agar
+flow installation dan perubahan cakupan repository bekerja:
+
+```text
+Setup URL:
+https://api.sakala.dev/auth/github/setup
+
+Redirect on update:
+ON
+
+Request user authorization (OAuth) during installation:
+OFF
+```
+
+Sesuaikan host pada Setup URL dengan nilai `GITHUB_APP_SETUP_URI`. `Redirect on
+update` membuat GitHub memanggil Setup URL setelah user menambah atau menghapus
+repository dari installation. OAuth saat installation harus dimatikan karena
+Sakala memulai user-to-server OAuth sendiri melalui
+`GET /auth/github/redirect`; bila dinyalakan GitHub mengarahkan flow tersebut
+ke OAuth callback, bukan Setup URL.

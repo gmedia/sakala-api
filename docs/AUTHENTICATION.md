@@ -29,20 +29,20 @@ Flow session lokal:
 4. Saat keluar, Console memanggil `POST /api/v1/auth/logout`.
 5. Request `GET /api/v1/auth/user` berikutnya akan menghasilkan `401`.
 
-### GitHub OAuth
+### GitHub App
 
-GitHub OAuth berjalan di atas session foundation ini. OAuth adalah browser flow,
+GitHub App user-to-server OAuth berjalan di atas session foundation ini. OAuth adalah browser flow,
 sehingga route-nya berada di web middleware, bukan di API JSON versioned:
 
 | Endpoint | Kegunaan |
 | --- | --- |
-| `GET /auth/github/redirect` | Membuka authorization flow GitHub melalui Socialite. |
+| `GET /auth/github/redirect` | Membuka authorization flow GitHub App. |
 | `GET /auth/github/callback` | Menerima callback GitHub dan membuat session Console. |
 
 Flow browser:
 
 1. Browser membuka `GET /auth/github/redirect` pada API.
-2. Socialite menyimpan dan memverifikasi OAuth state melalui session Laravel.
+2. API menyimpan dan memverifikasi OAuth state melalui session Laravel.
 3. GitHub mengarahkan browser ke `GET /auth/github/callback` pada API.
 4. API menemukan identitas berdasarkan kombinasi `provider` dan `provider_user_id`.
 5. Jika identitas belum ada, API membuat user baru dari email GitHub yang terverifikasi dan membuat `OAuthAccount`.
@@ -51,10 +51,28 @@ Flow browser:
 8. API mengarahkan browser kembali ke Console tanpa credential pada URL.
 9. Console mengambil user melalui `GET /api/v1/auth/user`.
 
-Sakala hanya meminta scope `read:user` dan `user:email` saat login. Access
-token GitHub dipakai sementara oleh Socialite untuk menyelesaikan login dan
-tidak disimpan pada `oauth_accounts`. Akses repository akan menjadi flow
-persetujuan terpisah ketika fitur koneksi repository dibuat.
+GitHub App tidak memakai OAuth scope URL. Permission user dan repository
+ditentukan pada registrasi GitHub App. User access token dan refresh token
+disimpan terenkripsi untuk menjaga session koneksi dan mengotorisasi pilihan
+installation maupun repository pengguna. Token installation hanya dipakai API
+untuk operasi layanan setelah project terikat, tidak disimpan di database, dan
+hanya dicache terenkripsi sebelum kedaluwarsa.
+
+### GitHub installation
+
+Repository publik dapat divalidasi dengan URL tanpa credential. Repository
+private atau repository organisasi harus dipilih dari GitHub App installation.
+Browser membuka `/auth/github/install`, GitHub mengembalikan setup callback,
+dan API memverifikasi installation tersebut terhadap user GitHub yang sedang
+login sebelum menyimpannya. Webhook `POST /api/v1/webhooks/github` memverifikasi
+`X-Hub-Signature-256` dan memperbarui status installation ketika akses berubah.
+
+Untuk mengubah cakupan repository installation yang sudah terhubung, Console
+menavigasi browser ke `GET /auth/github/installations/{installation}/configure`.
+API memverifikasi kepemilikan installation terlebih dahulu, lalu redirect ke
+halaman Configure GitHub yang sesuai untuk akun personal atau organisasi. Saat
+GitHub mengirim setup callback setelah perubahan, API kembali memverifikasi
+akses user sebelum memperbarui relasi installation.
 
 Callback yang gagal selalu mengarahkan user ke halaman login Console dengan
 kode error non-sensitif: `github_access_denied`, `github_invalid_state`,
@@ -62,8 +80,8 @@ kode error non-sensitif: `github_access_denied`, `github_invalid_state`,
 `github_provider_failure`. Kegagalan tidak mengembalikan bearer token,
 personal access token, detail provider, maupun credential pada URL.
 
-Konfigurasi GitHub OAuth App harus memakai callback URI yang persis sama
-dengan `GITHUB_REDIRECT_URI`. Untuk local development:
+Konfigurasi GitHub App harus memakai callback URI yang persis sama dengan
+`GITHUB_APP_REDIRECT_URI`. Untuk local development:
 
 ```text
 http://api.sakala.localhost:8000/auth/github/callback
@@ -75,8 +93,8 @@ Untuk deployment, gunakan host API yang sebenarnya, misalnya:
 https://api.sakala.dev/auth/github/callback
 ```
 
-Jangan gunakan `stateless()` atau membuat OAuth state sendiri. Socialite
-stateful flow adalah proteksi callback browser terhadap CSRF.
+Jangan mematikan atau melewati state callback. State session adalah proteksi
+callback browser terhadap CSRF.
 
 ### Batasan Login Email dan Google
 

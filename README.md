@@ -16,7 +16,7 @@ API tidak merender UI dan tidak bergantung pada Inertia atau Fortify. Browser fi
 
 - PHP 8.5 dan Laravel 13
 - PostgreSQL, Redis, queue database
-- Laravel Sanctum, Socialite, dan Reverb
+- Laravel Sanctum, GitHub App, dan Reverb
 - Scramble untuk dokumentasi OpenAPI 3.1
 - Pest, Pint, Larastan, dan Laravel Boost
 - Laravel Sail untuk runtime lokal

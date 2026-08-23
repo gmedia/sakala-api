@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\OAuthProvider;
+use Carbon\CarbonImmutable;
 use Database\Factories\OAuthAccountFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -12,6 +13,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property string $access_token
+ * @property string|null $refresh_token
+ * @property CarbonImmutable|null $token_expires_at
+ * @property string|null $provider_username
+ */
 #[Fillable([
     'user_id',
     'provider',

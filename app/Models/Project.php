@@ -20,6 +20,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 /**
  * @property string $id
  * @property int $user_id
+ * @property string|null $github_installation_id
+ * @property int|null $github_repository_id
  * @property string $name
  * @property string $slug
  * @property string $repository_provider
@@ -37,6 +39,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 #[Fillable([
     'user_id',
+    'github_installation_id',
+    'github_repository_id',
     'name',
     'slug',
     'repository_provider',
@@ -59,6 +63,12 @@ class Project extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** @return BelongsTo<GithubInstallation, $this> */
+    public function githubInstallation(): BelongsTo
+    {
+        return $this->belongsTo(GithubInstallation::class);
     }
 
     /** @return HasMany<EnvironmentVariable, $this> */
@@ -86,6 +96,7 @@ class Project extends Model
             'status' => ProjectStatus::class,
             'runtime_status' => RuntimeStatus::class,
             'detected_port' => 'integer',
+            'github_repository_id' => 'integer',
             'last_deployed_at' => 'immutable_datetime',
         ];
     }
