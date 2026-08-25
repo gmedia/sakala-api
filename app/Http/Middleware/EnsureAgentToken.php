@@ -39,7 +39,8 @@ final class EnsureAgentToken
             abort(401, 'Unauthorized');
         }
 
-        if (! password_verify($token, $agent->token_hash)) {
+        $expected = hash_hmac('sha256', $token, (string) config('app.key'));
+        if (! hash_equals($agent->token_hash, $expected)) {
             abort(401, 'Unauthorized');
         }
 

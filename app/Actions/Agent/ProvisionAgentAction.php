@@ -22,7 +22,7 @@ final class ProvisionAgentAction
             'agent_id' => 'agent-'.Str::uuid(),
             'name' => $data->name,
             'description' => $data->description,
-            'token_hash' => bcrypt($token),
+            'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),
             'token_prefix' => $tokenPrefix,
             'auth_status' => AgentAuthStatus::Active,
             'registered_at' => now(),

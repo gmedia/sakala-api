@@ -21,7 +21,7 @@ class AgentNodeFactory extends Factory
         return [
             'agent_id' => 'agent-'.$this->faker->unique()->uuid(),
             'name' => $this->faker->unique()->word(),
-            'token_hash' => bcrypt('test-token-'.$this->faker->uuid),
+            'token_hash' => hash_hmac('sha256', 'test-token-'.$this->faker->uuid, (string) config('app.key')),
             'token_prefix' => $this->faker->regexify('[A-Za-z0-9]{10}'),
             'auth_status' => AgentAuthStatus::Active,
             'status' => AgentNodeStatus::Ready,

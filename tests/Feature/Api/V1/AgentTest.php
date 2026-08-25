@@ -63,7 +63,10 @@ final class AgentTest extends TestCase
         $this->assertIsString($token);
         $this->assertEquals(64, strlen($token));
         $agent = AgentNode::first();
-        $this->assertTrue(password_verify($token, $agent->token_hash));
+        $this->assertSame(
+            hash_hmac('sha256', $token, (string) config('app.key')),
+            $agent->token_hash,
+        );
         $this->assertStringStartsWith($agent->token_prefix, $token);
     }
 
@@ -163,6 +166,41 @@ final class AgentTest extends TestCase
         $this->assertEquals($statusBeforeRotate, $agent->status);
     }
 
+    public function test_rotate_agent_token_rejects_old_token(): void
+    {
+        $token = 'rotate-test-'.Str::random(32);
+        $agent = AgentNode::factory()->create([
+            'agent_id' => 'agent-'.Str::uuid(),
+            'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),
+        ]);
+
+        // Old token works before rotation
+        $responseBefore = $this->withHeaders([
+            'Authorization' => "Bearer {$token}",
+            'X-Agent-Id' => $agent->agent_id,
+        ])->postJson('/api/agent/v1/heartbeat');
+        $responseBefore->assertOk();
+
+        // Rotate the token
+        $rotateResponse = $this->postJson("/api/agent/v1/agents/{$agent->id}/rotate");
+        $rotateResponse->assertOk();
+        $newToken = $rotateResponse->json('token');
+
+        // Old token is now rejected
+        $responseAfterOld = $this->withHeaders([
+            'Authorization' => "Bearer {$token}",
+            'X-Agent-Id' => $agent->agent_id,
+        ])->postJson('/api/agent/v1/heartbeat');
+        $responseAfterOld->assertUnauthorized();
+
+        // New token is accepted
+        $responseAfterNew = $this->withHeaders([
+            'Authorization' => "Bearer {$newToken}",
+            'X-Agent-Id' => $agent->agent_id,
+        ])->postJson('/api/agent/v1/heartbeat');
+        $responseAfterNew->assertOk();
+    }
+
     // ========== Revoke Agent Tests ==========
 
     public function test_revoke_agent(): void
@@ -228,7 +266,7 @@ final class AgentTest extends TestCase
 
         $token = 'test-token-'.Str::random(32);
         $agent->update([
-            'token_hash' => bcrypt($token),
+            'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),
         ]);
 
         $response = $this->withHeaders([
@@ -244,7 +282,7 @@ final class AgentTest extends TestCase
         $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
         $token = 'test-token-'.Str::random(32);
         $agent->update([
-            'token_hash' => bcrypt($token),
+            'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),
         ]);
 
         $response = $this->withHeaders([
@@ -296,9 +334,13 @@ final class AgentTest extends TestCase
 
         $response->assertCreated();
 
+        $token = $response->json('token');
         $agent = AgentNode::first();
-        $this->assertNotEquals('test-token', $agent->token_hash);
-        $this->assertStringStartsWith('$2y$', $agent->token_hash); // bcrypt hash
+        $this->assertNotEquals($token, $agent->token_hash);
+        $this->assertEquals(
+            hash_hmac('sha256', $token, (string) config('app.key')),
+            $agent->token_hash,
+        );
     }
 
     public function test_middleware_rejects_mismatched_identity(): void
@@ -308,7 +350,7 @@ final class AgentTest extends TestCase
 
         $token = 'test-token-'.Str::random(32);
         $agentA->update([
-            'token_hash' => bcrypt($token),
+            'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),
         ]);
 
         $response = $this->withHeaders([
