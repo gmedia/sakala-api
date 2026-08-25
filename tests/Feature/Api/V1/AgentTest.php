@@ -201,6 +201,44 @@ final class AgentTest extends TestCase
         $responseAfterNew->assertOk();
     }
 
+    // ========== Rotate/Revoke Agent Tests ==========
+
+    public function test_rotate_agent_token_does_not_reactivate_revoked(): void
+    {
+        $agent = AgentNode::factory()->create([
+            'agent_id' => 'agent-'.Str::uuid(),
+            'auth_status' => AgentAuthStatus::Revoked,
+        ]);
+
+        $token = 'rotate-test-'.Str::random(32);
+        $agent->update([
+            'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),
+        ]);
+
+        // Revoked agent with valid token returns 403 before rotation
+        $responseBefore = $this->withHeaders([
+            'Authorization' => "Bearer {$token}",
+            'X-Agent-Id' => $agent->agent_id,
+        ])->postJson('/api/agent/v1/heartbeat');
+        $responseBefore->assertForbidden();
+
+        // Rotate the token
+        $rotateResponse = $this->postJson("/api/agent/v1/agents/{$agent->id}/rotate");
+        $rotateResponse->assertOk();
+        $newToken = $rotateResponse->json('token');
+
+        // auth_status must stay Revoked after rotation
+        $agent->refresh();
+        $this->assertEquals(AgentAuthStatus::Revoked, $agent->auth_status);
+
+        // New token rejected with 403 — proves rotation did not reactivate the agent
+        $responseAfterNew = $this->withHeaders([
+            'Authorization' => "Bearer {$newToken}",
+            'X-Agent-Id' => $agent->agent_id,
+        ])->postJson('/api/agent/v1/heartbeat');
+        $responseAfterNew->assertForbidden();
+    }
+
     // ========== Revoke Agent Tests ==========
 
     public function test_revoke_agent(): void
