@@ -32,7 +32,7 @@ final class StoreFeedbackRequest extends FormRequest
             'message' => ['required', 'string', 'min:5', 'max:2000'],
             'project_id' => ['nullable', 'string', 'uuid', Rule::exists('projects', 'id')],
             'deployment_id' => ['nullable', 'string', 'uuid', Rule::exists('deployments', 'id')],
-            'consent' => ['sometimes', 'boolean'],
+            'consent' => ['required', 'boolean'],
         ];
     }
 
@@ -50,7 +50,7 @@ final class StoreFeedbackRequest extends FormRequest
         /** @var string|null $deploymentId */
         $deploymentId = $this->validated('deployment_id');
 
-        $consent = $this->has('consent') ? $this->boolean('consent') : true;
+        $consent = $this->boolean('consent');
 
         return new SubmitFeedbackData(
             category: FeedbackCategory::from($category),

@@ -13,6 +13,6 @@ final readonly class SubmitFeedbackData
         public string $message,
         public ?string $projectId = null,
         public ?string $deploymentId = null,
-        public bool $consent = true,
+        public bool $consent = false,
     ) {}
 }

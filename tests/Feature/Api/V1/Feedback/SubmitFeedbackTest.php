@@ -66,6 +66,7 @@ test('authenticated user can submit feedback linked to owned project', function 
             'category' => 'bug',
             'message' => 'Build encountered an unexpected issue during deployment.',
             'project_id' => $project->id,
+            'consent' => true,
         ])
         ->assertCreated()
         ->assertJsonPath('data.category', 'bug')
@@ -91,6 +92,7 @@ test('authenticated user can submit feedback linked to owned project and deploym
             'message' => 'Deployment stream logs rendered smoothly and fast.',
             'project_id' => $project->id,
             'deployment_id' => $deployment->id,
+            'consent' => true,
         ])
         ->assertCreated()
         ->assertJsonPath('data.category', 'experience')
@@ -115,6 +117,7 @@ test('user cannot submit feedback linked to a project owned by another user', fu
             'category' => 'general',
             'message' => 'Attempting to link feedback to unauthorized project',
             'project_id' => $otherProject->id,
+            'consent' => true,
         ])
         ->assertForbidden();
 
@@ -132,6 +135,7 @@ test('user cannot submit feedback linked to a deployment owned by another user',
             'category' => 'general',
             'message' => 'Attempting to link feedback to unauthorized deployment',
             'deployment_id' => $otherDeployment->id,
+            'consent' => true,
         ])
         ->assertForbidden();
 
@@ -150,6 +154,7 @@ test('submitting feedback with mismatched project and deployment returns validat
             'message' => 'Mismatched project and deployment context',
             'project_id' => $project1->id,
             'deployment_id' => $deploymentOfProject2->id,
+            'consent' => true,
         ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['deployment_id']);
@@ -161,7 +166,7 @@ test('submitting feedback without required fields returns validation error', fun
     $this->actingAs($user)
         ->postJson(route('api.v1.app.feedback.store'), [])
         ->assertUnprocessable()
-        ->assertJsonValidationErrors(['category', 'message']);
+        ->assertJsonValidationErrors(['category', 'message', 'consent']);
 });
 
 test('submitting feedback with invalid category returns validation error', function (): void {
@@ -171,6 +176,7 @@ test('submitting feedback with invalid category returns validation error', funct
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'non_existent_category',
             'message' => 'Valid feedback message length here',
+            'consent' => true,
         ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['category']);
@@ -183,6 +189,7 @@ test('submitting feedback with message shorter than 5 characters returns validat
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'general',
             'message' => 'Hi',
+            'consent' => true,
         ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['message']);
@@ -195,6 +202,7 @@ test('submitting feedback with oversized message returns validation error', func
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'general',
             'message' => str_repeat('a', 2001),
+            'consent' => true,
         ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['message']);
@@ -209,6 +217,7 @@ test('submitting feedback with non-existent project_id or deployment_id returns 
             'message' => 'Valid feedback message text',
             'project_id' => (string) Str::uuid(),
             'deployment_id' => (string) Str::uuid(),
+            'consent' => true,
         ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['project_id', 'deployment_id']);
@@ -220,6 +229,7 @@ test('submitting duplicate feedback within 5 minutes is rejected with 409 confli
     $payload = [
         'category' => 'feature_request',
         'message' => 'Please add dark mode toggle on console dashboard.',
+        'consent' => true,
     ];
 
     $this->actingAs($user)
@@ -247,6 +257,7 @@ test('submitting identical feedback after 5 minutes is accepted', function (): v
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'feature_request',
             'message' => 'Please add dark mode toggle on console dashboard.',
+            'consent' => true,
         ])
         ->assertCreated();
 });
@@ -258,6 +269,7 @@ test('duplicate feedback check is scoped per user and does not block other users
     $payload = [
         'category' => 'feature_request',
         'message' => 'Please add dark mode toggle on console dashboard.',
+        'consent' => true,
     ];
 
     $this->actingAs($user1)
@@ -276,6 +288,7 @@ test('submitting different feedback from same user within 5 minutes is accepted'
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'general',
             'message' => 'First feedback message from user',
+            'consent' => true,
         ])
         ->assertCreated();
 
@@ -283,6 +296,7 @@ test('submitting different feedback from same user within 5 minutes is accepted'
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'bug',
             'message' => 'Second different feedback message from user',
+            'consent' => true,
         ])
         ->assertCreated();
 });
@@ -315,6 +329,7 @@ test('authenticated user can submit feedback linked to deployment without projec
             'category' => 'experience',
             'message' => 'Deployment standalone link works properly',
             'deployment_id' => $deployment->id,
+            'consent' => true,
         ])
         ->assertCreated()
         ->assertJsonPath('data.project_id', null)
@@ -330,6 +345,7 @@ test('submitting feedback with invalid UUID format for project_id or deployment_
             'message' => 'Testing malformed UUID format validation',
             'project_id' => 'not-a-valid-uuid',
             'deployment_id' => 'invalid-uuid-format',
+            'consent' => true,
         ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['project_id', 'deployment_id']);
@@ -343,6 +359,7 @@ test('submitting feedback with exact boundary lengths succeeds', function (): vo
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'general',
             'message' => '12345',
+            'consent' => true,
         ])
         ->assertCreated();
 
@@ -351,6 +368,7 @@ test('submitting feedback with exact boundary lengths succeeds', function (): vo
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'general',
             'message' => str_repeat('b', 2000),
+            'consent' => true,
         ])
         ->assertCreated();
 });
@@ -362,6 +380,7 @@ test('submitting unwhitelisted fields in payload does not store arbitrary data',
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'general',
             'message' => 'Valid feedback message',
+            'consent' => true,
             'secrets' => 'PRIVATE_KEY_DUMP',
             'admin' => true,
             'logs' => 'MASSIVE_LOG_DUMP',
@@ -390,6 +409,7 @@ test('feedback endpoint enforces rate limit', function (): void {
             ->postJson(route('api.v1.app.feedback.store'), [
                 'category' => 'general',
                 'message' => "Unique message test number {$i} to avoid duplicate guard",
+                'consent' => true,
             ])
             ->assertCreated();
     }
@@ -398,6 +418,7 @@ test('feedback endpoint enforces rate limit', function (): void {
         ->postJson(route('api.v1.app.feedback.store'), [
             'category' => 'general',
             'message' => 'Exceeding rate limit message attempt',
+            'consent' => true,
         ])
         ->assertStatus(429);
 });
