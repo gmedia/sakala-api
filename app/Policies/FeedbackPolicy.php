@@ -36,12 +36,4 @@ final class FeedbackPolicy
     {
         return $user->id === $feedback->user_id;
     }
-
-    /**
-     * Determine whether the user can create models.
-     */
-    public function create(User $user): bool
-    {
-        return true;
-    }
 }

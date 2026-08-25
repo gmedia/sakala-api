@@ -27,7 +27,7 @@ class FeedbackFactory extends Factory
             'deployment_id' => null,
             'category' => fake()->randomElement(FeedbackCategory::cases()),
             'message' => fake()->paragraph(),
-            'consent' => true,
+            'consent' => fake()->boolean(),
         ];
     }
 }
