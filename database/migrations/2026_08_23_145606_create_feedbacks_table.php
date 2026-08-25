@@ -20,7 +20,7 @@ return new class extends Migration
             $table->foreignUuid('deployment_id')->nullable()->constrained()->nullOnDelete();
             $table->string('category', 32);
             $table->text('message');
-            $table->boolean('consent')->default(true);
+            $table->boolean('consent');
             $table->timestampsTz();
 
             $table->index(['user_id', 'created_at']);
