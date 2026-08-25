@@ -203,3 +203,37 @@ test('broadcast failure does not prevent deployment persistence', function (): v
     expect($result->logs()->count())
         ->toBe(1);
 });
+
+test('invalid deployment transition is rejected without changing state', function (): void {
+    $deployment = Deployment::factory()->create([
+        'status' => DeploymentStatus::Queued,
+        'started_at' => null,
+        'finished_at' => null,
+        'cancelled_at' => null,
+    ]);
+
+    expect(fn () => app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Succeeded,
+    ))->toThrow(InvalidArgumentException::class);
+
+    $deployment->refresh();
+
+    expect($deployment->status)
+        ->toBe(DeploymentStatus::Queued);
+
+    expect($deployment->started_at)
+        ->toBeNull();
+
+    expect($deployment->finished_at)
+        ->toBeNull();
+
+    expect($deployment->cancelled_at)
+        ->toBeNull();
+
+    expect($deployment->events()->count())
+        ->toBe(0);
+
+    expect($deployment->logs()->count())
+        ->toBe(0);
+});
