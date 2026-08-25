@@ -8,6 +8,7 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Models\AgentCommand;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /** @extends Factory<AgentCommand> */
 class AgentCommandFactory extends Factory
@@ -20,11 +21,11 @@ class AgentCommandFactory extends Factory
             'project_id' => null,
             'deployment_id' => null,
             'agent_node_id' => null,
-            'type' => AgentCommandType::DeployProject,
+            'type' => AgentCommandType::HealthCheck,
             'status' => AgentCommandStatus::Pending,
             'payload' => [],
             'result' => null,
-            'idempotency_key' => $this->faker->unique()->uuid(),
+            'idempotency_key' => (string) Str::uuid(),
             'attempts' => 0,
             'error_code' => null,
             'error_message' => null,
@@ -33,7 +34,7 @@ class AgentCommandFactory extends Factory
             'started_at' => null,
             'completed_at' => null,
             'failed_at' => null,
-            'expires_at' => null,
+            'expires_at' => now()->addMinutes(10),
         ];
     }
 }
