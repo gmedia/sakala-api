@@ -97,11 +97,11 @@ test('idempotency key cannot be reused for a different deployment', function ():
             "/api/v1/app/projects/{$project->id}/deployments",
             [
                 'branch' => 'main',
-                'resources' =>[
+                'resources' => [
                     'memory_mb' => 512,
                     'cpu_millis' => 500,
                     'pids_limit' => 100,
-                ]
+                ],
             ],
             $headers,
         );
@@ -114,11 +114,11 @@ test('idempotency key cannot be reused for a different deployment', function ():
             "/api/v1/app/projects/{$project->id}/deployments",
             [
                 'branch' => 'main',
-                'resources' =>[
+                'resources' => [
                     'memory_mb' => 1024,
                     'cpu_millis' => 1000,
                     'pids_limit' => 200,
-                ]
+                ],
             ],
             $headers,
         );

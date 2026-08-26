@@ -178,8 +178,7 @@ test('concurrent deployments for the same project are serialized by the project 
     $secondary = 'pgsql_secondary';
 
     config([
-        "database.connections.{$secondary}" =>
-            config('database.connections.' . DB::getDefaultConnection()),
+        "database.connections.{$secondary}" => config('database.connections.'.DB::getDefaultConnection()),
     ]);
 
     DB::purge($secondary);
