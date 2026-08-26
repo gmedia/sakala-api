@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class CreateDeploymentAction
 {
@@ -38,12 +39,16 @@ final class CreateDeploymentAction
             ->where('idempotency_key', $data->idempotencyKey)
             ->first();
 
-        if ($existing !== null && $existing->branch !== $data->branch) {
-            throw ValidationException::withMessages([
-                'Idempotency-Key' => [
-                    'The idempotency key has already been used for a different deployment.',
-                ],
-            ]);
+        if ($existing === null) {
+            return null;
+        }
+
+        $requestedResources = $data->requested_resources?->toArray();
+
+        if ($existing->branch !== $data->branch || $existing->requested_resources !== $requestedResources) {
+            throw new ConflictHttpException(
+                'The idempotency key has already been used for a different deployment.'
+            );
         }
 
         return $existing;

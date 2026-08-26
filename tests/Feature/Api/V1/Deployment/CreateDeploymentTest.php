@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
+use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -536,4 +537,45 @@ test('same idempotency key returns existing deployment without creating another 
     );
 
     Http::assertSentCount(1);
+});
+
+test('repeated deployment creation keeps sequence unique', function (): void {
+    fakeGithubCommit();
+
+    Queue::fake();
+
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+        'branch' => 'main',
+    ]);
+
+    $sequences = collect(range(1, 5))
+        ->map(function () use ($user, $project): int {
+            $response = $this
+                ->actingAs($user, 'web')
+                ->postJson(
+                    "/api/v1/app/projects/{$project->id}/deployments",
+                    ['branch' => 'main'],
+                );
+
+            $response->assertCreated();
+
+            $sequence = $response->json('data.sequence');
+
+            Deployment::query()
+                ->where('project_id', $project->id)
+                ->where('sequence', $sequence)
+                ->update([
+                    'status' => DeploymentStatus::Succeeded->value,
+                ]);
+
+            return $sequence;
+        });
+
+    expect($sequences->sort()->values()->all())
+        ->toBe([1, 2, 3, 4, 5]);
+
+    $this->assertDatabaseCount('deployments', 5);
 });

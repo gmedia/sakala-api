@@ -195,3 +195,68 @@ test('simulated deployment job ignores cancelled deployment', function (): void 
     expect($deployment->fresh()->status)
         ->toBe(DeploymentStatus::Cancelled);
 });
+
+test('simulated deployment events and logs are ordered', function (): void {
+    $project = Project::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Queued,
+        'sequence' => 1,
+        'commit_sha' => 'abc123456789',
+    ]);
+
+    $job = new SimulatedDeploymentJob($deployment);
+
+    $job->handle(
+        app(TransitionDeploymentAction::class),
+    );
+
+    $eventSequences = $deployment
+        ->events()
+        ->orderBy('sequence')
+        ->pluck('sequence')
+        ->all();
+
+    $logSequences = $deployment
+        ->logs()
+        ->orderBy('sequence')
+        ->pluck('sequence')
+        ->all();
+
+    expect($eventSequences)
+        ->toBe([1, 2, 3, 4, 5, 6, 7]);
+
+    expect($logSequences)
+        ->toBe([1, 2, 3, 4, 5, 6, 7]);
+});
+
+test('simulated deployment logs do not contain sensitive values', function (): void {
+    $project = Project::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Queued,
+        'sequence' => 1,
+        'commit_sha' => 'abc123456789',
+    ]);
+
+    $job = new SimulatedDeploymentJob($deployment);
+
+    $job->handle(
+        app(TransitionDeploymentAction::class),
+    );
+
+    $messages = $deployment
+        ->logs()
+        ->pluck('message')
+        ->all();
+
+    foreach ($messages as $message) {
+        expect($message)
+            ->not->toContain('password')
+            ->not->toContain('provider_token')
+            ->not->toContain('secret')
+            ->not->toContain('credentials');
+    }
+});

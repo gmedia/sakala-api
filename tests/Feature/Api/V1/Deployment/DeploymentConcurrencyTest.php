@@ -158,3 +158,105 @@ test('concurrent deployments for the same user across projects are serialized by
 
     Queue::assertPushed(SimulatedDeploymentJob::class, 1);
 })->skip(fn (): bool => DB::connection()->getDriverName() !== 'pgsql', 'Requires PostgreSQL row-level locking; ignore SQLite which does not support FOR UPDATE.');
+
+test('concurrent deployments for the same project are serialized by the project row lock', function () {
+    Queue::fake();
+
+    config([
+        'sakala.pilot_limits.max_active_deployments_per_user' => 5,
+        'sakala.pilot_limits.max_active_deployments_per_project' => 5,
+    ]);
+
+    $userA = User::factory()->create(['role' => UserRole::User]);
+    $userB = User::factory()->create(['role' => UserRole::User]);
+
+    $project = Project::factory()->for($userA)->create([
+        'branch' => 'main',
+    ]);
+
+    $secondary = 'pgsql_secondary';
+
+    config([
+        "database.connections.{$secondary}" => config('database.connections.'.DB::getDefaultConnection()),
+    ]);
+
+    DB::purge($secondary);
+
+    $action = app(CreateDeploymentAction::class);
+    $defaultConnection = DB::getDefaultConnection();
+
+    DB::beginTransaction();
+
+    try {
+        // Session A creates deployment and keeps the transaction open.
+        $deploymentA = $action->handle(
+            project: $project,
+            user: $userA,
+            data: new CreateDeploymentData(branch: 'main'),
+        );
+
+        expect($deploymentA->sequence)->toBe(1);
+
+        $secondaryConnection = DB::connection($secondary);
+
+        // Session B has a different user, so it should not block on user lock.
+        $secondaryConnection->statement('SET lock_timeout = 250');
+
+        $secondRequestException = null;
+
+        try {
+            DB::setDefaultConnection($secondary);
+
+            $action->handle(
+                project: $project,
+                user: $userB,
+                data: new CreateDeploymentData(branch: 'main'),
+            );
+        } catch (QueryException $e) {
+            expect($e->getCode())->toBe('55P03');
+
+            $secondRequestException = $e;
+        } finally {
+            DB::setDefaultConnection($defaultConnection);
+        }
+
+        expect($secondRequestException)
+            ->toBeInstanceOf(QueryException::class)
+            ->and(DB::connection($secondary)->transactionLevel())
+            ->toBe(0);
+
+        // Release the project lock held by session A.
+        DB::commit();
+    } catch (Throwable $e) {
+        if (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+
+        throw $e;
+    } finally {
+        DB::purge($secondary);
+    }
+
+    // After session A commits, session B can acquire the project lock
+    // and must allocate the next sequence.
+    $deploymentB = $action->handle(
+        project: $project->fresh(),
+        user: $userB,
+        data: new CreateDeploymentData(branch: 'main'),
+    );
+
+    expect($deploymentB->sequence)->toBe(2);
+
+    expect(
+        Deployment::query()
+            ->where('project_id', $project->id)
+            ->orderBy('sequence')
+            ->pluck('sequence')
+            ->all()
+    )->toBe([1, 2]);
+
+    Queue::assertPushed(SimulatedDeploymentJob::class, 2);
+})->skip(
+    fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
+    'Requires PostgreSQL row-level locking; ignore SQLite which does not support FOR UPDATE.',
+);

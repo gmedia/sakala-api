@@ -36,3 +36,34 @@ test('deployment log created broadcasts expected payload', function (): void {
         ->not->toBe($deploymentLog->sequence)
         ->not->toBe($deployment->sequence);
 });
+
+test('deployment log created does not expose sensitive values', function (): void {
+    $deployment = Deployment::factory()->create();
+
+    $deploymentLog = DeploymentLog::factory()->create([
+        'deployment_id' => $deployment->id,
+        'message' => 'Building the application.',
+        'stream' => LogStream::Stdout,
+        'message' => 'Building the application.',
+    ]);
+
+    $event = new DeploymentLogCreated($deploymentLog, 8);
+
+    expect($event->broadcastWith())
+        ->toMatchArray([
+            'deployment_id' => $deployment->id,
+            'sequence' => 8,
+            'stream' => 'stdout',
+            'message' => 'Building the application.',
+        ])
+        ->and($event->broadcastWith())
+        ->not->toHaveKeys([
+            'env',
+            'environment',
+            'token',
+            'provider_token',
+            'secret',
+            'password',
+            'credentials',
+        ]);
+});

@@ -182,3 +182,43 @@ test('deployment events do not expose internal id', function (): void {
         ->assertOk()
         ->assertJsonMissingPath('data.0.id');
 });
+
+test('deployment events are returned in sequence order', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'sequence' => 1,
+    ]);
+
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'sequence' => 3,
+    ]);
+
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'sequence' => 1,
+    ]);
+
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'sequence' => 2,
+    ]);
+
+    $response = $this
+        ->actingAs($user, 'web')
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}/events"
+        );
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('data.0.sequence', 1)
+        ->assertJsonPath('data.1.sequence', 2)
+        ->assertJsonPath('data.2.sequence', 3);
+});
