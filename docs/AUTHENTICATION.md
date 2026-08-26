@@ -104,7 +104,32 @@ atau credential provider baru tanpa issue dan kontrak keamanan terpisah.
 
 ## Agent dan Machine Client
 
-Agent tidak memakai session browser. Kontrak agent akan menggunakan `Authorization: Bearer <token>` dan `X-Agent-Id`. Token harus dapat dirotasi, dicabut, di-hash saat disimpan, dan tidak pernah masuk log.
+Agent tidak memakai session browser. Kontrak agent menggunakan `Authorization: Bearer <token>` dan `X-Agent-Id`.
+
+### Provisioning
+
+Agent hanya dapat didaftarkan oleh user berstatus **Admin** melalui endpoint POST `/api/agent/v1/agents`. Endpoint ini tertutup dari publik; Sanctum middleware menolak request tanpa authentication yang valid.
+
+Response menyimpan plaintext token sekali saja di body — token tidak disimpan dalam database, tidak masuk log, dan tidak muncul di response berikutnya. Database hanya menyimpan hash HMAC dan 10 karakter awalan (`token_prefix`) untuk keperluan identifikasi.
+
+### Identitas
+
+Setiap agent memiliki `agent_id` berupa UUIDv7 dengan prefix `agent-`, misalnya `agent-a1b2c3d4-...`. Nilai ini ditetapkan saat provisioning dan menjadi identitas tetap node runtime. Sakala agent membaca nilai ini dari konfigurasi lokal (biasanya `SAKALA_AGENT_ID`) dan mengirimkannya pada header `X-Agent-Id` di setiap request.
+
+### Hashing
+
+Token bearer di-hash dengan `hash_hmac('sha256', $token, config('app.key'))`. Middleware menggunakan `hash_equals()` untuk perbandingan waktu-konstan agar tahan timing attack. Kontrak ini sama dengan yang dipakai DemoSeeder untuk node lokal (`local-agent-01`).
+
+### Rotasi dan Pencabutan
+
+- **Rotate** (`POST /api/agent/v1/agents/{id}/rotate`): mengganti kredensial saja. `auth_status` tidak berubah — jika agent Revoked, rotate tetap menghasilkan status Revoked. Admin harus melakukan revoke terpisah untuk menonaktifkan akses.
+- **Revoke** (`POST /api/agent/v1/agents/{id}/revoke`): mengubah `auth_status` menjadi `Revoked`. Agent yang sudah dicabut tidak bisa kembali aktif kecuali admin membuat agent baru atau mengubah status secara eksplisit.
+
+Middleware mengembalikan **403 Forbidden** untuk agent Revoked (bukan 401), sehingga berbeda jelas antara "token salah" dan "akses ditarik".
+
+### Status Terpisah
+
+`auth_status` (Active/Revoked) mengontrol **otorisasi**, sedangkan `status` (offline/ready/dst) mengontrol **runtime**. Keduanya independen — rotasi token tidak mengubah runtime status, dan revokasi tidak mengubah cara agent dilaporkan di dashboard.
 
 JWT tidak menjadi default untuk Console. Personal access token Sanctum hanya
 dipakai ketika kebutuhan machine client sudah didefinisikan.

@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 /** @extends Factory<AgentCommand> */
 class AgentCommandFactory extends Factory
 {
+    protected $model = AgentCommand::class;
+
     public function definition(): array
     {
         return [

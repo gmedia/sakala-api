@@ -4,30 +4,30 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
-/** @extends Factory<AgentNode> */
+/**
+ * @extends Factory<AgentNode>
+ */
 class AgentNodeFactory extends Factory
 {
+    protected $model = AgentNode::class;
+
     public function definition(): array
     {
-        $token = Str::random(40);
-
         return [
-            'agent_id' => fake()->unique()->slug(3),
-            'name' => fake()->city().' Runtime',
-            'token_hash' => hash('sha256', $token),
-            'token_prefix' => substr($token, 0, 8),
+            'agent_id' => 'agent-'.(string) Str::uuid7(),
+            'name' => $this->faker->unique()->word(),
+            'token_hash' => hash_hmac('sha256', 'test-token-'.$this->faker->uuid, (string) config('app.key')),
+            'token_prefix' => $this->faker->regexify('[A-Za-z0-9]{10}'),
+            'auth_status' => AgentAuthStatus::Active,
             'status' => AgentNodeStatus::Ready,
-            'hostname' => fake()->domainWord(),
-            'runtime_network' => 'sakala-runtime',
-            'capabilities' => ['docker', 'caddy'],
-            'metadata' => ['version' => '0.1.0'],
+            'description' => $this->faker->optional()->sentence(),
             'registered_at' => now(),
-            'last_seen_at' => now(),
         ];
     }
 }
