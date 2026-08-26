@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Enums\DeploymentStatus;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\Deployment;
 use App\Models\Project;

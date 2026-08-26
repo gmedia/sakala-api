@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 use App\Actions\Deployment\CreateDeploymentAction;
 use App\Data\Deployment\CreateDeploymentData;
-use App\Enums\DeploymentStatus;
-use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
