@@ -91,33 +91,39 @@ test('idempotency key cannot be reused for a different deployment', function ():
         'Idempotency-Key' => 'deployment-idempotency-002',
     ];
 
-    $this
+    $first = $this
         ->actingAs($user, 'web')
         ->postJson(
             "/api/v1/app/projects/{$project->id}/deployments",
             [
                 'branch' => 'main',
-            ],
-            $headers,
-        )
-        ->assertCreated();
-
-    /*
-     * The project only accepts its configured branch, so this also verifies
-     * that the same idempotency key cannot be silently reused for another
-     * deployment request.
-     */
-    $response = $this
-        ->actingAs($user, 'web')
-        ->postJson(
-            "/api/v1/app/projects/{$project->id}/deployments",
-            [
-                'branch' => 'develop',
+                'resources' =>[
+                    'memory_mb' => 512,
+                    'cpu_millis' => 500,
+                    'pids_limit' => 100,
+                ]
             ],
             $headers,
         );
 
-    $response->assertUnprocessable();
+    $first->assertCreated();
+
+    $second = $this
+        ->actingAs($user, 'web')
+        ->postJson(
+            "/api/v1/app/projects/{$project->id}/deployments",
+            [
+                'branch' => 'main',
+                'resources' =>[
+                    'memory_mb' => 1024,
+                    'cpu_millis' => 1000,
+                    'pids_limit' => 200,
+                ]
+            ],
+            $headers,
+        );
+
+    $second->assertConflict();
 
     expect(Deployment::query()
         ->where('project_id', $project->id)
