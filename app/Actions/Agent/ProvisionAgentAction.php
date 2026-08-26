@@ -19,7 +19,7 @@ final class ProvisionAgentAction
         $tokenPrefix = Str::substr($token, 0, 10);
 
         $agentNode = AgentNode::create([
-            'agent_id' => 'agent-'.Str::uuid(),
+            'agent_id' => 'agent-'.Str::uuid7(),
             'name' => $data->name,
             'description' => $data->description,
             'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),

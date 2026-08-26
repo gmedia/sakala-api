@@ -8,6 +8,7 @@ use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /**
  * @extends Factory<AgentNode>
@@ -19,7 +20,7 @@ class AgentNodeFactory extends Factory
     public function definition(): array
     {
         return [
-            'agent_id' => 'agent-'.$this->faker->unique()->uuid(),
+            'agent_id' => 'agent-'.(string) Str::uuid7(),
             'name' => $this->faker->unique()->word(),
             'token_hash' => hash_hmac('sha256', 'test-token-'.$this->faker->uuid, (string) config('app.key')),
             'token_prefix' => $this->faker->regexify('[A-Za-z0-9]{10}'),

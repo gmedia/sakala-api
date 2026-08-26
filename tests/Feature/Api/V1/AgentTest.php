@@ -107,9 +107,9 @@ final class AgentTest extends TestCase
 
     public function test_index_agents(): void
     {
-        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
-        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
-        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
+        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
+        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $response = $this->getJson('/api/agent/v1/agents');
 
@@ -121,7 +121,7 @@ final class AgentTest extends TestCase
 
     public function test_show_agent(): void
     {
-        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $response = $this->getJson("/api/agent/v1/agents/{$agent->id}");
 
@@ -138,7 +138,7 @@ final class AgentTest extends TestCase
 
     public function test_rotate_agent_token(): void
     {
-        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $statusBeforeRotate = $agent->status;
 
@@ -170,7 +170,7 @@ final class AgentTest extends TestCase
     {
         $token = 'rotate-test-'.Str::random(32);
         $agent = AgentNode::factory()->create([
-            'agent_id' => 'agent-'.Str::uuid(),
+            'agent_id' => 'agent-'.Str::uuid7(),
             'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),
         ]);
 
@@ -206,7 +206,7 @@ final class AgentTest extends TestCase
     public function test_rotate_agent_token_does_not_reactivate_revoked(): void
     {
         $agent = AgentNode::factory()->create([
-            'agent_id' => 'agent-'.Str::uuid(),
+            'agent_id' => 'agent-'.Str::uuid7(),
             'auth_status' => AgentAuthStatus::Revoked,
         ]);
 
@@ -243,7 +243,7 @@ final class AgentTest extends TestCase
 
     public function test_revoke_agent(): void
     {
-        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $response = $this->postJson("/api/agent/v1/agents/{$agent->id}/revoke");
 
@@ -285,7 +285,7 @@ final class AgentTest extends TestCase
 
     public function test_middleware_rejects_invalid_token(): void
     {
-        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $response = $this->withHeaders([
             'Authorization' => 'Bearer invalid-token',
@@ -298,7 +298,7 @@ final class AgentTest extends TestCase
     public function test_middleware_rejects_revoked_agent(): void
     {
         $agent = AgentNode::factory()->create([
-            'agent_id' => 'agent-'.Str::uuid(),
+            'agent_id' => 'agent-'.Str::uuid7(),
             'auth_status' => AgentAuthStatus::Revoked,
         ]);
 
@@ -317,7 +317,7 @@ final class AgentTest extends TestCase
 
     public function test_middleware_accepts_valid_token_and_agent_id(): void
     {
-        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
         $token = 'test-token-'.Str::random(32);
         $agent->update([
             'token_hash' => hash_hmac('sha256', $token, (string) config('app.key')),
@@ -335,7 +335,7 @@ final class AgentTest extends TestCase
 
     public function test_token_hash_is_hidden_in_response(): void
     {
-        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $response = $this->getJson("/api/agent/v1/agents/{$agent->id}");
 
@@ -345,7 +345,7 @@ final class AgentTest extends TestCase
 
     public function test_token_not_returned_in_show_response(): void
     {
-        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        $agent = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $response = $this->getJson("/api/agent/v1/agents/{$agent->id}");
 
@@ -355,8 +355,8 @@ final class AgentTest extends TestCase
 
     public function test_token_not_returned_in_index_response(): void
     {
-        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
-        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
+        AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $response = $this->getJson('/api/agent/v1/agents');
 
@@ -383,8 +383,8 @@ final class AgentTest extends TestCase
 
     public function test_middleware_rejects_mismatched_identity(): void
     {
-        $agentA = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
-        $agentB = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid()]);
+        $agentA = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
+        $agentB = AgentNode::factory()->create(['agent_id' => 'agent-'.Str::uuid7()]);
 
         $token = 'test-token-'.Str::random(32);
         $agentA->update([
