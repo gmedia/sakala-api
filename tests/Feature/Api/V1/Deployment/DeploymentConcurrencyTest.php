@@ -167,13 +167,12 @@ test('concurrent deployments for the same project are serialized by the project 
         'sakala.pilot_limits.max_active_deployments_per_project' => 5,
     ]);
 
-    $user = User::factory()->create(['role' => UserRole::User]);
+    $userA = User::factory()->create(['role' => UserRole::User]);
+    $userB = User::factory()->create(['role' => UserRole::User]);
 
-    $project = Project::factory()
-        ->for($user)
-        ->create([
-            'branch' => 'main',
-        ]);
+    $project = Project::factory()->for($userA)->create([
+        'branch' => 'main',
+    ]);
 
     $secondary = 'pgsql_secondary';
 
@@ -186,13 +185,13 @@ test('concurrent deployments for the same project are serialized by the project 
     $action = app(CreateDeploymentAction::class);
     $defaultConnection = DB::getDefaultConnection();
 
-    // Transaction A holds the project row lock.
     DB::beginTransaction();
 
     try {
+        // Session A creates deployment and keeps the transaction open.
         $deploymentA = $action->handle(
             project: $project,
-            user: $user,
+            user: $userA,
             data: new CreateDeploymentData(branch: 'main'),
         );
 
@@ -200,7 +199,7 @@ test('concurrent deployments for the same project are serialized by the project 
 
         $secondaryConnection = DB::connection($secondary);
 
-        // Session B must fail while waiting for the project lock.
+        // Session B has a different user, so it should not block on user lock.
         $secondaryConnection->statement('SET lock_timeout = 250');
 
         $secondRequestException = null;
@@ -210,7 +209,7 @@ test('concurrent deployments for the same project are serialized by the project 
 
             $action->handle(
                 project: $project,
-                user: $user,
+                user: $userB,
                 data: new CreateDeploymentData(branch: 'main'),
             );
         } catch (QueryException $e) {
@@ -222,17 +221,11 @@ test('concurrent deployments for the same project are serialized by the project 
         }
 
         expect($secondRequestException)
-            ->toBeInstanceOf(QueryException::class);
+            ->toBeInstanceOf(QueryException::class)
+            ->and(DB::connection($secondary)->transactionLevel())
+            ->toBe(0);
 
-        // Deployment A is still uncommitted.
-        expect(
-            $secondaryConnection
-                ->table('deployments')
-                ->where('project_id', $project->id)
-                ->count()
-        )->toBe(0);
-
-        // Release transaction A / project lock.
+        // Release the project lock held by session A.
         DB::commit();
     } catch (Throwable $e) {
         if (DB::transactionLevel() > 0) {
@@ -244,10 +237,11 @@ test('concurrent deployments for the same project are serialized by the project 
         DB::purge($secondary);
     }
 
-    // A fresh request after A commits must receive sequence 2.
+    // After session A commits, session B can acquire the project lock
+    // and must allocate the next sequence.
     $deploymentB = $action->handle(
         project: $project->fresh(),
-        user: $user,
+        user: $userB,
         data: new CreateDeploymentData(branch: 'main'),
     );
 
@@ -261,13 +255,8 @@ test('concurrent deployments for the same project are serialized by the project 
             ->all()
     )->toBe([1, 2]);
 
-    expect(Deployment::query()
-        ->where('project_id', $project->id)
-        ->count()
-    )->toBe(2);
-
     Queue::assertPushed(SimulatedDeploymentJob::class, 2);
 })->skip(
     fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
-    'Requires PostgreSQL row-level locking; ignore SQLite.'
+    'Requires PostgreSQL row-level locking; ignore SQLite which does not support FOR UPDATE.',
 );

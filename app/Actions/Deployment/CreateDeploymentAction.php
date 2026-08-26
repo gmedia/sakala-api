@@ -45,7 +45,7 @@ final class CreateDeploymentAction
 
         $requestedResources = $data->requested_resources?->toArray();
 
-        if ($data->requested_resources !== $requestedResources || $existing->branch !== $data->branch) {
+        if ($existing->branch !== $data->branch || $existing->requested_resources !== $requestedResources) {
             throw new ConflictHttpException(
                 'The idempotency key has already been used for a different deployment.'
             );

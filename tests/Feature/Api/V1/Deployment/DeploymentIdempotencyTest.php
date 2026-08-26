@@ -180,3 +180,61 @@ test('different idempotency keys create different deployments', function (): voi
         ->all()
     )->toBe([1, 2]);
 });
+
+test('same idempotency key with same resources returns the same deployment', function (): void {
+    Queue::fake();
+
+    $user = User::factory()->create();
+
+    $project = Project::factory()->for($user)->create([
+        'branch' => 'main',
+    ]);
+
+    $payload = [
+        'branch' => 'main',
+        'resources' => [
+            'memory_mb' => 512,
+            'cpu_millis' => 500,
+            'pids_limit' => 64,
+        ],
+    ];
+
+    $headers = [
+        'Idempotency-Key' => 'deployment-idempotency-same-resources',
+    ];
+
+    $first = $this
+        ->actingAs($user, 'web')
+        ->postJson(
+            "/api/v1/app/projects/{$project->id}/deployments",
+            $payload,
+            $headers,
+        );
+
+    $first->assertCreated();
+
+    $deploymentId = $first->json('data.id');
+
+    $second = $this
+        ->actingAs($user, 'web')
+        ->postJson(
+            "/api/v1/app/projects/{$project->id}/deployments",
+            $payload,
+            $headers,
+        );
+
+    $second->assertCreated();
+
+    expect($second->json('data.id'))
+        ->toBe($deploymentId);
+
+    expect(Deployment::query()
+        ->where('project_id', $project->id)
+        ->count()
+    )->toBe(1);
+
+    Queue::assertPushed(
+        SimulatedDeploymentJob::class,
+        1,
+    );
+});
