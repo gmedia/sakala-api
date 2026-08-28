@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Agent;
 
+use App\Actions\Agent\HeartbeatAgentAction;
 use App\Actions\Agent\ProvisionAgentAction;
 use App\Actions\Agent\RevokeAgentAction;
 use App\Actions\Agent\RotateAgentTokenAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\Agent\AgentHeartbeatRequest;
 use App\Http\Requests\Api\V1\Agent\RevokeAgentRequest;
 use App\Http\Requests\Api\V1\Agent\RotateAgentTokenRequest;
 use App\Http\Requests\Api\V1\Agent\StoreAgentRequest;
+use App\Http\Resources\Api\V1\Agent\AgentHeartbeatResource;
 use App\Http\Resources\Api\V1\Agent\AgentResource;
 use App\Models\AgentNode;
 use Illuminate\Http\JsonResponse;
@@ -95,5 +98,20 @@ final class AgentController extends Controller
         $revokeAgent->handle($agent);
 
         return response()->noContent();
+    }
+
+    public function heartbeat(
+        AgentHeartbeatRequest $request,
+        HeartbeatAgentAction $heartbeatAgent,
+        AgentNode $agent
+    ): AgentHeartbeatResource {
+        $agent = $request->input('agent');
+
+        $agent = $heartbeatAgent->handle(
+            agent: $agent,
+            data: $request->toData()
+        );
+
+        return AgentHeartbeatResource::make($agent);
     }
 }

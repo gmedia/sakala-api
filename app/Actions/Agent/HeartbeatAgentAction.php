@@ -1,8 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Actions\Agent;
 
-use App\Data\Agent\HearthbeatAgentData;
+use App\Data\Agent\AgentHeartbeatData;
 use App\Models\AgentNode;
 use Illuminate\Support\Facades\DB;
 
@@ -10,9 +12,8 @@ final class HeartbeatAgentAction
 {
     public function handle(
         AgentNode $agent,
-        HearthbeatAgentData $data,
-    ): AgentNode
-    {
+        AgentHeartbeatData $data,
+    ): AgentNode {
         return DB::transaction(function () use ($agent, $data): AgentNode {
             /** @var AgentNode $agent */
             $agent = AgentNode::query()
@@ -20,11 +21,11 @@ final class HeartbeatAgentAction
                 ->findOrFail($agent->id);
 
             $agent->update([
-                'status' => $data->status,
                 'hostname' => $data->hostname,
                 'runtime_network' => $data->runtimeNetwork,
                 'capabilities' => $data->capabilities,
                 'metadata' => $data->metadata,
+                'status' => $data->status,
                 'last_seen_at' => now(),
             ]);
 

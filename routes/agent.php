@@ -24,6 +24,6 @@ Route::prefix('agent/v1')->group(function (): void {
     // Machine routes for agent heartbeat (Bearer token auth)
     Route::middleware(EnsureAgentToken::class)->group(function (): void {
         // Response is temporary (for #18 issue)
-        Route::post('heartbeat', fn () => response()->json(['status' => 'ok']));
+        Route::post('heartbeat', [AgentController::class, 'heartbeat']);
     });
 });
