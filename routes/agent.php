@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Agent\AgentController;
 use App\Http\Middleware\EnsureAgentToken;
-use Illuminate\Support\Facades\Route;
 use App\Http\Middleware\LimitAgentHeartbeatPayload;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeStatus;
+use App\Http\Middleware\LimitAgentHeartbeatPayload;
 use App\Models\AgentNode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use App\Http\Middleware\LimitAgentHeartbeatPayload;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -607,7 +607,7 @@ test('heartbeat accepts degraded status with unavailable telemetry', function ()
 
     expect($agent->refresh()->status)
         ->toBe(AgentNodeStatus::Degraded);
-}); 
+});
 
 test('heartbeat rejects detail collections exceeding maximum size', function (
     string $path,
@@ -730,7 +730,7 @@ test('heartbeat rejects oversized payload without content length', function (): 
 
     expect($request->headers->get('Content-Length'))->toBeNull();
 
-    $middleware = new LimitAgentHeartbeatPayload();
+    $middleware = new LimitAgentHeartbeatPayload;
 
     expect(fn () => $middleware->handle(
         $request,
