@@ -24,17 +24,9 @@ final class UserResource extends JsonResource
             'email' => $this->email,
             'avatar_url' => $this->avatarUrl,
             'role' => $this->role->value,
-            'onboarding_source' => $this->onboardingSource !== null
-                ? $this->onboardingSource->value
-                : null,
-
-            'onboarding_completed_at' => $this->onboardingCompletedAt !== null
-                ? $this->onboardingCompletedAt->toAtomString()
-                : null,
-
-            'last_login_at' => $this->lastLoginAt !== null
-                ? $this->lastLoginAt->toAtomString()
-                : null,
+            'onboarding_source' => $this->onboardingSource?->value,
+            'onboarding_completed_at' => $this->onboardingCompletedAt?->toAtomString(),
+            'last_login_at' => $this->lastLoginAt?->toAtomString(),
         ];
     }
 }
