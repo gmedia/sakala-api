@@ -34,7 +34,7 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.protocol_version' => ['required', 'integer', 'min:1'],
             'metadata.runtime_driver' => ['required', 'string', 'max:50'],
             'metadata.lifecycle_state' => ['required', 'string', 'max:50'],
-            'metadata.uptime_seconds' => ['required', 'integer', 'min:0'],
+            'metadata.uptime_seconds' => ['present', 'nullable', 'integer', 'min:0'],
 
             'metadata.detail_counts' => ['required', 'array'],
             'metadata.detail_counts.unhealthy_details' => ['required', 'integer', 'min:0'],
@@ -63,13 +63,13 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.disk_pressure' => ['required', 'array'],
             'metadata.disk_pressure.state' => ['required', 'string', 'max:50'],
             'metadata.disk_pressure.minimum_workspace_free_bytes' => ['required', 'integer', 'min:0'],
-            'metadata.disk_pressure.available_workspace_bytes' => ['required', 'integer', 'min:0'],
+            'metadata.disk_pressure.available_workspace_bytes' => ['present', 'nullable', 'integer', 'min:0'],
 
-            'metadata.runtime_dependencies' => ['required', 'array'],
-            'metadata.runtime_dependencies.git' => ['required', 'string', 'max:255'],
-            'metadata.runtime_dependencies.docker' => ['required', 'string', 'max:255'],
-            'metadata.runtime_dependencies.buildx' => ['required', 'string', 'max:255'],
-            'metadata.runtime_dependencies.railpack' => ['required', 'string', 'max:255'],
+            'metadata.runtime_dependencies' => ['present', 'nullable', 'array'],
+            'metadata.runtime_dependencies.git' => ['nullable', 'string', 'max:255'],
+            'metadata.runtime_dependencies.docker' => ['nullable', 'string', 'max:255'],
+            'metadata.runtime_dependencies.buildx' => ['nullable', 'string', 'max:255'],
+            'metadata.runtime_dependencies.railpack' => ['nullable', 'string', 'max:255'],
 
             'metadata.execution' => ['required', 'array'],
             'metadata.execution.active_commands' => ['present', 'nullable', 'integer', 'min:0'],

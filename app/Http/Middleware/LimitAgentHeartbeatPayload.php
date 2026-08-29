@@ -20,6 +20,10 @@ final class LimitAgentHeartbeatPayload
             abort(413, 'Heartbeat payload is too large.');
         }
 
+        if (strlen($request->getContent()) > self::MAX_BYTES) {
+            abort(413, 'Heartbeat payload is too large.');
+        }
+
         return $next($request);
     }
 }

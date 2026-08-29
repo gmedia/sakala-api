@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Agent\AgentController;
 use App\Http\Middleware\EnsureAgentToken;
 use Illuminate\Support\Facades\Route;
+use App\Http\Middleware\LimitAgentHeartbeatPayload;
 
 /*
 |--------------------------------------------------------------------------
@@ -25,6 +26,6 @@ Route::prefix('agent/v1')->group(function (): void {
     Route::middleware(EnsureAgentToken::class)->group(function (): void {
         // Response is temporary (for #18 issue)
         Route::post('heartbeat', [AgentController::class, 'heartbeat'])
-            ->middleware('\App\Http\Middleware\LimitAgentHeartbeatPayload::class');
+            ->middleware(LimitAgentHeartbeatPayload::class);
     });
 });

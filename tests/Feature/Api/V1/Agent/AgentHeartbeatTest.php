@@ -6,6 +6,9 @@ use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Http\Middleware\LimitAgentHeartbeatPayload;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 uses(RefreshDatabase::class);
 
@@ -561,6 +564,8 @@ test('heartbeat accepts degraded status with unavailable telemetry', function ()
     $payload = heartbeatPayload([
         'status' => 'degraded',
         'metadata' => [
+            'uptime_seconds' => null,
+
             'resources' => [
                 'cpu_total' => null,
                 'cpu_load_1m' => null,
@@ -570,12 +575,20 @@ test('heartbeat accepts degraded status with unavailable telemetry', function ()
                 'disk_available_bytes' => null,
                 'workspace_used_bytes' => null,
             ],
+
             'workloads' => [
                 'active' => null,
                 'starting' => null,
                 'unhealthy' => null,
                 'stopped' => null,
             ],
+
+            'disk_pressure' => [
+                'available_workspace_bytes' => null,
+            ],
+
+            'runtime_dependencies' => null,
+
             'execution' => [
                 'active_commands' => null,
                 'queued_local_commands' => null,
@@ -594,7 +607,7 @@ test('heartbeat accepts degraded status with unavailable telemetry', function ()
 
     expect($agent->refresh()->status)
         ->toBe(AgentNodeStatus::Degraded);
-});
+}); 
 
 test('heartbeat rejects detail collections exceeding maximum size', function (
     string $path,
@@ -691,4 +704,36 @@ test('heartbeat rejects payload larger than 256 KiB', function (): void {
 
     $response
         ->assertStatus(413);
+});
+
+test('heartbeat rejects oversized payload without content length', function (): void {
+    $payload = json_encode(
+        heartbeatPayload([
+            'metadata' => [
+                'large_field' => str_repeat('x', 300 * 1024),
+            ],
+        ]),
+        JSON_THROW_ON_ERROR,
+    );
+
+    $request = Request::create(
+        '/api/agent/v1/heartbeat',
+        'POST',
+        [],
+        [],
+        [],
+        [
+            'CONTENT_TYPE' => 'application/json',
+        ],
+        $payload,
+    );
+
+    expect($request->headers->get('Content-Length'))->toBeNull();
+
+    $middleware = new LimitAgentHeartbeatPayload();
+
+    expect(fn () => $middleware->handle(
+        $request,
+        fn () => response()->json(),
+    ))->toThrow(HttpException::class);
 });
