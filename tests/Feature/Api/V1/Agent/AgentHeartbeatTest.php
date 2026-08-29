@@ -9,81 +9,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-function heartbeatPayload(array $overrides = []): array
-{
-    return array_replace_recursive([
-        'status' => 'ready',
-        'hostname' => 'runtime-01',
-        'runtime_network' => 'sakala-runtime',
-
-        'capabilities' => [
-            'docker-runtime',
-            'project-inspection',
-        ],
-
-        'metadata' => [
-            'version' => '0.1.0',
-            'protocol_version' => 4,
-            'runtime_driver' => 'docker',
-            'lifecycle_state' => 'active',
-            'uptime_seconds' => 86400,
-
-            'resources' => [
-                'cpu_total' => 4,
-                'cpu_load_1m' => 0.42,
-                'memory_total_bytes' => 8589934592,
-                'memory_available_bytes' => 4294967296,
-                'disk_total_bytes' => 107374182400,
-                'disk_available_bytes' => 53687091200,
-                'workspace_used_bytes' => 104857600,
-            ],
-
-            'workloads' => [
-                'active' => 2,
-                'starting' => 0,
-                'unhealthy' => 0,
-                'stopped' => 1,
-                'unhealthy_details' => [],
-            ],
-
-            'disk_pressure' => [
-                'state' => 'normal',
-                'minimum_workspace_free_bytes' => 2147483648,
-                'available_workspace_bytes' => 53687091200,
-            ],
-
-            'runtime_dependencies' => [
-                'git' => 'git version 2.47.0',
-                'docker' => '27.3.1',
-                'buildx' => 'github.com/docker/buildx v0.17.1',
-                'railpack' => 'railpack 0.23.0',
-            ],
-
-            'execution' => [
-                'active_commands' => 1,
-                'queued_local_commands' => 0,
-                'capacity_waiting_commands' => 1,
-                'active_builds' => 1,
-                'maximum_concurrent_builds' => 2,
-            ],
-
-            'startup_reconciliation' => [
-                'captured_at' => '2026-06-23T07:59:58Z',
-                'inspected_containers' => 2,
-                'cleaned_workspaces' => 0,
-                'reattached_log_followers' => 1,
-                'recovered_execution_records' => 2,
-                'recovered_workloads' => [],
-                'orphans' => [],
-                'stale_routes' => [],
-                'stale_images' => [],
-            ],
-        ],
-
-        'sent_at' => '2026-06-23T08:00:00Z',
-    ], $overrides);
-}
-
 function activeAgent(string $token = 'agent-secret-token'): AgentNode
 {
     return AgentNode::factory()->create([
@@ -568,4 +493,202 @@ test('heartbeat rejects invalid capability items', function (): void {
         ->assertJsonValidationErrors([
             'capabilities.1',
         ]);
+});
+
+test('heartbeat accepts valid agent lifecycle statuses', function (string $status): void {
+    $token = 'agent-secret-token';
+
+    $agent = activeAgent($token);
+
+    $response = $this
+        ->withHeaders(agentTokenHeaders($agent, $token))
+        ->postJson(
+            '/api/agent/v1/heartbeat',
+            heartbeatPayload([
+                'status' => $status,
+            ]),
+        );
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('data.status', $status);
+
+    $agent->refresh();
+
+    expect($agent->status->value)->toBe($status);
+})->with([
+    'ready',
+    'busy',
+    'degraded',
+    'draining',
+    'drained',
+    'maintenance',
+]);
+
+test('heartbeat rejects offline status because offline is controlled by control plane', function (): void {
+    $token = 'agent-secret-token';
+
+    $agent = activeAgent($token);
+
+    $response = $this
+        ->withHeaders(agentTokenHeaders($agent, $token))
+        ->postJson(
+            '/api/agent/v1/heartbeat',
+            heartbeatPayload([
+                'status' => 'offline',
+            ]),
+        );
+
+    $response
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['status']);
+});
+
+test('agent node can still have offline status', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Offline,
+    ]);
+
+    expect($agent->status)
+        ->toBe(AgentNodeStatus::Offline);
+});
+
+test('heartbeat accepts degraded status with unavailable telemetry', function (): void {
+    $token = 'agent-secret-token';
+
+    $agent = activeAgent($token);
+
+    $payload = heartbeatPayload([
+        'status' => 'degraded',
+        'metadata' => [
+            'resources' => [
+                'cpu_total' => null,
+                'cpu_load_1m' => null,
+                'memory_total_bytes' => null,
+                'memory_available_bytes' => null,
+                'disk_total_bytes' => null,
+                'disk_available_bytes' => null,
+                'workspace_used_bytes' => null,
+            ],
+            'workloads' => [
+                'active' => null,
+                'starting' => null,
+                'unhealthy' => null,
+                'stopped' => null,
+            ],
+            'execution' => [
+                'active_commands' => null,
+                'queued_local_commands' => null,
+                'capacity_waiting_commands' => null,
+                'active_builds' => null,
+                'maximum_concurrent_builds' => null,
+            ],
+        ],
+    ]);
+
+    $response = $this
+        ->withHeaders(agentTokenHeaders($agent, $token))
+        ->postJson('/api/agent/v1/heartbeat', $payload);
+
+    $response->assertOk();
+
+    expect($agent->refresh()->status)
+        ->toBe(AgentNodeStatus::Degraded);
+});
+
+test('heartbeat rejects detail collections exceeding maximum size', function (
+    string $path,
+): void {
+    $token = 'agent-secret-token';
+
+    $agent = activeAgent($token);
+
+    $payload = heartbeatPayload();
+
+    data_set(
+        $payload,
+        $path,
+        array_fill(0, 51, ['value' => 'too-many']),
+    );
+
+    $response = $this
+        ->withHeaders(agentTokenHeaders($agent, $token))
+        ->postJson('/api/agent/v1/heartbeat', $payload);
+
+    $response
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([$path]);
+})->with([
+    'unhealthy details' => 'metadata.workloads.unhealthy_details',
+    'recovered workloads' => 'metadata.startup_reconciliation.recovered_workloads',
+    'orphans' => 'metadata.startup_reconciliation.orphans',
+    'stale routes' => 'metadata.startup_reconciliation.stale_routes',
+    'stale images' => 'metadata.startup_reconciliation.stale_images',
+    'compatibility issues' => 'metadata.startup_reconciliation.compatibility_issues',
+]);
+
+test('heartbeat rejects more than 50 capabilities', function (): void {
+    $token = 'agent-secret-token';
+
+    $agent = activeAgent($token);
+
+    $payload = heartbeatPayload([
+        'capabilities' => array_fill(0, 51, 'capability'),
+    ]);
+
+    $response = $this
+        ->withHeaders(agentTokenHeaders($agent, $token))
+        ->postJson('/api/agent/v1/heartbeat', $payload);
+
+    $response
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([
+            'capabilities',
+        ]);
+});
+
+test('heartbeat rejects more than 50 compatibility issues', function (): void {
+    $token = 'agent-secret-token';
+
+    $agent = activeAgent($token);
+
+    $payload = heartbeatPayload([
+        'metadata' => [
+            'startup_reconciliation' => [
+                'compatibility_issues' => array_fill(0, 51, [
+                    'component' => 'docker',
+                    'message' => 'incompatible',
+                ]),
+            ],
+        ],
+    ]);
+
+    $response = $this
+        ->withHeaders(agentTokenHeaders($agent, $token))
+        ->postJson('/api/agent/v1/heartbeat', $payload);
+
+    $response
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([
+            'metadata.startup_reconciliation.compatibility_issues',
+        ]);
+});
+
+test('heartbeat rejects payload larger than 256 KiB', function (): void {
+    $token = 'agent-secret-token';
+
+    $agent = activeAgent($token);
+
+    $payload = heartbeatPayload([
+        'metadata' => [
+            'large_field' => str_repeat('x', 300 * 1024),
+        ],
+    ]);
+
+    $response = $this
+        ->withHeaders(agentTokenHeaders($agent, $token))
+        ->postJson('/api/agent/v1/heartbeat', $payload);
+
+    $response
+        ->assertStatus(413);
 });
