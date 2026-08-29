@@ -178,7 +178,7 @@ final class AgentTest extends TestCase
         $responseBefore = $this->withHeaders([
             'Authorization' => "Bearer {$token}",
             'X-Agent-Id' => $agent->agent_id,
-        ])->postJson('/api/agent/v1/heartbeat');
+        ])->postJson('/api/agent/v1/heartbeat', heartbeatPayload());
         $responseBefore->assertOk();
 
         // Rotate the token
@@ -197,7 +197,7 @@ final class AgentTest extends TestCase
         $responseAfterNew = $this->withHeaders([
             'Authorization' => "Bearer {$newToken}",
             'X-Agent-Id' => $agent->agent_id,
-        ])->postJson('/api/agent/v1/heartbeat');
+        ])->postJson('/api/agent/v1/heartbeat', heartbeatPayload());
         $responseAfterNew->assertOk();
     }
 
@@ -326,7 +326,7 @@ final class AgentTest extends TestCase
         $response = $this->withHeaders([
             'Authorization' => "Bearer {$token}",
             'X-Agent-Id' => $agent->agent_id,
-        ])->postJson('/api/agent/v1/heartbeat');
+        ])->postJson('/api/agent/v1/heartbeat', heartbeatPayload());
 
         $response->assertOk(); // Middleware passed, route exists
     }

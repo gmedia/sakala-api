@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Agent\AgentController;
 use App\Http\Middleware\EnsureAgentToken;
+use App\Http\Middleware\LimitAgentHeartbeatPayload;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -24,6 +25,7 @@ Route::prefix('agent/v1')->group(function (): void {
     // Machine routes for agent heartbeat (Bearer token auth)
     Route::middleware(EnsureAgentToken::class)->group(function (): void {
         // Response is temporary (for #18 issue)
-        Route::post('heartbeat', fn () => response()->json(['status' => 'ok']));
+        Route::post('heartbeat', [AgentController::class, 'heartbeat'])
+            ->middleware(LimitAgentHeartbeatPayload::class);
     });
 });
