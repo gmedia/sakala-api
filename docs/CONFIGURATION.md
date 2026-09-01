@@ -42,6 +42,24 @@ request dengan credentials agar cookie session dan CSRF dapat dipakai.
 
 Nilai credential sengaja kosong di `.env.example`; buat nilai lokal sendiri dan gunakan GitLab File variable untuk private key di environment deployment. Private key, webhook secret, dan installation token tidak boleh masuk log, OpenAPI, atau database.
 
+## Realtime dan Broadcasting
+
+Deployment yang mengaktifkan realtime menggunakan `BROADCAST_CONNECTION=reverb`
+dan menjalankan `php artisan reverb:start` serta `php artisan queue:work`
+sebagai proses terpisah dari PHP-FPM. Event deployment mengimplementasikan
+`ShouldBroadcast`, sehingga queue worker wajib aktif agar event benar-benar
+dikirim ke Reverb.
+
+`REVERB_HOST`, `REVERB_PORT`, dan `REVERB_SCHEME` pada API menunjuk ke endpoint
+internal Reverb yang dipakai broadcaster server-side. Browser memakai public
+host, port, scheme, dan `REVERB_APP_KEY` melalui konfigurasi publik Console;
+`REVERB_APP_SECRET` tidak boleh dikirim ke browser.
+
+Private channel diautentikasi melalui `POST /broadcasting/auth` menggunakan
+session `web`. Endpoint tersebut termasuk dalam konfigurasi CORS, tetapi tetap
+hanya menerima origin eksplisit dari `CORS_ALLOWED_ORIGINS` dan tidak menerima
+bearer token sebagai pengganti session Console.
+
 ### Pengaturan di GitHub App
 
 Selain environment API, konfigurasi GitHub App harus memakai nilai berikut agar
