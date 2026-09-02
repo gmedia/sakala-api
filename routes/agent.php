@@ -22,10 +22,16 @@ Route::prefix('agent/v1')->group(function (): void {
         Route::post('agents/{agent}/revoke', [AgentController::class, 'revoke'])->whereUuid('agent');
     });
 
-    // Machine routes for agent heartbeat (Bearer token auth)
+    // Machine routes for agent heartbeat, command polling, and lifecycle (Bearer token auth)
     Route::middleware(EnsureAgentToken::class)->group(function (): void {
         // Response is temporary (for #18 issue)
         Route::post('heartbeat', [AgentController::class, 'heartbeat'])
             ->middleware(LimitAgentHeartbeatPayload::class);
+
+        // Command lifecycle endpoints.
+        Route::get('commands', [AgentController::class, 'pollCommands']);
+        Route::post('commands/{command:uuid}/claim', [AgentController::class, 'claimCommand']);
+        Route::post('commands/{command:uuid}/complete', [AgentController::class, 'completeCommand']);
+        Route::post('commands/{command:uuid}/fail', [AgentController::class, 'failCommand']);
     });
 });

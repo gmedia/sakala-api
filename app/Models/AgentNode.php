@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property AgentAuthStatus $auth_status
  * @property AgentNodeStatus $status
+ * @property array<int, string>|null $capabilities
  */
 #[Fillable([
     'agent_id',
