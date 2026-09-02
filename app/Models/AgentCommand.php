@@ -14,6 +14,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property AgentCommandType $type
+ * @property AgentCommandStatus $status
+ * @property array<string, mixed>|null $payload
+ * @property array<string, mixed>|null $result
+ */
 #[Fillable([
     'project_id',
     'deployment_id',

@@ -19,6 +19,10 @@ return [
         ],
     ],
 
+    'agent' => [
+        'command_batch_size' => (int) env('SAKALA_AGENT_COMMAND_BATCH_SIZE', 10),
+    ],
+
     'pilot_limits' => [
         'max_projects_per_user' => (int) env('SAKALA_MAX_PROJECTS_PER_USER', 3),
         'max_active_deployments_per_user' => (int) env('SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_USER', 2),
