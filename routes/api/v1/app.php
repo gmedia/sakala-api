@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
 use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
 use App\Http\Controllers\Api\V1\GitHub\GithubInstallationController;
 use App\Http\Controllers\Api\V1\GitHub\GithubRepositoryController;
+use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
 use Illuminate\Support\Facades\Route;
@@ -28,6 +29,28 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
 
     // Project routes
     Route::apiResource('projects', ProjectController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    // Environment variable routes
+    Route::scopeBindings()->group(function (): void {
+        Route::get(
+            'projects/{project}/environment-variables',
+            [EnvironmentVariableController::class, 'index']
+        )->name('api.v1.app.projects.environment-variables.index');
+
+        Route::post(
+            'projects/{project}/environment-variables',
+            [EnvironmentVariableController::class, 'store']
+        )->name('api.v1.app.projects.environment-variables.store');
+
+        Route::delete(
+            'projects/{project}/environment-variables/{environmentVariable}',
+            [EnvironmentVariableController::class, 'destroy']
+        )->name('api.v1.app.projects.environment-variables.destroy');
+
+        Route::get(
+            'projects/{project}/environment-variables/{environmentVariable}/value',
+            [EnvironmentVariableController::class, 'value']
+        )->name('api.v1.app.projects.environment-variables.value');
+    });
 
     // GitHub routes
     Route::prefix('github')->group(function (): void {
