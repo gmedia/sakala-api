@@ -273,12 +273,14 @@ test('claim returns 409 for non-pending command', function (): void {
         'type' => AgentCommandType::HealthCheck,
         'status' => AgentCommandStatus::Succeeded,
         'available_at' => now()->subMinute(),
+        'completed_at' => now()->subMinute(),
     ]);
 
     $response = $this->withHeaders(commandHeaders($agent, 'claim-token'))
         ->postJson("/api/agent/v1/commands/{$command->id}/claim");
 
     $response->assertStatus(409);
+    $response->assertJsonPath('status', 'Succeeded');
 });
 
 test('claim returns 409 for expired command', function (): void {
@@ -479,6 +481,119 @@ test('complete returns 409 when command is Expired', function (): void {
         ->postJson("/api/agent/v1/commands/{$command->id}/complete");
 
     $response->assertStatus(409);
+});
+
+// ─── 409 Response Shape Regression Tests ─────────────────────────────────────
+// docs/AGENT_API.md: 409 must carry the command's current safe state
+// ({status, terminal_at when relevant}) — never a literal "conflict".
+
+test('409 response from claim carries command state with terminal_at when terminal', function (): void {
+    $agent = commandAgent('claim-token');
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Succeeded,
+        'available_at' => now()->subMinute(),
+        'completed_at' => '2026-08-23T10:00:00Z',
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($agent, 'claim-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/claim");
+
+    $response->assertStatus(409);
+    expect($response->json())->toBe([
+        'status' => 'Succeeded',
+        'terminal_at' => '2026-08-23T10:00:00+00:00',
+    ]);
+});
+
+test('409 response from claim carries non-terminal state without terminal_at', function (): void {
+    $agent = commandAgent('claim-token');
+    $otherAgent = commandAgent('other-token');
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now()->subMinute(),
+        'agent_node_id' => $otherAgent->id,
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($agent, 'claim-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/claim");
+
+    $response->assertStatus(409);
+    expect($response->json())->toBe([
+        'status' => 'Claimed',
+        'terminal_at' => null,
+    ]);
+});
+
+test('409 response from complete on failed command carries failed state', function (): void {
+    $agent = commandAgent('complete-token');
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Failed,
+        'failed_at' => '2026-08-23T11:30:00Z',
+        'agent_node_id' => $agent->id,
+        'error_code' => 'build_failed',
+        'error_message' => 'build crashed',
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($agent, 'complete-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/complete");
+
+    $response->assertStatus(409);
+    expect($response->json())->toBe([
+        'status' => 'Failed',
+        'terminal_at' => '2026-08-23T11:30:00+00:00',
+    ]);
+    // Error details are state, not part of the conflict shape.
+    $response->assertJsonMissingPath('error_code');
+    $response->assertJsonMissingPath('error_message');
+});
+
+test('409 response from fail on succeeded command carries succeeded state', function (): void {
+    $agent = commandAgent('fail-token');
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Succeeded,
+        'completed_at' => '2026-08-23T12:00:00Z',
+        'agent_node_id' => $agent->id,
+        'result' => ['requested_resources' => ['memory_mb' => 256]],
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($agent, 'fail-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            'error_code' => 'oops',
+            'error_message' => 'should not happen',
+        ]);
+
+    $response->assertStatus(409);
+    expect($response->json())->toBe([
+        'status' => 'Succeeded',
+        'terminal_at' => '2026-08-23T12:00:00+00:00',
+    ]);
+    // Result payload must never be reflected in the conflict body.
+    $response->assertJsonMissingPath('result');
+});
+
+test('409 response from fail on expired command carries expired state', function (): void {
+    $agent = commandAgent('fail-token');
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Expired,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($agent, 'fail-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            'error_code' => 'too_late',
+            'error_message' => 'already expired',
+        ]);
+
+    $response->assertStatus(409);
+    expect($response->json())->toBe([
+        'status' => 'Expired',
+        'terminal_at' => null,
+    ]);
 });
 
 // ─── Fail Tests ──────────────────────────────────────────────────────────────

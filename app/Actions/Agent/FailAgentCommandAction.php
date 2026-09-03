@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
+use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class FailAgentCommandAction
 {
@@ -21,8 +21,8 @@ final class FailAgentCommandAction
      * Returns true when the transition was performed, false when the command
      * is already in terminal Failed state (idempotent repeat).
      *
-     * @throws ConflictHttpException when the transition is illegal or the
-     *                               command does not belong to the caller.
+     * @throws CommandConflictException when the transition is illegal or the
+     *                                  command does not belong to the caller.
      */
     public function handle(
         AgentNode $agent,
@@ -47,11 +47,11 @@ final class FailAgentCommandAction
                 AgentCommandStatus::Claimed->value,
                 AgentCommandStatus::Running->value,
             ], true)) {
-                throw $this->conflict($command, 'fail');
+                throw new CommandConflictException($command);
             }
 
             if ($command->agent_node_id !== $agent->id) {
-                throw $this->conflict($command, 'fail');
+                throw new CommandConflictException($command);
             }
 
             $command->update([
@@ -71,12 +71,5 @@ final class FailAgentCommandAction
     private function sanitize(string $message): string
     {
         return preg_replace('/[^\p{L}\p{N}\s\x09\x0A\x0D]/u', '', $message) ?? $message;
-    }
-
-    private function conflict(AgentCommand $command, string $operation): ConflictHttpException
-    {
-        return new ConflictHttpException(
-            sprintf('Cannot %s command in %s state.', $operation, $command->status->value),
-        );
     }
 }

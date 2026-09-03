@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
+use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class CompleteAgentCommandAction
 {
@@ -19,8 +19,8 @@ final class CompleteAgentCommandAction
      *
      * @param  array<string, mixed>|null  $result
      *
-     * @throws ConflictHttpException when the transition is illegal or the
-     *                               command does not belong to the caller.
+     * @throws CommandConflictException when the transition is illegal or the
+     *                                  command does not belong to the caller.
      */
     public function handle(AgentNode $agent, string $commandId, ?array $result = null): bool
     {
@@ -38,11 +38,11 @@ final class CompleteAgentCommandAction
                 AgentCommandStatus::Claimed->value,
                 AgentCommandStatus::Running->value,
             ], true)) {
-                throw $this->conflict($command, 'complete');
+                throw new CommandConflictException($command);
             }
 
             if ($command->agent_node_id !== $agent->id) {
-                throw $this->conflict($command, 'complete');
+                throw new CommandConflictException($command);
             }
 
             $command->update([
@@ -54,12 +54,5 @@ final class CompleteAgentCommandAction
 
         // Reached here only if not already Succeeded (idempotent path returns early)
         return true;
-    }
-
-    private function conflict(AgentCommand $command, string $operation): ConflictHttpException
-    {
-        return new ConflictHttpException(
-            sprintf('Cannot %s command in %s state.', $operation, $command->status->value),
-        );
     }
 }

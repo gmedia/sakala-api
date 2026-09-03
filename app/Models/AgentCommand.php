@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use Carbon\CarbonImmutable;
 use Database\Factories\AgentCommandFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -19,6 +20,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property AgentCommandStatus $status
  * @property array<string, mixed>|null $payload
  * @property array<string, mixed>|null $result
+ * @property int $attempts
+ * @property CarbonImmutable $available_at
+ * @property CarbonImmutable|null $claimed_at
+ * @property CarbonImmutable|null $started_at
+ * @property CarbonImmutable|null $completed_at
+ * @property CarbonImmutable|null $failed_at
+ * @property CarbonImmutable|null $expires_at
+ * @property CarbonImmutable $created_at
+ * @property CarbonImmutable $updated_at
  */
 #[Fillable([
     'project_id',
