@@ -30,18 +30,18 @@ final class CompleteAgentCommandAction
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            if ($command->agent_node_id !== $agent->id) {
+                throw new CommandConflictException($command);
+            }
+
             if ($command->status->value === AgentCommandStatus::Succeeded->value) {
-                return; // idempotent: already succeeded
+                return;
             }
 
             if (! in_array($command->status->value, [
                 AgentCommandStatus::Claimed->value,
                 AgentCommandStatus::Running->value,
             ], true)) {
-                throw new CommandConflictException($command);
-            }
-
-            if ($command->agent_node_id !== $agent->id) {
                 throw new CommandConflictException($command);
             }
 

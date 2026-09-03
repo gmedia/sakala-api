@@ -39,6 +39,12 @@ final class FailAgentCommandAction
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            // Ownership is checked before the idempotent shortcut: a retry
+            // is only idempotent for the agent that claimed the command.
+            if ($command->agent_node_id !== $agent->id) {
+                throw new CommandConflictException($command);
+            }
+
             if ($command->status->value === AgentCommandStatus::Failed->value) {
                 return; // idempotent: already failed
             }
@@ -47,10 +53,6 @@ final class FailAgentCommandAction
                 AgentCommandStatus::Claimed->value,
                 AgentCommandStatus::Running->value,
             ], true)) {
-                throw new CommandConflictException($command);
-            }
-
-            if ($command->agent_node_id !== $agent->id) {
                 throw new CommandConflictException($command);
             }
 
