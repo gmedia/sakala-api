@@ -68,7 +68,7 @@ class EnvironmentVariableController extends Controller
         Project $project,
         EnvironmentVariable $environmentVariable,
     ): JsonResponse {
-        $this->authorize('view', $project);
+        $this->authorize('update', $project);
 
         return (new EnvironmentVariableValueResource($environmentVariable))
             ->response();

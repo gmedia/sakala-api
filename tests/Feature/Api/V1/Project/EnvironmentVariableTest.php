@@ -6,6 +6,8 @@ use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -13,13 +15,9 @@ test('user can create an environment variable', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();
 
-    $response = $this
-        ->actingAs($user, 'web')
+    $response = $this->actingAs($user, 'web')
         ->postJson(
-            route(
-                'api.v1.app.projects.environment-variables.store',
-                $project,
-            ),
+            route('api.v1.app.projects.environment-variables.store', $project),
             [
                 'key' => 'APP_ENV',
                 'value' => 'production',
@@ -38,6 +36,17 @@ test('user can create an environment variable', function (): void {
         'project_id' => $project->id,
         'key' => 'APP_ENV',
     ]);
+
+    $rawValue = DB::table('environment_variables')
+        ->where('project_id', $project->id)
+        ->where('key', 'APP_ENV')
+        ->value('encrypted_value');
+
+    expect($rawValue)
+        ->not->toBe('production');
+
+    expect(Crypt::decryptString($rawValue))
+        ->toBe('production');
 });
 
 test('user can list environment variables without exposing values', function (): void {
