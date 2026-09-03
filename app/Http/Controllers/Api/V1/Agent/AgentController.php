@@ -12,6 +12,8 @@ use App\Actions\Agent\PollAgentCommandsAction;
 use App\Actions\Agent\ProvisionAgentAction;
 use App\Actions\Agent\RevokeAgentAction;
 use App\Actions\Agent\RotateAgentTokenAction;
+use App\Enums\AgentCommandStatus;
+use App\Exceptions\Agent\CommandConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Agent\AgentHeartbeatRequest;
 use App\Http\Requests\Api\V1\Agent\ClaimAgentCommandRequest;
@@ -23,12 +25,12 @@ use App\Http\Requests\Api\V1\Agent\StoreAgentRequest;
 use App\Http\Resources\Api\V1\Agent\AgentCommandResource;
 use App\Http\Resources\Api\V1\Agent\AgentHeartbeatResource;
 use App\Http\Resources\Api\V1\Agent\AgentResource;
+use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class AgentController extends Controller
 {
@@ -153,12 +155,10 @@ final class AgentController extends Controller
         /** @var AgentNode $agent */
         $agent = request()->input('agent');
 
-        $claimed = $claimAgentCommand->handle($agent, $command);
-
-        if ($claimed === null) {
-            return response()->json([
-                'status' => 'conflict',
-            ], 409);
+        try {
+            $claimed = $claimAgentCommand->handle($agent, $command);
+        } catch (CommandConflictException $e) {
+            return $this->commandConflict($e->command());
         }
 
         return (new AgentCommandResource($claimed))
@@ -185,10 +185,8 @@ final class AgentController extends Controller
                 commandId: $command,
                 result: $request->result(),
             );
-        } catch (ConflictHttpException $e) {
-            return response()->json([
-                'status' => 'conflict',
-            ], 409);
+        } catch (CommandConflictException $e) {
+            return $this->commandConflict($e->command());
         }
 
         return response()->noContent();
@@ -214,12 +212,31 @@ final class AgentController extends Controller
                 errorCode: $request->error_code(),
                 errorMessage: $request->error_message(),
             );
-        } catch (ConflictHttpException $e) {
-            return response()->json([
-                'status' => 'conflict',
-            ], 409);
+        } catch (CommandConflictException $e) {
+            return $this->commandConflict($e->command());
         }
 
         return response()->noContent();
+    }
+
+    /**
+     * Build the 409 conflict body mandated by the agent contract:
+     * the command's current safe state (status and terminal_at when
+     * relevant). Deployment payload and credentials are never reflected.
+     *
+     * @see docs/AGENT_API.md "Bentuk respons 409 yang ditetapkan"
+     */
+    private function commandConflict(AgentCommand $command): JsonResponse
+    {
+        $terminalAt = match ($command->status) {
+            AgentCommandStatus::Succeeded => $command->completed_at,
+            AgentCommandStatus::Failed => $command->failed_at,
+            default => null,
+        };
+
+        return response()->json([
+            'status' => $command->status->value,
+            'terminal_at' => $terminalAt?->toAtomString(),
+        ], 409);
     }
 }

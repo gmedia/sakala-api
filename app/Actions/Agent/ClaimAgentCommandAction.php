@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
+use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Services\Agent\AgentCommandEligibilityService;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class ClaimAgentCommandAction
 {
@@ -20,83 +20,66 @@ final class ClaimAgentCommandAction
     /**
      * Atomically claim a pending command for the requesting agent node.
      * Returns the claimed command, or null when the command is not claimable
-     * (conflict with current state or ownership mismatch).
+     * (state/eligibility conflict).
      *
      * The node is re-fetched and re-validated inside the transaction because
      * its state can change between the agent's poll and its claim (e.g. the
      * node went draining or lost capabilities). Polling gives no ownership,
      * so a node that is no longer eligible must fail the claim.
+     *
+     * @throws CommandConflictException
      */
-    public function handle(AgentNode $agent, string $commandId): ?AgentCommand
+    public function handle(AgentNode $agent, string $commandId): AgentCommand
     {
-        try {
-            return DB::transaction(function () use ($agent, $commandId): ?AgentCommand {
-                $command = AgentCommand::query()
-                    ->whereKey($commandId)
-                    ->lockForUpdate()
-                    ->first();
+        return DB::transaction(function () use ($agent, $commandId): AgentCommand {
+            $command = AgentCommand::query()
+                ->whereKey($commandId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-                if ($command === null) {
-                    abort(404, 'Command not found.');
-                }
+            // Re-fetch the node under lock: middleware loaded it at the
+            // start of the request, and its status may have changed since.
+            $node = AgentNode::query()
+                ->whereKey($agent->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-                // Re-fetch the node under lock: middleware loaded it at the
-                // start of the request, and its status may have changed since.
-                $node = AgentNode::query()
-                    ->whereKey($agent->id)
-                    ->lockForUpdate()
-                    ->first();
+            $this->assertClaimable($command, $node);
 
-                if ($node === null) {
-                    abort(404, 'Agent not found.');
-                }
+            $command->update([
+                'status' => AgentCommandStatus::Claimed,
+                'claimed_at' => now(),
+                'attempts' => $command->attempts + 1,
+                'agent_node_id' => $command->agent_node_id ?? $node->id,
+            ]);
 
-                $this->assertClaimable($command, $node);
-
-                $command->update([
-                    'status' => AgentCommandStatus::Claimed,
-                    'claimed_at' => now(),
-                    'attempts' => $command->attempts + 1,
-                    'agent_node_id' => $command->agent_node_id ?? $node->id,
-                ]);
-
-                return $command->fresh();
-            });
-        } catch (ConflictHttpException $e) {
-            return null;
-        }
+            return $command->fresh();
+        });
     }
 
     /**
-     * @throws ConflictHttpException
+     * @throws CommandConflictException
      */
     private function assertClaimable(AgentCommand $command, AgentNode $node): void
     {
         if ($command->status->value !== AgentCommandStatus::Pending->value) {
-            throw $this->conflict($command);
+            throw new CommandConflictException($command);
         }
 
         if (! $this->eligibility->nodeIsEligibleFor($node, $command->type)) {
-            throw $this->conflict($command);
+            throw new CommandConflictException($command);
         }
 
         if ($command->available_at > now()) {
-            throw $this->conflict($command);
+            throw new CommandConflictException($command);
         }
 
         if ($command->expires_at !== null && $command->expires_at < now()) {
-            throw $this->conflict($command);
+            throw new CommandConflictException($command);
         }
 
         if ($command->agent_node_id !== null && $command->agent_node_id !== $node->id) {
-            throw $this->conflict($command);
+            throw new CommandConflictException($command);
         }
-    }
-
-    private function conflict(AgentCommand $command): ConflictHttpException
-    {
-        return new ConflictHttpException(
-            'Command is not available for claiming.',
-        );
     }
 }
