@@ -22,36 +22,50 @@ final class ClaimAgentCommandAction
      * Returns the claimed command, or null when the command is not claimable
      * (state/eligibility conflict).
      *
-     * The node is re-fetched and re-validated inside the transaction because
-     * its state can change between the agent's poll and its claim (e.g. the
-     * node went draining or lost capabilities). Polling gives no ownership,
-     * so a node that is no longer eligible must fail the claim.
+     * The node is re-fetched (not the middleware's copy) because its state
+     * can change between the agent's poll and its claim (e.g. the node went
+     * draining or lost capabilities). Polling gives no ownership, so a node
+     * that is no longer eligible must fail the claim.
+     *
+     * The transition is a single guarded UPDATE (WHERE status = Pending) —
+     * the atomic primitive endorsed by the agent contract. No two processes
+     * can ever flip the same row Pending -> Claimed: the winner observes one
+     * affected row, every loser observes zero and conflicts. This is safe on
+     * both PostgreSQL and SQLite without relying on row-lock semantics.
      *
      * @throws CommandConflictException
      */
     public function handle(AgentNode $agent, string $commandId): AgentCommand
     {
         return DB::transaction(function () use ($agent, $commandId): AgentCommand {
-            $command = AgentCommand::query()
-                ->whereKey($commandId)
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            // Re-fetch the node under lock: middleware loaded it at the
-            // start of the request, and its status may have changed since.
+            // Re-read the node: middleware loaded it at the start of the
+            // request, and a heartbeat may have changed its status or
+            // capabilities since.
             $node = AgentNode::query()
                 ->whereKey($agent->id)
-                ->lockForUpdate()
+                ->firstOrFail();
+
+            $command = AgentCommand::query()
+                ->whereKey($commandId)
                 ->firstOrFail();
 
             $this->assertClaimable($command, $node);
 
-            $command->update([
-                'status' => AgentCommandStatus::Claimed,
-                'claimed_at' => now(),
-                'attempts' => $command->attempts + 1,
-                'agent_node_id' => $command->agent_node_id ?? $node->id,
-            ]);
+            $updated = AgentCommand::query()
+                ->whereKey($command->id)
+                ->where('status', AgentCommandStatus::Pending->value)
+                ->update([
+                    'status' => AgentCommandStatus::Claimed->value,
+                    'claimed_at' => now(),
+                    'attempts' => $command->attempts + 1,
+                    'agent_node_id' => $command->agent_node_id ?? $node->id,
+                    'updated_at' => now(),
+                ]);
+
+            if ($updated === 0) {
+                // Lost the race: another process claimed the row first.
+                throw new CommandConflictException($command->fresh());
+            }
 
             return $command->fresh();
         });

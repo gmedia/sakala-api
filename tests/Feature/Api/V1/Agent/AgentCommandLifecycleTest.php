@@ -9,6 +9,7 @@ use App\Enums\AgentNodeStatus;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\AssertionFailedError;
 
 uses(RefreshDatabase::class);
 
@@ -31,6 +32,11 @@ function commandHeaders(AgentNode $agent, string $token): array
         'Authorization' => 'Bearer '.$token,
         'X-Agent-Id' => $agent->agent_id,
     ];
+}
+
+function fail(string $message): never
+{
+    throw new AssertionFailedError($message);
 }
 
 // ─── Poll Tests ──────────────────────────────────────────────────────────────
@@ -316,7 +322,7 @@ test('claim returns 409 for command owned by another node', function (): void {
     $response->assertStatus(409);
 });
 
-test('claim is atomic under contention', function (): void {
+test('claim is atomic under contention (sequential regression)', function (): void {
     $agentA = commandAgent('node-a-token');
     $agentB = commandAgent('node-b-token');
 
@@ -339,6 +345,162 @@ test('claim is atomic under contention', function (): void {
     expect($command->fresh()->status)->toBe(AgentCommandStatus::Claimed);
     expect($command->fresh()->agent_node_id)->toBe($agentA->id);
     expect($command->fresh()->attempts)->toBe(1);
+});
+
+// Real contention: five separate PHP processes (separate Laravel apps, DB
+// connections, and full HTTP kernels) race to claim the same Pending
+// command at the same instant, coordinated by a start-barrier file. Exactly
+// one process may win; the rest must receive 409. The race runs against a
+// temporary SQLite file because in-memory SQLite is private to a single
+// connection. The seeder and the final verify also run as subprocesses so
+// the test's own :memory: database is never touched.
+test('claim is atomic when multiple processes contend simultaneously', function (): void {
+    $base = sys_get_temp_dir().'/sakala-claim-'.getmypid();
+    $dbFile = $base.'.db';
+    $seedJson = $base.'-seed.json';
+    $goFile = $base.'-go';
+    $worker = __DIR__.'/claim_worker.php';
+
+    $workerEnv = function (string $db) use ($base): array {
+        return array_merge($_ENV, [
+            'APP_ENV' => 'testing',
+            'APP_KEY' => (string) config('app.key'),
+            'DB_CONNECTION' => 'sqlite',
+            'DB_DATABASE' => $db,
+            'DB_BUSY_TIMEOUT' => '15000',
+            // IMMEDIATE write lock at BEGIN so the busy_timeout above can
+            // serialize racing claim transactions deterministically.
+            'DB_TRANSACTION_MODE' => 'IMMEDIATE',
+            'APP_BASE_PATH' => dirname(__DIR__, 5),
+            'HOME' => $base, // writable HOME for artisan cache
+            'PULSE_ENABLED' => 'false',
+            'TELESCOPE_ENABLED' => 'false',
+            'NIGHTWATCH_ENABLED' => 'false',
+        ]);
+    };
+
+    $run = function (array $argv, array $env) use (&$run): string {
+        $proc = proc_open(
+            array_merge([PHP_BINARY], $argv),
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            $env,
+        );
+
+        expect(is_resource($proc))->toBeTrue();
+        $out = trim(stream_get_contents($pipes[1]).stream_get_contents($pipes[2]));
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $code = proc_close($proc);
+
+        return "[{$code}] {$out}";
+    };
+
+    try {
+        // 1. Seed the shared file database (migrate + 5 agents + 1 command).
+        $seed = $run([__DIR__.'/claim_worker.php', 'seed', $seedJson], $workerEnv($dbFile));
+        if (! str_starts_with($seed, '[0] SEED_OK')) {
+            fail("seed failed: {$seed}");
+        }
+
+        $seedData = json_decode((string) file_get_contents($seedJson), true, 512, JSON_THROW_ON_ERROR);
+        $commandId = $seedData['command_id'];
+        $agents = $seedData['agents'];
+
+        // 2. Spawn five claim workers; each waits at the start barrier.
+        $processes = [];
+
+        foreach ($agents as $i => $agent) {
+            $readyFile = "{$base}-ready-{$i}";
+            $childPipes = [];
+
+            $proc = proc_open(
+                [
+                    PHP_BINARY, $worker,
+                    'claim', $seedJson,
+                    $agent['agent_id'], $goFile, $readyFile,
+                ],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $childPipes,
+                null,
+                $workerEnv($dbFile),
+            );
+
+            if (! is_resource($proc)) {
+                fail("worker {$i} failed to spawn");
+            }
+
+            $processes[$i] = [
+                'proc' => $proc,
+                'ready' => $readyFile,
+                'pipes' => $childPipes,
+            ];
+        }
+
+        // 3. Wait until every worker has booted and reached the barrier.
+        $deadline = microtime(true) + 90.0;
+
+        foreach ($processes as $i => $entry) {
+            while (! file_exists($entry['ready'])) {
+                if (microtime(true) > $deadline) {
+                    fail("worker {$i} did not reach the start barrier within 90s");
+                }
+
+                usleep(20_000);
+            }
+        }
+
+        // 4. Release all workers at once — now the claim calls actually race.
+        touch($goFile);
+
+        // 5. Collect results.
+        $results = [];
+
+        foreach ($processes as $i => $entry) {
+            $stdout = stream_get_contents($entry['pipes'][1]);
+            $stderr = stream_get_contents($entry['pipes'][2]);
+            fclose($entry['pipes'][1]);
+            fclose($entry['pipes'][2]);
+            $exitCode = proc_close($entry['proc']);
+            $line = trim($stdout.$stderr);
+            $results[$i] = $line;
+
+            if ($exitCode !== 0) {
+                fail("worker {$i} exited {$exitCode}: {$line}");
+            }
+            if (! str_starts_with($line, 'HTTP_')) {
+                fail("worker {$i} did not reach the claim endpoint: {$line}");
+            }
+        }
+
+        // 6. Assert the race outcome: exactly one 200, four 409, no errors.
+        $all = collect($results)->all();
+        $wins = collect($all)->filter(fn (string $l): bool => $l === 'HTTP_200')->count();
+        $conflicts = collect($all)->filter(fn (string $l): bool => $l === 'HTTP_409')->count();
+
+        if ($wins !== 1) {
+            fail('exactly one worker may win the claim race, got: '.implode(', ', $all));
+        }
+
+        if ($conflicts !== 4) {
+            fail('all losing workers must receive 409, got: '.implode(', ', $all));
+        }
+
+        // 7. Verify the persisted state on the shared database.
+        $verify = $run([__DIR__.'/claim_worker.php', 'verify', $seedJson], $workerEnv($dbFile));
+
+        if ($verify !== '[0] STATE:Claimed:1:owned') {
+            fail("unexpected final state after race: {$verify}");
+        }
+    } finally {
+        @unlink($goFile);
+        @unlink($seedJson);
+        @unlink($dbFile);
+        foreach (glob($base.'*') ?: [] as $leftover) {
+            @unlink($leftover);
+        }
+    }
 });
 
 test('claim returns 409 when node went draining between poll and claim', function (): void {
