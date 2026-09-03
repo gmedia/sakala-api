@@ -18,16 +18,18 @@ Endpoint berikut tersedia untuk Console:
 | Endpoint | Kegunaan |
 | --- | --- |
 | `GET /sanctum/csrf-cookie` | Menetapkan cookie CSRF sebelum request state-changing. |
+| `POST /api/v1/auth/login` | Membuat session browser dari email/password yang valid dan terverifikasi. |
 | `GET /api/v1/auth/user` | Mengembalikan user dari session browser yang aktif. |
 | `POST /api/v1/auth/logout` | Mengakhiri session browser aktif. |
 
 Flow session lokal:
 
 1. Console memanggil `GET /sanctum/csrf-cookie` dengan credentials.
-2. Console memanggil endpoint API dengan origin first-party yang diizinkan.
-3. Setelah authentication berhasil, Console memanggil `GET /api/v1/auth/user`.
-4. Saat keluar, Console memanggil `POST /api/v1/auth/logout`.
-5. Request `GET /api/v1/auth/user` berikutnya akan menghasilkan `401`.
+2. Console mengirim `POST /api/v1/auth/login` dengan `email` dan `password`, menggunakan origin first-party yang diizinkan.
+3. API hanya membuat session untuk user dengan password valid dan email terverifikasi. Respons sukses berisi `UserResource` dan tidak berisi bearer token.
+4. Setelah authentication berhasil, Console dapat memanggil `GET /api/v1/auth/user` untuk bootstrap user.
+5. Saat keluar, Console memanggil `POST /api/v1/auth/logout`.
+6. Request `GET /api/v1/auth/user` berikutnya akan menghasilkan `401`.
 
 ### GitHub App
 
@@ -96,11 +98,10 @@ https://api.sakala.dev/auth/github/callback
 Jangan mematikan atau melewati state callback. State session adalah proteksi
 callback browser terhadap CSRF.
 
-### Batasan Login Email dan Google
+### Batasan Login Google
 
-Wireframe Console dapat menampilkan pilihan login email/password atau Google,
-tetapi keduanya belum diimplementasikan dalam API. Jangan menambahkan route
-atau credential provider baru tanpa issue dan kontrak keamanan terpisah.
+Login Google belum diimplementasikan dalam API. Jangan menambahkan route atau
+credential provider baru tanpa issue dan kontrak keamanan terpisah.
 
 ## Agent dan Machine Client
 
