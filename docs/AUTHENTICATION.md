@@ -31,6 +31,10 @@ Flow session lokal:
 5. Saat keluar, Console memanggil `POST /api/v1/auth/logout`.
 6. Request `GET /api/v1/auth/user` berikutnya akan menghasilkan `401`.
 
+Endpoint login memiliki rate limiter khusus yang default-nya mengizinkan 5
+percobaan per menit untuk setiap kombinasi email ternormalisasi dan IP. Limiter
+ini berjalan sebagai tambahan dari limiter API global.
+
 ### GitHub App
 
 GitHub App user-to-server OAuth berjalan di atas session foundation ini. OAuth adalah browser flow,

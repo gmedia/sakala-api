@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Support\TestingPreventRequestForgery;
@@ -165,6 +167,7 @@ test('an OAuth-only user without a password cannot log in with email and passwor
 
 test('an unverified user cannot log in with email and password', function () {
     $user = User::factory()->unverified()->create();
+    Event::fake();
 
     $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
         ->postJson(route('api.v1.auth.login'), [
@@ -174,8 +177,63 @@ test('an unverified user cannot log in with email and password', function () {
         ->assertUnauthorized()
         ->assertJsonPath('message', 'Unauthenticated.');
 
+    Event::assertNotDispatched(Login::class);
     $this->assertGuest('web');
     expect($user->fresh()->last_login_at)->toBeNull();
+});
+
+test('login enforces a dedicated rate limit by normalized email and IP', function () {
+    config()->set('sakala.rate_limits.login', 1);
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->withServerVariables(['REMOTE_ADDR' => '198.51.100.10'])
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => 'User@example.test',
+            'password' => 'incorrect-password',
+        ])
+        ->assertUnauthorized();
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->withServerVariables(['REMOTE_ADDR' => '198.51.100.10'])
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => 'other@example.test',
+            'password' => 'incorrect-password',
+        ])
+        ->assertUnauthorized();
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->withServerVariables(['REMOTE_ADDR' => '198.51.100.10'])
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => 'user@example.test',
+            'password' => 'incorrect-password',
+        ])
+        ->assertTooManyRequests();
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->withServerVariables(['REMOTE_ADDR' => '198.51.100.11'])
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => 'USER@example.test',
+            'password' => 'incorrect-password',
+        ])
+        ->assertUnauthorized();
+});
+
+test('login uses the default five attempts per minute before throttling', function () {
+    for ($attempt = 0; $attempt < 5; $attempt++) {
+        $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+            ->postJson(route('api.v1.auth.login'), [
+                'email' => 'rate-limit@example.test',
+                'password' => 'incorrect-password',
+            ])
+            ->assertUnauthorized();
+    }
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => 'rate-limit@example.test',
+            'password' => 'incorrect-password',
+        ])
+        ->assertTooManyRequests();
 });
 
 test('login validates email and password input', function () {
