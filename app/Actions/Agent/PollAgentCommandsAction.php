@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
-use App\Enums\AgentCommandType;
-use App\Enums\AgentNodeStatus;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use App\Services\Agent\AgentCommandEligibilityService;
 use Illuminate\Support\Collection;
 
 final class PollAgentCommandsAction
 {
+    public function __construct(
+        private readonly AgentCommandEligibilityService $eligibility,
+    ) {}
+
     /**
      * Return pending, non-expired commands eligible for the given agent node.
      * Eligibility: available_at <= now, expires_at not passed, explicit node
@@ -27,17 +30,11 @@ final class PollAgentCommandsAction
      */
     public function handle(AgentNode $agent): Collection
     {
-        $activeStatuses = [
-            AgentNodeStatus::Ready->value,
-            AgentNodeStatus::Busy->value,
-            AgentNodeStatus::Degraded->value,
-        ];
-
-        if (! in_array($agent->status->value, $activeStatuses, true)) {
+        if (! $this->eligibility->nodeIsCommandEligible($agent)) {
             return collect();
         }
 
-        $eligibleTypes = $this->eligibleTypeValues($agent);
+        $eligibleTypes = $this->eligibility->eligibleTypeValues($agent);
 
         if ($eligibleTypes === []) {
             return collect();
@@ -59,25 +56,5 @@ final class PollAgentCommandsAction
             ->orderBy('created_at', 'asc')
             ->limit(config('sakala.agent.command_batch_size', 10))
             ->get();
-    }
-
-    /**
-     * Return the command type values the node can execute, based on its
-     * capability set.
-     *
-     * @return list<string>
-     */
-    private function eligibleTypeValues(AgentNode $agent): array
-    {
-        $nodeCaps = $agent->capabilities ?? [];
-
-        $values = collect(AgentCommandType::cases())
-            ->filter(fn (AgentCommandType $type) => collect($type->requiredCapabilities())
-                ->intersect($nodeCaps)
-                ->isNotEmpty())
-            ->map(fn (AgentCommandType $type): string => $type->value)
-            ->all();
-
-        return array_values($values);
     }
 }
