@@ -454,6 +454,30 @@ test('complete returns 409 from wrong agent', function (): void {
     $response->assertStatus(409);
 });
 
+test('complete by wrong agent on succeeded command returns 409, not idempotent 204', function (): void {
+    $otherAgent = commandAgent('other-token');
+    $ownerAgent = commandAgent('owner-token');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Succeeded,
+        'completed_at' => now()->subMinute(),
+        'agent_node_id' => $ownerAgent->id,
+        'result' => ['owner_result' => true],
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($otherAgent, 'other-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/complete", [
+            'result' => ['imposter' => true],
+        ]);
+
+    $response->assertStatus(409);
+    $response->assertJsonPath('status', 'Succeeded');
+
+    // Idempotent shortcut must not apply to a non-owner: result untouched.
+    expect($command->fresh()->result)->toBe(['owner_result' => true]);
+});
+
 test('complete returns 409 when command is Failed', function (): void {
     $agent = commandAgent('complete-token');
     $command = AgentCommand::factory()->create([
@@ -683,6 +707,33 @@ test('fail returns 409 from wrong agent', function (): void {
         ]);
 
     $response->assertStatus(409);
+});
+
+test('fail by wrong agent on failed command returns 409, not idempotent 204', function (): void {
+    $otherAgent = commandAgent('other-token');
+    $ownerAgent = commandAgent('owner-token');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Failed,
+        'failed_at' => now()->subMinute(),
+        'agent_node_id' => $ownerAgent->id,
+        'error_code' => 'owner_error',
+        'error_message' => 'owner failure',
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($otherAgent, 'other-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            'error_code' => 'imposter_error',
+            'error_message' => 'imposter failure',
+        ]);
+
+    $response->assertStatus(409);
+    $response->assertJsonPath('status', 'Failed');
+
+    // Idempotent shortcut must not apply to a non-owner: errors untouched.
+    expect($command->fresh()->error_code)->toBe('owner_error');
+    expect($command->fresh()->error_message)->toBe('owner failure');
 });
 
 test('fail sanitizes and size-limits error fields', function (): void {
