@@ -339,6 +339,60 @@ test('claim is atomic under contention', function (): void {
     expect($command->fresh()->attempts)->toBe(1);
 });
 
+test('claim returns 409 when node went draining between poll and claim', function (): void {
+    $agent = commandAgent('claim-token', status: AgentNodeStatus::Ready);
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    // Node was poll-eligible as Ready, but changes state before the claim lands.
+    $agent->forceFill(['status' => AgentNodeStatus::Draining])->save();
+
+    $response = $this->withHeaders(commandHeaders($agent, 'claim-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/claim");
+
+    $response->assertStatus(409);
+    expect($command->fresh()->status)->toBe(AgentCommandStatus::Pending);
+});
+
+test('claim returns 409 when node is in maintenance state', function (): void {
+    $agent = commandAgent('claim-token', status: AgentNodeStatus::Maintenance);
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($agent, 'claim-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/claim");
+
+    $response->assertStatus(409);
+    expect($command->fresh()->status)->toBe(AgentCommandStatus::Pending);
+});
+
+test('claim returns 409 when node lost the capability for the command type', function (): void {
+    $agent = commandAgent('claim-token', capabilities: ['docker-runtime']);
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    // Heartbeat arrives with a reduced capability set before the claim lands.
+    $agent->forceFill(['capabilities' => ['caddy-file-routing']])->save();
+
+    $response = $this->withHeaders(commandHeaders($agent, 'claim-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/claim");
+
+    $response->assertStatus(409);
+    expect($command->fresh()->status)->toBe(AgentCommandStatus::Pending);
+});
+
 // ─── Complete Tests ──────────────────────────────────────────────────────────
 
 test('complete transitions Claimed to Succeeded', function (): void {
