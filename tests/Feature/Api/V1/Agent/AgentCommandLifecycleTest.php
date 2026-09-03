@@ -192,6 +192,41 @@ test('poll respects batch size limit', function (): void {
     expect($response->json('data'))->toHaveCount(2);
 });
 
+test('poll applies capability filtering before batch limit', function (): void {
+    config(['sakala.agent.command_batch_size' => 2]);
+    // Agent can run HealthCheck (docker-runtime) but NOT RefreshRoute (caddy-file-routing).
+    $agent = commandAgent('poll-token', capabilities: ['docker-runtime']);
+
+    // Two ineligible commands that sort BEFORE the eligible one.
+    AgentCommand::factory()->create([
+        'type' => AgentCommandType::RefreshRoute,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinutes(3),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+    AgentCommand::factory()->create([
+        'type' => AgentCommandType::RefreshRoute,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinutes(2),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    // The eligible command sits beyond the batch limit position.
+    $eligible = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    $response = $this->withHeaders(commandHeaders($agent, 'poll-token'))
+        ->getJson('/api/agent/v1/commands');
+
+    $response->assertOk();
+    $response->assertJsonCount(1, 'data');
+    $response->assertJsonPath('data.0.id', $eligible->id);
+});
+
 // ─── Claim Tests ─────────────────────────────────────────────────────────────
 
 test('claim transitions Pending command to Claimed', function (): void {
