@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Auth;
 
-use App\Enums\GithubOAuthFailure;
+use BackedEnum;
 
 final class ConsoleAuthenticationRedirect
 {
@@ -13,7 +13,7 @@ final class ConsoleAuthenticationRedirect
         return $this->url('/dashboard');
     }
 
-    public function loginError(GithubOAuthFailure $failure): string
+    public function loginError(BackedEnum $failure): string
     {
         return $this->url('/login', ['error' => $failure->value]);
     }

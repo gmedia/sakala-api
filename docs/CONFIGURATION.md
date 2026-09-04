@@ -43,6 +43,16 @@ request dengan credentials agar cookie session dan CSRF dapat dipakai.
 
 Nilai credential sengaja kosong di `.env.example`; buat nilai lokal sendiri dan gunakan GitLab File variable untuk private key di environment deployment. Private key, webhook secret, dan installation token tidak boleh masuk log, OpenAPI, atau database.
 
+## Login Google
+
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: credential OAuth client Google.
+- `GOOGLE_REDIRECT_URI`: callback login Google. Callback local default:
+  `http://api.sakala.localhost:8000/auth/google/callback`.
+
+Callback URI Google Cloud OAuth Client harus sama persis dengan
+`GOOGLE_REDIRECT_URI`. Credential Google hanya dibaca melalui `config/services.php`
+dan tidak boleh dikirim ke browser, log, atau response API.
+
 ## Realtime dan Broadcasting
 
 Deployment yang mengaktifkan realtime menggunakan `BROADCAST_CONNECTION=reverb`
