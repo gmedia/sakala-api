@@ -53,7 +53,8 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 
 - Nomor `deployments.sequence` unik per project. Action pembuat deployment harus mengalokasikannya di dalam transaction dan mengunci project row.
 - `agent_commands.idempotency_key` mencegah command ganda akibat retry HTTP/job.
-- Claim command harus atomic. Implementasi PostgreSQL dapat memakai transaction dengan `FOR UPDATE SKIP LOCKED` pada query polling.
+- Claim command harus atomic. Implementasi PostgreSQL dapat memakai transaction dengan `FOR UPDATE SKIP LOCKED` pada query polling. Claim wajib memvalidasi ulang eligibility node (status operasional dan capability) di dalam transaction, karena state node bisa berubah antara poll dan claim.
+- Policy eligibility command (node status, capability, ownership) didefinisikan satu kali di `AgentCommandEligibilityService` dan dipakai bersama oleh poll dan claim agar aturan keduanya tidak drift.
 - Sequence event/log unik per deployment. Action penerima report harus mengalokasikan atau memvalidasi sequence secara atomic agar retry memakai sequence yang sama dan tidak menggandakan baris.
 - Status transition tidak boleh dilakukan langsung dari controller; gunakan Action yang memvalidasi state saat ini.
 
