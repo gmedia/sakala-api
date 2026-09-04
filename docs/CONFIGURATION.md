@@ -50,8 +50,10 @@ Nilai credential sengaja kosong di `.env.example`; buat nilai lokal sendiri dan 
   `http://api.sakala.localhost:8000/auth/google/callback`.
 
 Callback URI Google Cloud OAuth Client harus sama persis dengan
-`GOOGLE_REDIRECT_URI`. Credential Google hanya dibaca melalui `config/services.php`
-dan tidak boleh dikirim ke browser, log, atau response API.
+`GOOGLE_REDIRECT_URI`. `GOOGLE_CLIENT_ID` adalah public identifier dan normal
+untuk dikirim pada authorization redirect ke browser. `GOOGLE_CLIENT_SECRET`
+adalah credential rahasia yang hanya boleh dibaca server melalui
+`config/services.php`; jangan masukkan ke browser, log, atau response API.
 
 ## Realtime dan Broadcasting
 

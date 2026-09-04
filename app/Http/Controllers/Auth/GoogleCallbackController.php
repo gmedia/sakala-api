@@ -26,6 +26,13 @@ final class GoogleCallbackController extends Controller
         ConsoleAuthenticationRedirect $consoleAuthenticationRedirect,
     ): RedirectResponse {
         if ($request->query('error') !== null) {
+            if (! $this->consumeAndValidateOAuthState($request)) {
+                return $this->redirectToLoginError(
+                    $consoleAuthenticationRedirect,
+                    GoogleOAuthFailure::InvalidState,
+                );
+            }
+
             return $this->redirectToLoginError(
                 $consoleAuthenticationRedirect,
                 $request->query('error') === 'access_denied'
@@ -66,6 +73,19 @@ final class GoogleCallbackController extends Controller
         $request->session()->regenerate();
 
         return redirect()->away($consoleAuthenticationRedirect->dashboard());
+    }
+
+    private function consumeAndValidateOAuthState(Request $request): bool
+    {
+        $expectedState = $request->session()->pull('state');
+        $providedState = $request->query('state');
+
+        if (! is_string($expectedState) || $expectedState === ''
+            || ! is_string($providedState) || $providedState === '') {
+            return false;
+        }
+
+        return hash_equals($expectedState, $providedState);
     }
 
     private function redirectToLoginError(

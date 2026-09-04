@@ -197,13 +197,26 @@ test('Google callback rejects an invalid provider identity', function (): void {
 });
 
 test('a denied Google consent returns a safe recovery redirect', function (): void {
-    $this->get(route('auth.google.callback', [
-        'error' => 'access_denied',
-        'error_description' => 'private provider details',
-    ]))->assertRedirect('http://app.sakala.localhost:5173/login?error=google_access_denied');
+    $this->withSession(['state' => 'google-oauth-state'])
+        ->get(route('auth.google.callback', [
+            'error' => 'access_denied',
+            'state' => 'google-oauth-state',
+            'error_description' => 'private provider details',
+        ]))->assertRedirect('http://app.sakala.localhost:5173/login?error=google_access_denied');
 
     $this->assertGuest('web');
 });
+
+test('a Google provider error requires a valid OAuth state', function (array $query): void {
+    $this->withSession(['state' => 'expected-google-oauth-state'])
+        ->get(route('auth.google.callback', $query))
+        ->assertRedirect('http://app.sakala.localhost:5173/login?error=google_invalid_state');
+
+    $this->assertGuest('web');
+})->with([
+    'state is missing' => [['error' => 'access_denied']],
+    'state is invalid' => [['error' => 'access_denied', 'state' => 'wrong-google-oauth-state']],
+]);
 
 test('Google callback rejects an invalid OAuth state', function (): void {
     Socialite::fake('google', function (): never {
