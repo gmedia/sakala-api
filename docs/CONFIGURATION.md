@@ -7,6 +7,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `APP_URL`: URL API.
 - `SAKALA_CONSOLE_URL`: URL console first-party.
 - `SAKALA_API_RATE_LIMIT`: request per menit untuk limiter API dasar.
+- `SAKALA_LOGIN_RATE_LIMIT`: percobaan login per menit berdasarkan email ternormalisasi dan IP.
 - `SAKALA_OAUTH_RATE_LIMIT`: request per menit per IP untuk browser OAuth route.
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.

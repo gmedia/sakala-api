@@ -56,6 +56,15 @@ class AppServiceProvider extends ServiceProvider
                 ->by((string) $identifier);
         });
 
+        RateLimiter::for('login', function (Request $request): Limit {
+            $email = $request->input('email');
+            $normalizedEmail = is_string($email) ? mb_strtolower(trim($email), 'UTF-8') : 'invalid';
+            $identifier = $normalizedEmail.'|'.(string) $request->ip();
+
+            return Limit::perMinute((int) config('sakala.rate_limits.login'))
+                ->by($identifier);
+        });
+
         RateLimiter::for('oauth', function (Request $request): Limit {
             return Limit::perMinute((int) config('sakala.rate_limits.oauth'))
                 ->by((string) $request->ip());
