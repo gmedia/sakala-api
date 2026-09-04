@@ -30,8 +30,16 @@ final class FailAgentCommandAction
         string $errorCode,
         string $errorMessage,
     ): bool {
-        $errorCode = mb_substr($errorCode, 0, self::MAX_ERROR_CODE_LENGTH);
-        $errorMessage = $this->sanitize(mb_substr($errorMessage, 0, self::MAX_ERROR_MESSAGE_LENGTH));
+        $errorCode = mb_substr(
+            $this->sanitizeCode($errorCode),
+            0,
+            self::MAX_ERROR_CODE_LENGTH,
+        );
+        $errorMessage = mb_substr(
+            $this->sanitizeMessage($errorMessage),
+            0,
+            self::MAX_ERROR_MESSAGE_LENGTH,
+        );
 
         DB::transaction(function () use ($agent, $commandId, $errorCode, $errorMessage): void {
             $command = AgentCommand::query()
@@ -68,10 +76,32 @@ final class FailAgentCommandAction
     }
 
     /**
-     * Strip control characters (except newline and tab) to prevent log pollution.
+     * Strip only characters that are unsafe in a diagnostic message: C0
+     * controls (except tab, LF, CR), DEL, C1 controls, bidi overrides,
+     * and zero-width invisibles. Normal printable text — including
+     * punctuation such as ':', '/', '=', '-', '.', '(', ')' — is kept
+     * verbatim so diagnostic information is not mangled.
      */
-    private function sanitize(string $message): string
+    private function sanitizeMessage(string $message): string
     {
-        return preg_replace('/[^\p{L}\p{N}\s\x09\x0A\x0D]/u', '', $message) ?? $message;
+        return preg_replace(
+            '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{FEFF}]/u',
+            '',
+            $message,
+        ) ?? $message;
+    }
+
+    /**
+     * Boundary-sanitize a machine-readable error code: keep only a boring
+     * token alphabet (letters, digits, dot, underscore, dash) and trim
+     * separator characters from the edges. Byte-oriented on purpose, so
+     * non-ASCII bytes (including any invalid UTF-8) are dropped without
+     * ever failing the pattern.
+     */
+    private function sanitizeCode(string $code): string
+    {
+        $code = preg_replace('/[^A-Za-z0-9._-]/', '', $code) ?? $code;
+
+        return trim($code, '._-');
     }
 }
