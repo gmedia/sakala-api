@@ -920,6 +920,71 @@ test('fail sanitizes and size-limits error fields', function (): void {
     expect(strlen($updated->error_message))->toBe(1000);
 });
 
+test('fail strips unsafe control characters but preserves normal punctuation', function (): void {
+    $agent = commandAgent('fail-token');
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+        'agent_node_id' => $agent->id,
+    ]);
+
+    // Real control characters (BEL, backspace, ESC, US, DEL, C1 NEL, bidi
+    // control, zero-width space, BOM) are embedded via valid UTF-8 escapes
+    // so they reach the action as actual bytes.
+    $diagnostic = 'docker build: failed at stage 3/5 = "RUN pnpm install" (exit: 1)'
+        ."\x07\x08\u{1B}\x1F\x7F\u{85}\u{202E}\u{200B}\u{FEFF}";
+    $response = $this->withHeaders(commandHeaders($agent, 'fail-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            'error_code' => 'docker_build_failed',
+            'error_message' => $diagnostic,
+        ]);
+
+    $response->assertNoContent();
+    expect($command->fresh()->error_message)
+        ->toBe('docker build: failed at stage 3/5 = "RUN pnpm install" (exit: 1)');
+});
+
+test('fail keeps tab and line breaks in error messages', function (): void {
+    $agent = commandAgent('fail-token');
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $message = "panic: runtime error\n\tgoroutine 1 [running]:\nmain.deploy()";
+
+    $this->withHeaders(commandHeaders($agent, 'fail-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            'error_code' => 'runtime_panic',
+            'error_message' => $message,
+        ])->assertNoContent();
+
+    expect($command->fresh()->error_message)->toBe($message);
+});
+
+test('fail sanitizes error_code to a boring token alphabet', function (): void {
+    $agent = commandAgent('fail-token');
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $this->withHeaders(commandHeaders($agent, 'fail-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            // spaces, '/', ':' and an embedded control char are not valid
+            // token characters; leading dots must not survive trimming.
+            'error_code' => "..build/timeout: stage\u{1B}-3",
+            'error_message' => 'timed out',
+        ])->assertNoContent();
+
+    expect($command->fresh()->error_code)->toBe('buildtimeoutstage-3');
+});
+
 test('fail validates error_code and error_message are required', function (): void {
     $agent = commandAgent('fail-token');
     $command = AgentCommand::factory()->create([
