@@ -68,4 +68,20 @@ final class ProjectPolicy
     {
         return $user->id === $project->user_id;
     }
+
+    /**
+     * Determine whether the user can stop the project.
+     */
+    public function stop(User $user, Project $project): bool
+    {
+        return false;
+    }
+
+    /**
+     * Determine whether the user can suspend the project.
+     */
+    public function suspend(User $user, Project $project): bool
+    {
+        return false;
+    }
 }
