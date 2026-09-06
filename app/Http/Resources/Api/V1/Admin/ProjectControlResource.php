@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Admin;
 
-use App\Data\Admin\ProjectControlResult;
+use App\Data\Admin\ProjectControlResultData;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * @mixin ProjectControlResult
+ * @mixin ProjectControlResultData
  */
 final class ProjectControlResource extends JsonResource
 {
