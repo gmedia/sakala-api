@@ -22,6 +22,32 @@ Endpoint yang menerima body, query, atau input kompleks wajib menggunakan Form R
 
 Gunakan ISO 8601 untuk waktu, UUID/ULID bila identifier publik membutuhkan non-sequential ID, dan idempotency key pada operasi deployment atau project control yang berisiko diduplikasi.
 
+## Agent deployment reports
+
+Endpoint machine agent berada di `/api/agent/v1` dan memakai `Authorization: Bearer <agent-token>` serta `X-Agent-Id`. Hanya agent yang tercatat sebagai `agent_node_id` pada command yang berstatus `Claimed` atau `Running` yang boleh melaporkan data:
+
+- `POST /commands/{command}/events` menerima payload event tunggal yang kompatibel dengan agent saat ini, atau batch `{ "events": [...] }`.
+- `POST /commands/{command}/logs` menerima payload log tunggal yang kompatibel dengan agent saat ini, atau batch `{ "logs": [...] }`.
+
+Batch dibatasi oleh `pilot_limits.log_bounds`. Payload yang melewati batas total request ditolak dengan `413`; field protocol yang tidak valid ditolak dengan `422`. Server menetapkan `sequence` secara monotonik per deployment dan tidak menyediakan endpoint update/delete untuk record append-only ini.
+
+Header `Idempotency-Key` bersifat opsional. Bila dikirim, key berlaku untuk command, jenis report, dan index item dalam batch. Retry dengan payload yang sama mengembalikan range sequence yang sama dan menandai item sebagai duplicate; penggunaan key yang sama untuk payload berbeda menghasilkan `409`. Retry payload yang sama tanpa header juga dideduplikasi melalui fingerprint payload.
+
+Response sukses berbentuk Resource berikut:
+
+```json
+{
+  "data": {
+    "accepted_count": 2,
+    "duplicate_count": 0,
+    "first_sequence": 1,
+    "last_sequence": 2
+  }
+}
+```
+
+Message dan metadata event selalu melewati redaction defense-in-depth API sebelum disimpan atau dibroadcast. Agent tetap wajib melakukan redaction lebih awal. Secret tidak pernah dikembalikan pada acknowledgement atau error response.
+
 ## HTTP
 
 Gunakan method dan status code sesuai semantik HTTP. Validation error memakai `422`, unauthenticated `401`, forbidden `403`, missing resource `404`, dan conflict `409` bila state tidak memungkinkan operasi.

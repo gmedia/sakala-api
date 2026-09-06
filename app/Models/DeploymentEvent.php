@@ -25,6 +25,8 @@ use Illuminate\Support\Carbon;
     'message',
     'metadata',
     'occurred_at',
+    'idempotency_key',
+    'payload_hash',
 ])]
 
 class DeploymentEvent extends Model

@@ -7,6 +7,7 @@ namespace App\Actions\Deployment;
 use App\Enums\LogStream;
 use App\Events\Deployment\DeploymentLogCreated;
 use App\Models\Deployment;
+use Illuminate\Support\Facades\DB;
 
 final class CreateDeploymentLogAction
 {
@@ -19,20 +20,27 @@ final class CreateDeploymentLogAction
         LogStream $logStream,
         string $message,
     ): void {
-        $sequence = (int) $deployment->logs()->max('sequence') + 1;
+        DB::transaction(function () use ($deployment, $logStream, $message): void {
+            $deployment = Deployment::query()
+                ->whereKey($deployment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $deploymentLog = $deployment->logs()->create([
-            'sequence' => $sequence,
-            'stream' => $logStream,
-            'message' => $message,
-            'recorded_at' => now(),
-        ]);
+            $sequence = (int) $deployment->logs()->max('sequence') + 1;
 
-        $realtimeSequence = $this->allocateDeploymentRealtimeSequenceAction->handle($deployment);
+            $deploymentLog = $deployment->logs()->create([
+                'sequence' => $sequence,
+                'stream' => $logStream,
+                'message' => $message,
+                'recorded_at' => now(),
+            ]);
 
-        DeploymentLogCreated::dispatch(
-            deploymentLog: $deploymentLog,
-            realtimeSequence: $realtimeSequence
-        );
+            $realtimeSequence = $this->allocateDeploymentRealtimeSequenceAction->handle($deployment);
+
+            DeploymentLogCreated::dispatch(
+                deploymentLog: $deploymentLog,
+                realtimeSequence: $realtimeSequence
+            );
+        });
     }
 }
