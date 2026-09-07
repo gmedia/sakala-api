@@ -12,6 +12,7 @@ use App\Http\Requests\Api\V1\Admin\SuspendProjectRequest;
 use App\Http\Resources\Api\V1\Admin\ProjectControlResource;
 use App\Models\Project;
 use Dedoc\Scramble\Attributes\HeaderParameter;
+use Illuminate\Http\JsonResponse;
 
 final class ProjectControlController extends Controller
 {
@@ -31,14 +32,16 @@ final class ProjectControlController extends Controller
         StopProjectRequest $request,
         Project $project,
         StopProjectAction $action,
-    ): ProjectControlResource {
+    ): JsonResponse {
         $result = $action->handle(
             project: $project,
             user: $request->user(),
             data: $request->toData(),
         );
 
-        return new ProjectControlResource($result);
+        return (new ProjectControlResource($result))
+            ->response()
+            ->setStatusCode(202);
     }
 
     #[HeaderParameter(
@@ -56,13 +59,15 @@ final class ProjectControlController extends Controller
         SuspendProjectRequest $request,
         Project $project,
         SuspendProjectAction $action,
-    ): ProjectControlResource {
+    ): JsonResponse {
         $result = $action->handle(
             project: $project,
             user: $request->user(),
             data: $request->toData(),
         );
 
-        return new ProjectControlResource($result);
+        return (new ProjectControlResource($result))
+            ->response()
+            ->setStatusCode(202);
     }
 }

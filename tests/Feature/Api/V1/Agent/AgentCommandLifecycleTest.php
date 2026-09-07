@@ -2,12 +2,20 @@
 
 declare(strict_types=1);
 
+use App\Actions\Agent\ClaimAgentCommandAction;
+use App\Actions\Agent\PollAgentCommandsAction;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeStatus;
+use App\Enums\ProjectStatus;
+use App\Enums\RuntimeStatus;
+use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use App\Models\AuditEvent;
+use App\Models\Deployment;
+use App\Models\Project;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\AssertionFailedError;
 
@@ -579,6 +587,55 @@ test('complete transitions Claimed to Succeeded', function (): void {
     expect($command->fresh()->result)->toBe(['success' => true]);
 });
 
+test('completing a StopProject command marks the project as stopped', function (): void {
+    $agent = commandAgent('complete-stop-token');
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::StopProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    $response = $this->withHeaders(
+        commandHeaders($agent, 'complete-stop-token')
+    )->postJson("/api/agent/v1/commands/{$command->id}/complete", [
+        'result' => ['stopped' => true],
+    ]);
+
+    $response->assertNoContent();
+
+    $command->refresh();
+    $project->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Succeeded)
+        ->and($command->completed_at)
+        ->not->toBeNull()
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Stopped);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_completed')
+            ->where('subject_type', Project::class)
+            ->where('subject_id', $project->id)
+            ->exists()
+    )->toBeTrue();
+});
+
 test('complete is idempotent when already Succeeded', function (): void {
     $agent = commandAgent('complete-token');
     $command = AgentCommand::factory()->create([
@@ -1058,4 +1115,134 @@ test('AgentCommandResource shapes lifecycle command payload as empty object', fu
     expect($item['payload'])->toBe([]);
     expect($item['project_id'])->toBeNull();
     expect($item['deployment_id'])->toBeNull();
+});
+
+test('failing a StopProject command keeps the project running', function (): void {
+    $agent = commandAgent('fail-stop-token');
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::StopProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    $response = $this->withHeaders(
+        commandHeaders($agent, 'fail-stop-token')
+    )->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+        'error_code' => 'stop_failed',
+        'error_message' => 'Unable to stop workload',
+    ]);
+
+    $response->assertNoContent();
+
+    $command->refresh();
+    $project->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Failed)
+        ->and($command->failed_at)
+        ->not->toBeNull()
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Running);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_failed')
+            ->where('subject_type', Project::class)
+            ->where('subject_id', $project->id)
+            ->exists()
+    )->toBeTrue();
+});
+
+// REVIEW #3
+test('does not poll deploy command for suspended project', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::DeployProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    $commands = app(PollAgentCommandsAction::class)
+        ->handle($agent);
+
+    expect($commands->pluck('id'))
+        ->not->toContain($command->id);
+});
+
+// REVIEW #3
+test('cannot claim deploy command when project is suspended', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::DeployProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    expect(fn () => app(ClaimAgentCommandAction::class)->handle(
+        agent: $agent,
+        commandId: $command->id,
+    ))->toThrow(CommandConflictException::class);
+
+    expect($command->fresh()->status)
+        ->toBe(AgentCommandStatus::Pending);
+});
+
+// REVIEW #3
+test('still polls sleep command for suspended project', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::SleepProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    $commands = app(PollAgentCommandsAction::class)
+        ->handle($agent);
+
+    expect($commands->pluck('id'))
+        ->toContain($command->id);
 });

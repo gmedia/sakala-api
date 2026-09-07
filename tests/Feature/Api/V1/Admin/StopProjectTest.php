@@ -11,6 +11,7 @@ use App\Enums\UserRole;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\AuditEvent;
+use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -23,9 +24,18 @@ test('admin can stop a project', function (): void {
         'role' => UserRole::Admin,
     ]);
 
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
     $project = Project::factory()->create([
         'status' => ProjectStatus::Active,
         'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -33,12 +43,12 @@ test('admin can stop a project', function (): void {
             'reason' => 'Emergency incident',
         ]);
 
-    $response->assertSuccessful();
+    $response->assertStatus(202);
 
     $response->assertJsonPath('data.project_id', $project->id);
     $response->assertJsonPath(
         'data.runtime_status',
-        RuntimeStatus::Stopped->value,
+        RuntimeStatus::Running->value,
     );
     $response->assertJsonPath(
         'data.command.type',
@@ -52,16 +62,17 @@ test('admin can stop a project', function (): void {
     $project->refresh();
 
     expect($project->status)->toBe(ProjectStatus::Active)
-        ->and($project->runtime_status)->toBe(RuntimeStatus::Stopped);
+        ->and($project->runtime_status)->toBe(RuntimeStatus::Running);
 
     $command = AgentCommand::query()
         ->where('project_id', $project->id)
         ->where('type', AgentCommandType::StopProject)
-        ->first();
+        ->firstOrFail();
 
-    expect($command)->not->toBeNull()
-        ->and($command->status)->toBe(AgentCommandStatus::Pending)
-        ->and($command->payload['reason'])->toBe('Emergency incident');
+    expect($command->status)->toBe(AgentCommandStatus::Pending)
+        ->and($command->deployment_id)->toBe($deployment->id)
+        ->and($command->agent_node_id)->toBe($agent->id)
+        ->and($command->payload)->toBe([]);
 });
 
 test('stopping a project creates an audit event', function (): void {
@@ -74,26 +85,30 @@ test('stopping a project creates an audit event', function (): void {
         'runtime_status' => RuntimeStatus::Running,
     ]);
 
-    $before = now();
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
 
     $response = $this->actingAs($admin, 'web')
         ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
             'reason' => 'Emergency incident',
         ]);
 
-    $response->assertSuccessful();
+    $response->assertStatus(202);
 
     $audit = AuditEvent::query()
-        ->where('action', 'project.stopped')
+        ->where('action', 'project.stop_requested')
         ->where('subject_type', Project::class)
         ->where('subject_id', $project->id)
-        ->first();
+        ->firstOrFail();
 
-    expect($audit)->not->toBeNull()
-        ->and($audit->actor_type)->toBe(User::class)
-        ->and((int) $audit->actor_id)->toBe($admin->id)
-        ->and($audit->metadata['reason'])->toBe('Emergency incident')
-        ->and($audit->created_at)->not->toBeNull();
+    expect($audit->actor_id)->toBe((string) $admin->id)
+        ->and($audit->metadata['reason'])->toBe('Emergency incident');
 });
 
 test('normal user cannot stop a project', function (): void {
@@ -176,6 +191,15 @@ test('stopping a project is idempotent with the same idempotency key', function 
         'runtime_status' => RuntimeStatus::Running,
     ]);
 
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
     $idempotencyKey = (string) Str::uuid();
 
     $firstResponse = $this->actingAs($admin, 'web')
@@ -184,7 +208,7 @@ test('stopping a project is idempotent with the same idempotency key', function 
             'reason' => 'Emergency incident',
         ]);
 
-    $firstResponse->assertSuccessful();
+    $firstResponse->assertStatus(202);
 
     $firstCommandId = $firstResponse->json('data.command.id');
 
@@ -194,7 +218,7 @@ test('stopping a project is idempotent with the same idempotency key', function 
             'reason' => 'Emergency incident',
         ]);
 
-    $secondResponse->assertSuccessful();
+    $secondResponse->assertStatus(202);
 
     $secondCommandId = $secondResponse->json('data.command.id');
 
@@ -209,7 +233,7 @@ test('stopping a project is idempotent with the same idempotency key', function 
 
     expect(
         AuditEvent::query()
-            ->where('action', 'project.stopped')
+            ->where('action', 'project.stop_requested')
             ->where('subject_id', $project->id)
             ->count()
     )->toBe(1);
@@ -289,18 +313,485 @@ test('stopping a project succeeds when the agent is offline', function (): void 
         'runtime_status' => RuntimeStatus::Running,
     ]);
 
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
     $response = $this->actingAs($admin, 'web')
         ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
             'reason' => 'Emergency incident',
         ]);
 
-    $response->assertSuccessful();
+    $response->assertStatus(202);
 
     $command = AgentCommand::query()
         ->where('project_id', $project->id)
         ->where('type', AgentCommandType::StopProject)
         ->firstOrFail();
 
+    $project->refresh();
+
     expect($command->status)
-        ->toBe(AgentCommandStatus::Pending);
+        ->toBe(AgentCommandStatus::Pending)
+        ->and($command->deployment_id)
+        ->toBe($deployment->id)
+        ->and($command->agent_node_id)
+        ->toBe($agent->id)
+        ->and($command->payload)
+        ->toBe([])
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Running);
+});
+
+test('stopping a project targets the latest active deployment and its owning agent', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $oldAgent = AgentNode::factory()->create();
+    $currentAgent = AgentNode::factory()->create();
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $oldDeployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $oldAgent->id,
+        'sequence' => 1,
+    ]);
+
+    $currentDeployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $currentAgent->id,
+        'sequence' => 2,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency incident',
+        ]);
+
+    $response->assertStatus(202);
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->where('type', AgentCommandType::StopProject)
+        ->firstOrFail();
+
+    expect($command->deployment_id)->toBe($currentDeployment->id)
+        ->and($command->agent_node_id)->toBe($currentAgent->id)
+        ->and($command->deployment_id)->not->toBe($oldDeployment->id)
+        ->and($command->agent_node_id)->not->toBe($oldAgent->id);
+});
+
+test('stopping a project rejects when a stop command is already in progress', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::StopProject,
+        'status' => AgentCommandStatus::Pending,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency incident',
+        ]);
+
+    $response->assertStatus(409);
+
+    expect(
+        AgentCommand::query()
+            ->where('project_id', $project->id)
+            ->where('type', AgentCommandType::StopProject)
+            ->count()
+    )->toBe(1);
+
+    $project->refresh();
+
+    expect($project->runtime_status)
+        ->toBe(RuntimeStatus::Running);
+});
+
+test('stopping a project rejects another stop while a stop command is pending', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::StopProject,
+        'status' => AgentCommandStatus::Pending,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency incident',
+        ]);
+
+    $response->assertStatus(409);
+
+    expect(
+        AgentCommand::query()
+            ->where('project_id', $project->id)
+            ->where('type', AgentCommandType::StopProject)
+            ->count()
+    )->toBe(1);
+
+    expect($project->fresh()->runtime_status)
+        ->toBe(RuntimeStatus::Running);
+});
+
+test('stopping a project rejects an idempotency key reused with a different reason', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $idempotencyKey = (string) Str::uuid();
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $idempotencyKey)
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency incident',
+        ])
+        ->assertStatus(202);
+
+    $response = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $idempotencyKey)
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Scheduled maintenance',
+        ]);
+
+    $response->assertStatus(409);
+
+    expect(
+        AgentCommand::query()
+            ->where('idempotency_key', $idempotencyKey)
+            ->count()
+    )->toBe(1);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_requested')
+            ->where('subject_id', $project->id)
+            ->count()
+    )->toBe(1);
+});
+
+test('stopping a project rejects an idempotency key reused by a different actor', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $otherAdmin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $idempotencyKey = (string) Str::uuid();
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $idempotencyKey)
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency incident',
+        ])
+        ->assertStatus(202);
+
+    $response = $this->actingAs($otherAdmin, 'web')
+        ->withHeader('Idempotency-Key', $idempotencyKey)
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency incident',
+        ]);
+
+    $response->assertStatus(409);
+
+    expect(
+        AgentCommand::query()
+            ->where('idempotency_key', $idempotencyKey)
+            ->count()
+    )->toBe(1);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_requested')
+            ->where('subject_id', $project->id)
+            ->count()
+    )->toBe(1);
+});
+
+test('stopping a project stores request context separately from runtime payload', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', 'stop-context-test')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency incident',
+        ]);
+
+    $response->assertStatus(202);
+
+    $command = AgentCommand::query()
+        ->where('idempotency_key', 'stop-context-test')
+        ->firstOrFail();
+
+    expect($command->payload)->toBe([])
+        ->and($command->request_context)->toMatchArray([
+            'reason' => 'Emergency incident',
+            'actor_type' => User::class,
+            'actor_id' => (string) $admin->id,
+        ]);
+});
+
+test('stopping a project replays the original response after the project lifecycle changes', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $idempotencyKey = (string) Str::uuid();
+
+    $firstResponse = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $idempotencyKey)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/stop",
+            [
+                'reason' => 'Emergency incident',
+            ],
+        );
+
+    $firstResponse->assertStatus(202);
+
+    expect($firstResponse->json('data.status'))
+        ->toBe(ProjectStatus::Active->value)
+        ->and($firstResponse->json('data.runtime_status'))
+        ->toBe(RuntimeStatus::Running->value)
+        ->and($firstResponse->json('data.command.status'))
+        ->toBe(AgentCommandStatus::Pending->value);
+
+    $command = AgentCommand::query()
+        ->where('idempotency_key', $idempotencyKey)
+        ->firstOrFail();
+
+    /*
+     * Original command succeeds.
+     */
+    $command->update([
+        'status' => AgentCommandStatus::Succeeded,
+    ]);
+
+    $project->update([
+        'runtime_status' => RuntimeStatus::Stopped,
+    ]);
+
+    /*
+     * Project is subsequently started again through another
+     * lifecycle operation.
+     */
+    $project->update([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $secondResponse = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $idempotencyKey)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/stop",
+            [
+                'reason' => 'Emergency incident',
+            ],
+        );
+
+    $secondResponse->assertStatus(202);
+
+    /*
+     * The command status is current, but the project state comes
+     * from the original request snapshot.
+     */
+    expect($secondResponse->json('data.project_id'))
+        ->toBe($project->id)
+        ->and($secondResponse->json('data.status'))
+        ->toBe(ProjectStatus::Active->value)
+        ->and($secondResponse->json('data.runtime_status'))
+        ->toBe(RuntimeStatus::Running->value)
+        ->and($secondResponse->json('data.command.id'))
+        ->toBe($command->id)
+        ->and($secondResponse->json('data.command.status'))
+        ->toBe(AgentCommandStatus::Succeeded->value);
+
+    expect(
+        AgentCommand::query()
+            ->where('idempotency_key', $idempotencyKey)
+            ->count(),
+    )->toBe(1);
+});
+
+test('rejects an empty idempotency key', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create();
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', '')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency stop',
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('Idempotency-Key');
+});
+
+test('rejects a whitespace only idempotency key', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create();
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', '   ')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency stop',
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('Idempotency-Key');
+});
+
+test('rejects an oversized idempotency key', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create();
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', str_repeat('a', 192))
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency stop',
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('Idempotency-Key');
+});
+
+test('trims a valid idempotency key', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create();
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', '  emergency-stop-1  ')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency stop',
+        ])
+        ->assertAccepted();
+
+    expect(
+        AgentCommand::query()
+            ->where('idempotency_key', 'emergency-stop-1')
+            ->exists()
+    )->toBeTrue();
 });

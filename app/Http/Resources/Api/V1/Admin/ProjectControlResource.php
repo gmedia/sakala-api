@@ -18,10 +18,16 @@ final class ProjectControlResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $status = $this->responseContext['project_status']
+            ?? $this->project->status;
+
+        $runtimeStatus = $this->responseContext['runtime_status']
+            ?? $this->project->runtime_status;
+
         return [
             'project_id' => $this->project->id,
-            'status' => $this->project->status,
-            'runtime_status' => $this->project->runtime_status,
+            'status' => $status,
+            'runtime_status' => $runtimeStatus,
             'command' => [
                 'id' => $this->command->id,
                 'type' => $this->command->type,

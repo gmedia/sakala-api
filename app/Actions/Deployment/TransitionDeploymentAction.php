@@ -77,9 +77,12 @@ final class TransitionDeploymentAction
         Deployment $deployment,
         DeploymentStatus $status,
     ): void {
+        $project = $deployment->project()
+            ->lockForUpdate()
+            ->firstOrFail();
+
         $attributes = match ($status) {
             DeploymentStatus::Succeeded => [
-                'status' => ProjectStatus::Active,
                 'runtime_status' => RuntimeStatus::Running,
                 'last_deployed_at' => now(),
             ],
@@ -87,6 +90,7 @@ final class TransitionDeploymentAction
             DeploymentStatus::Failed => [
                 'runtime_status' => RuntimeStatus::Failed,
             ],
+
             default => [],
         };
 
@@ -94,9 +98,14 @@ final class TransitionDeploymentAction
             return;
         }
 
-        $deployment->project()
-            ->lockForUpdate()
-            ->update($attributes);
+        if (
+            $status === DeploymentStatus::Succeeded
+            && $project->status !== ProjectStatus::Suspended
+        ) {
+            $attributes['status'] = ProjectStatus::Active;
+        }
+
+        $project->update($attributes);
     }
 
     public function handle(

@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
+use App\Enums\AgentCommandType;
+use App\Enums\RuntimeStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use App\Models\AuditEvent;
+use App\Models\Project;
 use Illuminate\Support\Facades\DB;
 
 final class CompleteAgentCommandAction
@@ -50,6 +54,28 @@ final class CompleteAgentCommandAction
                 'completed_at' => now(),
                 'result' => $result,
             ]);
+
+            if ($command->type === AgentCommandType::StopProject) {
+                $project = Project::query()
+                    ->lockForUpdate()
+                    ->findOrFail($command->project_id);
+
+                $project->update([
+                    'runtime_status' => RuntimeStatus::Stopped,
+                ]);
+
+                AuditEvent::create([
+                    'actor_type' => AgentNode::class,
+                    'actor_id' => $agent->id,
+                    'action' => 'project.stop_completed',
+                    'subject_type' => Project::class,
+                    'subject_id' => $project->id,
+                    'metadata' => [
+                        'command_id' => $command->id,
+                        'result' => $result,
+                    ],
+                ]);
+            }
         });
 
         // Reached here only if not already Succeeded (idempotent path returns early)

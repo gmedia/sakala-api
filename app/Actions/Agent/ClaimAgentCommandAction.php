@@ -9,12 +9,14 @@ use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Services\Agent\AgentCommandEligibilityService;
+use App\Services\Agent\ProjectCommandEligibilityService;
 use Illuminate\Support\Facades\DB;
 
 final class ClaimAgentCommandAction
 {
     public function __construct(
         private readonly AgentCommandEligibilityService $eligibility,
+        private readonly ProjectCommandEligibilityService $projectEligibility,
     ) {}
 
     /**
@@ -94,6 +96,17 @@ final class ClaimAgentCommandAction
 
         if ($command->agent_node_id !== null && $command->agent_node_id !== $node->id) {
             throw new CommandConflictException($command);
+        }
+
+        if ($command->project_id !== null) {
+            $project = $command->project()->firstOrFail();
+
+            if (! $this->projectEligibility->isEligible(
+                $project,
+                $command->type,
+            )) {
+                throw new CommandConflictException($command);
+            }
         }
     }
 }
