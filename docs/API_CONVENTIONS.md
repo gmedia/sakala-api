@@ -20,7 +20,7 @@ Endpoint yang menerima body, query, atau input kompleks wajib menggunakan Form R
 }
 ```
 
-Gunakan ISO 8601 untuk waktu, UUID/ULID bila identifier publik membutuhkan non-sequential ID, dan idempotency key pada operasi deployment yang berisiko diduplikasi.
+Gunakan ISO 8601 untuk waktu, UUID/ULID bila identifier publik membutuhkan non-sequential ID, dan idempotency key pada operasi deployment atau project control yang berisiko diduplikasi.
 
 ## HTTP
 
@@ -49,7 +49,7 @@ Endpoint project control menyediakan kontrol runtime yang hanya dapat digunakan 
 
 `Stop` menghentikan workload runtime yang sedang menjadi target pada sebuah project. Operasi ini tidak mengubah status control-plane project menjadi `Suspended`.
 
-`Suspend` mengubah status control-plane project menjadi `Suspended` dan mencegah command deployment baru diproses untuk project tersebut. Jika project memiliki workload yang sedang berjalan, API membuat command `SleepProject` untuk Agent.
+`Suspend` mengubah status control-plane project menjadi `Suspended` dan mencegah command yang dapat menjalankan atau mengekspos workload diproses untuk project tersebut. Jika project memiliki workload yang sedang berjalan, API membuat command `SleepProject` untuk Agent.
 
 `Stop` dan `Suspend` merupakan operasi yang berbeda dan tidak boleh diperlakukan sebagai alias satu sama lain.
 
@@ -97,6 +97,17 @@ Penyelesaian command yang sudah stale tidak boleh menimpa runtime state dari wor
 
 ### Idempotency
 
-Behavior idempotency untuk request suspend tanpa live workload saat ini masih dalam tahap review dan belum menjadi kontrak API final.
+Request `Stop` dan `Suspend` yang mendukung idempotency menggunakan idempotency key sebagai identifier untuk satu operasi control-plane.
 
-Setelah behavior tersebut difinalisasi, dokumentasi ini akan diperbarui untuk menjelaskan behavior repeated request dengan idempotency key yang sama serta behavior ketika idempotency key digunakan kembali untuk request yang berbeda.
+Untuk project control, identity request ditentukan oleh:
+
+* `project`;
+* `action` (`Stop` atau `Suspend`);
+* actor yang melakukan request;
+* `reason`.
+
+Idempotency key yang sama untuk request dengan identity yang sama diperlakukan sebagai retry. Retry tidak membuat `ProjectControlRequest`, Agent command, atau audit event baru dan mengembalikan response context dari request sebelumnya.
+
+Idempotency key yang sama tidak boleh digunakan kembali untuk request dengan identity berbeda. Jika key sudah digunakan untuk project, action, actor, atau reason yang berbeda, request ditolak dengan `409 Conflict`.
+
+`ProjectControlRequest` menjadi durable record untuk idempotency project control. Agent command hanya dibuat ketika operasi membutuhkan pekerjaan runtime; karena itu, `Suspend` tanpa live workload tetap memiliki record idempotency meskipun tidak menghasilkan Agent command.

@@ -54,6 +54,15 @@ final class ClaimAgentCommandAction
                 ->whereKey($commandId)
                 ->firstOrFail();
 
+            $deployment = null;
+
+            if ($command->deployment_id !== null) {
+                $deployment = Deployment::query()
+                    ->whereKey($command->deployment_id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+            }
+
             $this->assertClaimable($command, $node);
 
             $updated = AgentCommand::query()
@@ -72,12 +81,7 @@ final class ClaimAgentCommandAction
                 throw new CommandConflictException($command->fresh());
             }
 
-            if ($command->type === AgentCommandType::DeployProject && $command->deployment_id !== null) {
-                $deployment = Deployment::query()
-                    ->whereKey($command->deployment_id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
-
+            if ($command->type === AgentCommandType::DeployProject && $deployment !== null) {
                 $deployment->update([
                     'agent_node_id' => $node->id,
                 ]);

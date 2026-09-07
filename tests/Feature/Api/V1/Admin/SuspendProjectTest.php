@@ -894,3 +894,230 @@ test('idempotent suspend retry creates only one audit event', function () {
         ->count()
     )->toBe(1);
 });
+
+test('admin can suspend project without active deployment', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/suspend", [
+            'reason' => 'Administrative suspension',
+        ]);
+
+    $response->assertAccepted();
+
+    expect($project->refresh()->status)
+        ->toBe(ProjectStatus::Suspended);
+
+    expect(
+        ProjectControlRequest::query()
+            ->where('project_id', $project->id)
+            ->count()
+    )->toBe(1);
+
+    $controlRequest = ProjectControlRequest::query()
+        ->where('project_id', $project->id)
+        ->first();
+
+    expect($controlRequest)->not->toBeNull()
+        ->and($controlRequest->agent_command_id)->toBeNull();
+
+    expect(
+        AgentCommand::query()
+            ->where('project_id', $project->id)
+            ->count()
+    )->toBe(0);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.suspend_requested')
+            ->where('subject_id', $project->id)
+            ->count()
+    )->toBe(1);
+});
+
+test('admin can retry suspend without active deployment using the same idempotency key', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $headers = [
+        'Idempotency-Key' => 'suspend-project-001',
+    ];
+
+    $payload = [
+        'reason' => 'Administrative suspension',
+    ];
+
+    $firstResponse = $this->actingAs($admin, 'web')
+        ->withHeaders($headers)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            $payload,
+        );
+
+    $firstResponse->assertAccepted();
+
+    $secondResponse = $this->actingAs($admin, 'web')
+        ->withHeaders($headers)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            $payload,
+        );
+
+    $secondResponse->assertAccepted();
+
+    expect(
+        ProjectControlRequest::query()
+            ->where('idempotency_key', 'suspend-project-001')
+            ->count()
+    )->toBe(1);
+
+    expect(
+        AgentCommand::query()
+            ->where('project_id', $project->id)
+            ->count()
+    )->toBe(0);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.suspend_requested')
+            ->where('subject_id', $project->id)
+            ->count()
+    )->toBe(1);
+
+    expect($project->refresh()->status)
+        ->toBe(ProjectStatus::Suspended);
+});
+
+test('admin can suspend project with active deployment', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Succeeded,
+        'agent_node_id' => AgentNode::factory()->create()->id,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/suspend", [
+            'reason' => 'Administrative suspension',
+        ]);
+
+    $response->assertAccepted();
+
+    expect($project->refresh()->status)
+        ->toBe(ProjectStatus::Suspended);
+
+    $controlRequest = ProjectControlRequest::query()
+        ->where('project_id', $project->id)
+        ->first();
+
+    expect($controlRequest)->not->toBeNull()
+        ->and($controlRequest->agent_command_id)->not->toBeNull();
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->first();
+
+    expect($command)->not->toBeNull()
+        ->and($command->type)->toBe(AgentCommandType::SleepProject)
+        ->and($command->deployment_id)->toBe($deployment->id);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.suspend_requested')
+            ->where('subject_id', $project->id)
+            ->count()
+    )->toBe(1);
+});
+
+test('admin cannot reuse suspend idempotency key with a different reason', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', 'suspend-project-002')
+        ->postJson("/api/v1/admin/projects/{$project->id}/suspend", [
+            'reason' => 'Administrative suspension',
+        ]);
+
+    $response->assertAccepted();
+
+    $response = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', 'suspend-project-002')
+        ->postJson("/api/v1/admin/projects/{$project->id}/suspend", [
+            'reason' => 'Security incident',
+        ]);
+
+    $response->assertConflict();
+
+    expect(
+        ProjectControlRequest::query()
+            ->where('idempotency_key', 'suspend-project-002')
+            ->count()
+    )->toBe(1);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.suspend_requested')
+            ->where('subject_id', $project->id)
+            ->count()
+    )->toBe(1);
+});
+
+test('admin cannot reuse suspend idempotency key for another project', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $projectA = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $projectB = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', 'suspend-project-003')
+        ->postJson("/api/v1/admin/projects/{$projectA->id}/suspend", [
+            'reason' => 'Administrative suspension',
+        ]);
+
+    $response->assertAccepted();
+
+    $response = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', 'suspend-project-003')
+        ->postJson("/api/v1/admin/projects/{$projectB->id}/suspend", [
+            'reason' => 'Administrative suspension',
+        ]);
+
+    $response->assertConflict();
+
+    expect(
+        ProjectControlRequest::query()
+            ->where('idempotency_key', 'suspend-project-003')
+            ->count()
+    )->toBe(1);
+});

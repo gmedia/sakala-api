@@ -6,5 +6,6 @@ namespace App\Enums;
 
 enum ProjectControlAction: string
 {
+    case Stop = 'stop';
     case Suspend = 'suspend';
 }

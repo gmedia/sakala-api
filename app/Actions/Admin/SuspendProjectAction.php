@@ -54,10 +54,12 @@ final class SuspendProjectAction
         ProjectControlRequest $request,
         Project $project,
         User $user,
+        ProjectControlAction $action,
         ProjectControlData $data,
     ): void {
         if (
             $request->project_id !== $project->id
+            || $request->action !== $action
             || $request->reason !== $data->reason
             || $request->actor_type !== User::class
             || (string) $request->actor_id !== (string) $user->id
@@ -106,6 +108,7 @@ final class SuspendProjectAction
                     request: $existingRequest,
                     project: $lockedProject,
                     user: $user,
+                    action: ProjectControlAction::Suspend,
                     data: $data,
                 );
 
@@ -153,10 +156,12 @@ final class SuspendProjectAction
                 'runtime_status' => $lockedProject->runtime_status->value,
             ];
 
+            $idempotencyKey = $data->idempotencyKey ?? Str::uuid()->toString();
+
             $controlRequest = ProjectControlRequest::create([
                 'project_id' => $lockedProject->id,
                 'action' => ProjectControlAction::Suspend,
-                'idempotency_key' => $data->idempotencyKey ?? Str::uuid()->toString(),
+                'idempotency_key' => $idempotencyKey,
                 'actor_type' => User::class,
                 'actor_id' => $user->id,
                 'reason' => $data->reason,
@@ -170,7 +175,7 @@ final class SuspendProjectAction
                     deployment: $deployment,
                     user: $user,
                     reason: $data->reason,
-                    idempotencyKey: $data->idempotencyKey,
+                    idempotencyKey: $idempotencyKey,
                     responseContext: $responseContext,
                 );
 

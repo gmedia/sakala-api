@@ -14,6 +14,7 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Models\ProjectControlRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -929,4 +930,108 @@ test('targets the succeeded deployment when a newer deployment is still in fligh
 
     expect($command->agent_node_id)
         ->toBe($agent->id);
+});
+
+test('admin can stop project with active deployment', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agentNode = AgentNode::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Succeeded,
+        'agent_node_id' => $agentNode->id,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Administrative stop',
+        ]);
+
+    $response->assertAccepted();
+
+    $controlRequest = ProjectControlRequest::query()
+        ->where('project_id', $project->id)
+        ->first();
+
+    expect($controlRequest)->not->toBeNull()
+        ->and($controlRequest->agent_command_id)->not->toBeNull();
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->first();
+
+    expect($command)->not->toBeNull()
+        ->and($command->type)->toBe(AgentCommandType::StopProject)
+        ->and($command->deployment_id)->toBe($deployment->id);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_requested')
+            ->where('subject_id', $project->id)
+            ->count()
+    )->toBe(1);
+});
+
+test('admin can retry stop using the same idempotency key', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Succeeded,
+        'agent_node_id' => AgentNode::factory()->create()->id,
+    ]);
+
+    $payload = [
+        'reason' => 'Administrative stop',
+    ];
+
+    $firstResponse = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', 'stop-project-001')
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/stop",
+            $payload,
+        );
+
+    $firstResponse->assertAccepted();
+
+    $secondResponse = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', 'stop-project-001')
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/stop",
+            $payload,
+        );
+
+    $secondResponse->assertAccepted();
+
+    expect(
+        ProjectControlRequest::query()
+            ->where('idempotency_key', 'stop-project-001')
+            ->count()
+    )->toBe(1);
+
+    expect(
+        AgentCommand::query()
+            ->where('project_id', $project->id)
+            ->count()
+    )->toBe(1);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_requested')
+            ->where('subject_id', $project->id)
+            ->count()
+    )->toBe(1);
 });

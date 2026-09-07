@@ -8,6 +8,9 @@ use App\Enums\ProjectControlAction;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property ProjectControlAction $action
+ */
 class ProjectControlRequest extends Model
 {
     protected $fillable = [

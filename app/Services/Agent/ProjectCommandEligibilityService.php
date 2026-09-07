@@ -18,12 +18,20 @@ final class ProjectCommandEligibilityService
      */
     public function applyToQuery(Builder $query): Builder
     {
-        return $query->where(function (Builder $query): void {
+        $blockedTypes = array_map(
+            static fn (AgentCommandType $type): string => $type->value,
+            array_filter(
+                AgentCommandType::cases(),
+                static fn (AgentCommandType $type): bool => $type->isBlockedForSuspendedProject(),
+            ),
+        );
+
+        return $query->where(function (Builder $query) use ($blockedTypes): void {
             $query
                 ->whereNull('project_id')
-                ->orWhere(function (Builder $query): void {
+                ->orWhere(function (Builder $query) use ($blockedTypes): void {
                     $query
-                        ->where('type', '!=', AgentCommandType::DeployProject)
+                        ->whereNotIn('type', $blockedTypes)
                         ->orWhereHas('project', function (Builder $query): void {
                             $query->where(
                                 'status',
@@ -39,9 +47,10 @@ final class ProjectCommandEligibilityService
         Project $project,
         AgentCommandType $type,
     ): bool {
-        return ! (
-            $type === AgentCommandType::DeployProject
-            && $project->status === ProjectStatus::Suspended
-        );
+        if ($project->status !== ProjectStatus::Suspended) {
+            return true;
+        }
+
+        return ! $type->isBlockedForSuspendedProject();
     }
 }

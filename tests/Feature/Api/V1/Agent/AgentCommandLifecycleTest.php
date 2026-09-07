@@ -1171,10 +1171,10 @@ test('failing a StopProject command preserves project runtime status', function 
     )->toBeTrue();
 });
 
-test('does not poll deploy command for suspended project', function (): void {
+test('does not poll restart command after project is suspended', function (): void {
     $agent = AgentNode::factory()->create([
         'status' => AgentNodeStatus::Ready,
-        'capabilities' => ['dockerfile-build'],
+        'capabilities' => ['docker-runtime'],
     ]);
 
     $project = Project::factory()->create([
@@ -1184,26 +1184,72 @@ test('does not poll deploy command for suspended project', function (): void {
     $command = AgentCommand::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
-        'type' => AgentCommandType::DeployProject,
+        'type' => AgentCommandType::RestartProject,
         'status' => AgentCommandStatus::Pending,
         'available_at' => now()->subMinute(),
     ]);
 
-    $commands = app(PollAgentCommandsAction::class)
-        ->handle($agent);
-
-    expect($commands->pluck('id'))
-        ->toContain($command->id);
+    expect(
+        app(PollAgentCommandsAction::class)->handle($agent)
+            ->pluck('id')
+    )->toContain($command->id);
 
     $project->update([
         'status' => ProjectStatus::Suspended,
     ]);
 
-    $commands = app(PollAgentCommandsAction::class)
-        ->handle($agent);
+    expect(
+        app(PollAgentCommandsAction::class)->handle($agent)
+            ->pluck('id')
+    )->not->toContain($command->id);
+});
 
-    expect($commands->pluck('id'))
-        ->not->toContain($command->id);
+test('does not poll wake command for suspended project', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::WakeProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    expect(
+        app(PollAgentCommandsAction::class)->handle($agent)
+            ->pluck('id')
+    )->not->toContain($command->id);
+});
+
+test('still polls health check for suspended project', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    expect(
+        app(PollAgentCommandsAction::class)->handle($agent)
+            ->pluck('id')
+    )->toContain($command->id);
 });
 
 test('does not claim deploy command when suspend wins the project lock', function (): void {
@@ -1562,4 +1608,123 @@ test('stores only whitelisted context in audit when command succeeds', function 
         ->not->toHaveKey('result')
         ->not->toHaveKey('container_id')
         ->not->toHaveKey('runtime_detail');
+});
+
+test('claim waits on deployment lock before project lock during deployment transition', function (): void {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped(
+            'Requires PostgreSQL row-level locking.',
+        );
+    }
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['dockerfile-build'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Building,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::DeployProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    $secondary = 'pgsql_secondary';
+
+    config([
+        "database.connections.{$secondary}" => config(
+            'database.connections.'.DB::getDefaultConnection(),
+        ),
+    ]);
+
+    DB::purge($secondary);
+
+    $defaultConnection = DB::getDefaultConnection();
+
+    DB::beginTransaction();
+
+    try {
+        /*
+         * Transaction A represents TransitionDeploymentAction.
+         *
+         * Transition locks Deployment first, then Project.
+         */
+        Deployment::query()
+            ->whereKey($deployment->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        Project::query()
+            ->whereKey($project->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $secondaryConnection = DB::connection($secondary);
+        $secondaryConnection->statement('SET lock_timeout = 250');
+
+        $claimException = null;
+
+        try {
+            DB::setDefaultConnection($secondary);
+
+            app(ClaimAgentCommandAction::class)->handle(
+                agent: $agent,
+                commandId: $command->id,
+            );
+        } catch (QueryException $e) {
+            /*
+             * Claim must wait on the Deployment lock first.
+             *
+             * SQLSTATE 55P03 = lock_not_available.
+             *
+             * A deadlock (40P01) here would indicate an inconsistent
+             * Deployment/Project lock order.
+             */
+            expect($e->getCode())->toBe('55P03');
+
+            $claimException = $e;
+        } finally {
+            DB::setDefaultConnection($defaultConnection);
+        }
+
+        expect($claimException)
+            ->toBeInstanceOf(QueryException::class)
+            ->and($secondaryConnection->transactionLevel())
+            ->toBe(0);
+
+        DB::commit();
+    } catch (Throwable $e) {
+        if (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+
+        throw $e;
+    } finally {
+        DB::purge($secondary);
+    }
+
+    /*
+     * After the transition-side locks are released, Claim can proceed.
+     */
+    app(ClaimAgentCommandAction::class)->handle(
+        agent: $agent,
+        commandId: $command->id,
+    );
+
+    expect($command->fresh()->status)
+        ->toBe(AgentCommandStatus::Claimed);
+
+    expect($deployment->fresh()->agent_node_id)
+        ->toBe($agent->id);
 });
