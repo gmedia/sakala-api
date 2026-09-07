@@ -93,7 +93,8 @@ final class CompleteAgentCommandAction
                     'metadata' => [
                         'command_id' => $command->id,
                         'deployment_id' => $command->deployment_id,
-                        'result' => $result,
+                        'agent_node_id' => $command->agent_node_id,
+                        'outcome' => 'succeeded',
                     ],
                 ]);
             }

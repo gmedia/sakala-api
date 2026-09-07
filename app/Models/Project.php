@@ -95,6 +95,12 @@ class Project extends Model
         return $this->hasMany(Feedback::class);
     }
 
+    /** @return HasMany<ProjectControlRequest, $this> */
+    public function controlRequests(): HasMany
+    {
+        return $this->hasMany(ProjectControlRequest::class);
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {

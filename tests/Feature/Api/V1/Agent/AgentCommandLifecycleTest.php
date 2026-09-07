@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\Agent\ClaimAgentCommandAction;
+use App\Actions\Agent\CompleteAgentCommandAction;
 use App\Actions\Agent\PollAgentCommandsAction;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
@@ -1509,4 +1510,56 @@ test('completing a stale StopProject command does not stop the current workload'
             ->whereJsonContains('metadata->deployment_id', $oldDeployment->id)
             ->exists()
     )->toBeTrue();
+});
+
+test('stores only whitelisted context in audit when command succeeds', function (): void {
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::SleepProject,
+        'status' => AgentCommandStatus::Running,
+    ]);
+
+    $result = [
+        'status' => 'stopped',
+        'container_id' => 'container-123',
+        'runtime_detail' => 'some-runtime-data',
+    ];
+
+    app(CompleteAgentCommandAction::class)->handle(
+        agent: $agent,
+        commandId: $command->id,
+        result: $result,
+    );
+
+    $audit = AuditEvent::query()
+        ->where('action', 'project.suspend_completed')
+        ->where('subject_id', $project->id)
+        ->latest()
+        ->firstOrFail();
+
+    expect($audit->metadata)->toMatchArray([
+        'command_id' => $command->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'outcome' => 'succeeded',
+    ]);
+
+    expect($audit->metadata)
+        ->not->toHaveKey('result')
+        ->not->toHaveKey('container_id')
+        ->not->toHaveKey('runtime_detail');
 });

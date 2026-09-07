@@ -9,17 +9,35 @@ use App\Data\Admin\ProjectControlResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
+use App\Enums\ProjectControlAction;
 use App\Enums\ProjectStatus;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Models\ProjectControlRequest;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 final class SuspendProjectAction
 {
+    public function __construct(
+        private readonly CreateSleepProjectCommandAction $createSleepProjectCommandAction,
+    ) {}
+
+    private function findExistingRequest(
+        ProjectControlData $data,
+    ): ?ProjectControlRequest {
+        if ($data->idempotencyKey === null) {
+            return null;
+        }
+
+        return ProjectControlRequest::query()
+            ->where('idempotency_key', $data->idempotencyKey)
+            ->first();
+    }
+
     private function findExistingCommand(
         ProjectControlData $data,
     ): ?AgentCommand {
@@ -33,19 +51,16 @@ final class SuspendProjectAction
     }
 
     private function assertIdempotentRetry(
-        AgentCommand $command,
+        ProjectControlRequest $request,
         Project $project,
         User $user,
         ProjectControlData $data,
     ): void {
-        $context = $command->request_context ?? [];
-
         if (
-            $command->project_id !== $project->id
-            || $command->type !== AgentCommandType::SleepProject
-            || ($context['reason'] ?? null) !== $data->reason
-            || ($context['actor_type'] ?? null) !== User::class
-            || ($context['actor_id'] ?? null) !== (string) $user->id
+            $request->project_id !== $project->id
+            || $request->reason !== $data->reason
+            || $request->actor_type !== User::class
+            || (string) $request->actor_id !== (string) $user->id
         ) {
             abort(
                 409,
@@ -84,21 +99,30 @@ final class SuspendProjectAction
                 ->lockForUpdate()
                 ->findOrFail($project->id);
 
-            $existingCommand = $this->findExistingCommand($data);
+            $existingRequest = $this->findExistingRequest($data);
 
-            if ($existingCommand !== null) {
+            if ($existingRequest !== null) {
                 $this->assertIdempotentRetry(
-                    command: $existingCommand,
+                    request: $existingRequest,
                     project: $lockedProject,
                     user: $user,
                     data: $data,
                 );
 
+                /** @var array<string, mixed> $responseContext */
+                $responseContext = $existingRequest->response_context ?? [];
+
                 return new ProjectControlResultData(
                     project: $lockedProject->refresh(),
-                    command: $existingCommand,
-                    responseContext: $existingCommand->response_context,
+                    command: $existingRequest->agentCommand,
+                    responseContext: $responseContext,
                 );
+            }
+
+            $existingCommand = $this->findExistingCommand($data);
+
+            if ($existingCommand !== null) {
+                abort(409, 'Idempotency key has already been used for a different request.');
             }
 
             if ($lockedProject->status === ProjectStatus::Suspended) {
@@ -110,10 +134,7 @@ final class SuspendProjectAction
             );
 
             if ($pendingSuspendCommand !== null) {
-                abort(
-                    409,
-                    'A suspend command is already in progress for this project.',
-                );
+                abort(409, 'A suspended command is already in progress for this project.');
             }
 
             $deployment = Deployment::query()
@@ -132,30 +153,29 @@ final class SuspendProjectAction
                 'runtime_status' => $lockedProject->runtime_status->value,
             ];
 
+            $controlRequest = ProjectControlRequest::create([
+                'project_id' => $lockedProject->id,
+                'action' => ProjectControlAction::Suspend,
+                'idempotency_key' => $data->idempotencyKey ?? Str::uuid()->toString(),
+                'actor_type' => User::class,
+                'actor_id' => $user->id,
+                'reason' => $data->reason,
+                'response_context' => $responseContext,
+            ]);
+
             $command = null;
 
             if ($deployment !== null) {
-                $command = AgentCommand::create([
-                    'project_id' => $lockedProject->id,
-                    'deployment_id' => $deployment->id,
-                    'agent_node_id' => $deployment->agent_node_id,
-                    'type' => AgentCommandType::SleepProject,
-                    'status' => AgentCommandStatus::Pending,
+                $command = $this->createSleepProjectCommandAction->handle(
+                    deployment: $deployment,
+                    user: $user,
+                    reason: $data->reason,
+                    idempotencyKey: $data->idempotencyKey,
+                    responseContext: $responseContext,
+                );
 
-                    'payload' => [],
-
-                    'request_context' => [
-                        'reason' => $data->reason,
-                        'actor_type' => User::class,
-                        'actor_id' => (string) $user->id,
-                    ],
-
-                    'response_context' => $responseContext,
-
-                    'idempotency_key' => $data->idempotencyKey
-                        ?? Str::uuid()->toString(),
-
-                    'available_at' => now(),
+                $controlRequest->update([
+                    'agent_command_id' => $command->id,
                 ]);
             }
 

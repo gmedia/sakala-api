@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use App\Actions\Deployment\TransitionDeploymentAction;
+use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Models\AgentCommand;
+use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\Project;
 use Illuminate\Broadcasting\BroadcastEvent;
@@ -238,14 +241,17 @@ test('invalid deployment transition is rejected without changing state', functio
         ->toBe(0);
 });
 
-test('does not mark a suspended project as running when an in-flight deployment succeeds', function () {
+test('stops an in-flight deployment that succeeds after project is suspended', function (): void {
     $project = Project::factory()->create([
         'status' => ProjectStatus::Suspended,
         'runtime_status' => RuntimeStatus::Running,
     ]);
 
+    $agent = AgentNode::factory()->create();
+
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
         'status' => DeploymentStatus::HealthChecking,
     ]);
 
@@ -254,8 +260,44 @@ test('does not mark a suspended project as running when an in-flight deployment 
         nextStatus: DeploymentStatus::Succeeded,
     );
 
-    expect($project->refresh()->status)
+    $deployment->refresh();
+
+    expect($deployment->status)
+        ->toBe(DeploymentStatus::Succeeded);
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->where('deployment_id', $deployment->id)
+        ->where('agent_node_id', $agent->id)
+        ->where('type', AgentCommandType::SleepProject)
+        ->first();
+
+    expect($command)->not->toBeNull();
+});
+
+test('keeps suspended project running until sleep command completes', function (): void {
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::HealthChecking,
+    ]);
+
+    app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Succeeded,
+    );
+
+    $project->refresh();
+
+    expect($project->status)
         ->toBe(ProjectStatus::Suspended)
         ->and($project->runtime_status)
-        ->toBe(RuntimeStatus::Stopped);
+        ->toBe(RuntimeStatus::Running);
 });

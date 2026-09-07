@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * @property AgentCommandType $type
@@ -86,6 +87,12 @@ class AgentCommand extends Model
     public function logs(): HasMany
     {
         return $this->hasMany(DeploymentLog::class);
+    }
+
+    /** @return HasOne<ProjectControlRequest, $this> */
+    public function controlRequests(): HasOne
+    {
+        return $this->hasOne(ProjectControlRequest::class);
     }
 
     /** @return array<string, string> */

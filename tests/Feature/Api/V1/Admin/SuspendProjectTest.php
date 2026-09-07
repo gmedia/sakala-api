@@ -14,6 +14,7 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Models\ProjectControlRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -739,4 +740,157 @@ test('suspends a project without a live deployment target', function () {
             ->where('type', AgentCommandType::SleepProject)
             ->exists(),
     )->toBeFalse();
+});
+
+test('admin can suspend project without live workload', function () {
+    $project = Project::factory()->create();
+
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', 'suspend-no-workload-1')
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            ['reason' => 'Emergency maintenance'],
+        );
+
+    $response->assertAccepted();
+
+    expect($project->refresh()->status)
+        ->toBe(ProjectStatus::Suspended);
+
+    expect(AgentCommand::query()->count())
+        ->toBe(0);
+
+    expect(ProjectControlRequest::query()
+        ->where('idempotency_key', 'suspend-no-workload-1')
+        ->count()
+    )->toBe(1);
+});
+
+test('exact retry of suspend without workload returns the original result', function () {
+    $project = Project::factory()->create();
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+    $key = 'suspend-retry-no-workload-1';
+
+    $payload = [
+        'reason' => 'Emergency maintenance',
+    ];
+
+    $firstResponse = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $key)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            $payload,
+        );
+
+    $firstResponse->assertAccepted();
+
+    $retryResponse = $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $key)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            $payload,
+        );
+
+    $retryResponse
+        ->assertAccepted()
+        ->assertJson($firstResponse->json());
+
+    expect(ProjectControlRequest::query()
+        ->where('idempotency_key', $key)
+        ->count()
+    )->toBe(1);
+});
+
+test('reusing suspend idempotency key with a different reason returns conflict', function () {
+    $project = Project::factory()->create();
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+    $key = 'suspend-reason-conflict-1';
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $key)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            ['reason' => 'Emergency maintenance'],
+        )
+        ->assertAccepted();
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $key)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            ['reason' => 'Different reason'],
+        )
+        ->assertConflict();
+});
+
+test('reusing suspend idempotency key with a different actor returns conflict', function () {
+    $project = Project::factory()->create();
+
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+    $otherAdmin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $key = 'suspend-actor-conflict-1';
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $key)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            ['reason' => 'Emergency maintenance'],
+        )
+        ->assertAccepted();
+
+    $this->actingAs($otherAdmin, 'web')
+        ->withHeader('Idempotency-Key', $key)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            ['reason' => 'Emergency maintenance'],
+        )
+        ->assertConflict();
+});
+
+test('idempotent suspend retry creates only one audit event', function () {
+    $project = Project::factory()->create();
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+    $key = 'suspend-audit-1';
+
+    $payload = [
+        'reason' => 'Emergency maintenance',
+    ];
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $key)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            $payload,
+        )
+        ->assertAccepted();
+
+    $this->actingAs($admin, 'web')
+        ->withHeader('Idempotency-Key', $key)
+        ->postJson(
+            "/api/v1/admin/projects/{$project->id}/suspend",
+            $payload,
+        )
+        ->assertAccepted();
+
+    expect(AuditEvent::query()
+        ->where('action', 'project.suspend_requested')
+        ->where('subject_type', Project::class)
+        ->where('subject_id', $project->id)
+        ->count()
+    )->toBe(1);
 });
