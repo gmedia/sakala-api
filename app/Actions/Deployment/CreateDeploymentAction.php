@@ -8,6 +8,7 @@ use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
+use App\Enums\ProjectStatus;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\AgentCommand;
 use App\Models\Deployment;
@@ -106,6 +107,10 @@ final class CreateDeploymentAction
 
             if ($existing !== null) {
                 return $existing;
+            }
+
+            if ($lockedProject->status === ProjectStatus::Suspended) {
+                abort(409, 'Project is suspended.');
             }
 
             // Enforce active deployment limits under user and project lock

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use App\Enums\ProjectStatus;
 use App\Models\Project;
 use App\Models\User;
 
@@ -66,6 +67,26 @@ final class ProjectPolicy
      */
     public function deploy(User $user, Project $project): bool
     {
+        if ($project->status === ProjectStatus::Suspended) {
+            return false;
+        }
+
         return $user->id === $project->user_id;
+    }
+
+    /**
+     * Determine whether the user can stop the project.
+     */
+    public function stop(User $user, Project $project): bool
+    {
+        return false;
+    }
+
+    /**
+     * Determine whether the user can suspend the project.
+     */
+    public function suspend(User $user, Project $project): bool
+    {
+        return false;
     }
 }

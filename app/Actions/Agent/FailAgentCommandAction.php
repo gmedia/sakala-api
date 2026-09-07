@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
+use App\Enums\AgentCommandType;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use App\Models\AuditEvent;
+use App\Models\Project;
 use Illuminate\Support\Facades\DB;
 
 final class FailAgentCommandAction
@@ -70,6 +73,29 @@ final class FailAgentCommandAction
                 'error_code' => $errorCode,
                 'error_message' => $errorMessage,
             ]);
+
+            if (in_array($command->type, [
+                AgentCommandType::StopProject,
+                AgentCommandType::SleepProject,
+            ], true)) {
+                $action = $command->type === AgentCommandType::StopProject
+                    ? 'project.stop_failed'
+                    : 'project.suspend_failed';
+
+                AuditEvent::create([
+                    'actor_type' => AgentNode::class,
+                    'actor_id' => $agent->id,
+                    'action' => $action,
+                    'subject_type' => Project::class,
+                    'subject_id' => $command->project_id,
+                    'metadata' => [
+                        'command_id' => $command->id,
+                        'deployment_id' => $command->deployment_id,
+                        'error_code' => $errorCode,
+                        'error_message' => $errorMessage,
+                    ],
+                ]);
+            }
         });
 
         return true;

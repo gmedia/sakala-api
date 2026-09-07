@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Deployment;
 
+use App\Actions\Admin\CreateSleepProjectCommandAction;
 use App\Enums\DeploymentEventLevel;
 use App\Enums\DeploymentStatus;
 use App\Enums\LogStream;
@@ -20,6 +21,7 @@ final class TransitionDeploymentAction
         private readonly CreateDeploymentEventAction $createDeploymentEventAction,
         private readonly CreateDeploymentLogAction $createDeploymentLogAction,
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateDeploymentRealtimeSequenceAction,
+        private readonly CreateSleepProjectCommandAction $createSleepProjectCommandAction,
     ) {}
 
     private function canTransition(
@@ -77,26 +79,39 @@ final class TransitionDeploymentAction
         Deployment $deployment,
         DeploymentStatus $status,
     ): void {
-        $attributes = match ($status) {
-            DeploymentStatus::Succeeded => [
-                'status' => ProjectStatus::Active,
+        $project = $deployment->project()
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if ($status === DeploymentStatus::Succeeded) {
+            if ($project->status === ProjectStatus::Suspended) {
+                $project->update([
+                    'runtime_status' => RuntimeStatus::Running,
+                    'last_deployed_at' => now(),
+                ]);
+
+                $this->createSleepProjectCommandAction->handle(
+                    deployment: $deployment,
+                    reason: 'deployment_completed_after_suspend',
+                );
+
+                return;
+            }
+
+            $project->update([
                 'runtime_status' => RuntimeStatus::Running,
+                'status' => ProjectStatus::Active,
                 'last_deployed_at' => now(),
-            ],
+            ]);
 
-            DeploymentStatus::Failed => [
-                'runtime_status' => RuntimeStatus::Failed,
-            ],
-            default => [],
-        };
-
-        if ($attributes === []) {
             return;
         }
 
-        $deployment->project()
-            ->lockForUpdate()
-            ->update($attributes);
+        if ($status === DeploymentStatus::Failed) {
+            $project->update([
+                'runtime_status' => RuntimeStatus::Failed,
+            ]);
+        }
     }
 
     public function handle(

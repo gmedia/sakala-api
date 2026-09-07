@@ -2,13 +2,25 @@
 
 declare(strict_types=1);
 
+use App\Actions\Agent\ClaimAgentCommandAction;
+use App\Actions\Agent\CompleteAgentCommandAction;
+use App\Actions\Agent\PollAgentCommandsAction;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeStatus;
+use App\Enums\DeploymentStatus;
+use App\Enums\ProjectStatus;
+use App\Enums\RuntimeStatus;
+use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use App\Models\AuditEvent;
+use App\Models\Deployment;
+use App\Models\Project;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\AssertionFailedError;
 
 uses(RefreshDatabase::class);
@@ -579,6 +591,56 @@ test('complete transitions Claimed to Succeeded', function (): void {
     expect($command->fresh()->result)->toBe(['success' => true]);
 });
 
+test('completing a StopProject command marks the project as stopped', function (): void {
+    $agent = commandAgent('complete-stop-token');
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::StopProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    $response = $this->withHeaders(
+        commandHeaders($agent, 'complete-stop-token')
+    )->postJson("/api/agent/v1/commands/{$command->id}/complete", [
+        'result' => ['stopped' => true],
+    ]);
+
+    $response->assertNoContent();
+
+    $command->refresh();
+    $project->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Succeeded)
+        ->and($command->completed_at)
+        ->not->toBeNull()
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Stopped);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_completed')
+            ->where('subject_type', Project::class)
+            ->where('subject_id', $project->id)
+            ->exists()
+    )->toBeTrue();
+});
+
 test('complete is idempotent when already Succeeded', function (): void {
     $agent = commandAgent('complete-token');
     $command = AgentCommand::factory()->create([
@@ -1058,4 +1120,611 @@ test('AgentCommandResource shapes lifecycle command payload as empty object', fu
     expect($item['payload'])->toBe([]);
     expect($item['project_id'])->toBeNull();
     expect($item['deployment_id'])->toBeNull();
+});
+
+test('failing a StopProject command preserves project runtime status', function (): void {
+    $agent = commandAgent('fail-stop-token');
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::StopProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    $response = $this->withHeaders(
+        commandHeaders($agent, 'fail-stop-token')
+    )->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+        'error_code' => 'STOP_FAILED',
+        'error_message' => 'Failed to stop project.',
+    ]);
+
+    $response->assertNoContent();
+
+    $command->refresh();
+    $project->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Failed)
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Running);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_failed')
+            ->where('subject_type', Project::class)
+            ->where('subject_id', $project->id)
+            ->exists()
+    )->toBeTrue();
+});
+
+test('does not poll restart command after project is suspended', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::RestartProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    expect(
+        app(PollAgentCommandsAction::class)->handle($agent)
+            ->pluck('id')
+    )->toContain($command->id);
+
+    $project->update([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    expect(
+        app(PollAgentCommandsAction::class)->handle($agent)
+            ->pluck('id')
+    )->not->toContain($command->id);
+});
+
+test('does not poll wake command for suspended project', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::WakeProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    expect(
+        app(PollAgentCommandsAction::class)->handle($agent)
+            ->pluck('id')
+    )->not->toContain($command->id);
+});
+
+test('still polls health check for suspended project', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    expect(
+        app(PollAgentCommandsAction::class)->handle($agent)
+            ->pluck('id')
+    )->toContain($command->id);
+});
+
+test('does not claim deploy command when suspend wins the project lock', function (): void {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped(
+            'Requires PostgreSQL row-level locking; ignore SQLite which does not support FOR UPDATE.',
+        );
+    }
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['dockerfile-build'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::DeployProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    $secondary = 'pgsql_secondary';
+
+    config([
+        "database.connections.{$secondary}" => config(
+            'database.connections.'.DB::getDefaultConnection(),
+        ),
+    ]);
+
+    DB::purge($secondary);
+
+    $defaultConnection = DB::getDefaultConnection();
+
+    DB::beginTransaction();
+
+    try {
+        /*
+         * Transaction A represents the admin suspend request.
+         *
+         * It takes the same project row lock used by ClaimAgentCommandAction
+         * and changes the project policy to Suspended, but keeps the
+         * transaction open.
+         */
+        $lockedProject = Project::query()
+            ->whereKey($project->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $lockedProject->update([
+            'status' => ProjectStatus::Suspended,
+        ]);
+
+        $secondaryConnection = DB::connection($secondary);
+
+        /*
+         * Session B must wait for transaction A's project lock.
+         * A short timeout makes the test deterministic instead of hanging.
+         */
+        $secondaryConnection->statement('SET lock_timeout = 250');
+
+        $claimException = null;
+
+        try {
+            DB::setDefaultConnection($secondary);
+
+            app(ClaimAgentCommandAction::class)->handle(
+                agent: $agent,
+                commandId: $command->id,
+            );
+        } catch (QueryException $e) {
+            /*
+             * Session B cannot acquire the project lock while transaction A
+             * is still open.
+             *
+             * SQLSTATE 55P03 = lock_not_available.
+             */
+            expect($e->getCode())->toBe('55P03');
+
+            $claimException = $e;
+        } finally {
+            DB::setDefaultConnection($defaultConnection);
+        }
+
+        expect($claimException)
+            ->toBeInstanceOf(QueryException::class)
+            ->and(DB::connection($secondary)->transactionLevel())
+            ->toBe(0);
+
+        /*
+         * The suspend transaction wins and publishes Suspended state.
+         */
+        DB::commit();
+    } catch (Throwable $e) {
+        if (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+
+        throw $e;
+    } finally {
+        DB::purge($secondary);
+    }
+
+    /*
+     * After the suspend transaction commits, a fresh claim must observe
+     * the committed Suspended state and reject the DeployProject command.
+     *
+     * This proves the final eligibility check is coordinated with the
+     * same project row lock used by the suspend operation.
+     */
+    expect(fn () => app(ClaimAgentCommandAction::class)->handle(
+        agent: $agent,
+        commandId: $command->id,
+    ))->toThrow(CommandConflictException::class);
+
+    expect($project->fresh()->status)
+        ->toBe(ProjectStatus::Suspended);
+
+    expect($command->fresh()->status)
+        ->toBe(AgentCommandStatus::Pending);
+});
+
+test('still polls sleep command for suspended project', function (): void {
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['docker-runtime'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::SleepProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    $commands = app(PollAgentCommandsAction::class)
+        ->handle($agent);
+
+    expect($commands->pluck('id'))
+        ->toContain($command->id);
+});
+
+test('completing a SleepProject command marks the project as stopped', function (): void {
+    $agent = commandAgent('complete-sleep-token');
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::SleepProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    $response = $this->withHeaders(
+        commandHeaders($agent, 'complete-sleep-token')
+    )->postJson("/api/agent/v1/commands/{$command->id}/complete", [
+        'result' => ['stopped' => true],
+    ]);
+
+    $response->assertNoContent();
+
+    $command->refresh();
+    $project->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Succeeded)
+        ->and($command->completed_at)
+        ->not->toBeNull()
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Stopped);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.suspend_completed')
+            ->where('subject_type', Project::class)
+            ->where('subject_id', $project->id)
+            ->exists()
+    )->toBeTrue();
+});
+
+test('failing a SleepProject command preserves project runtime status', function (): void {
+    $agent = commandAgent('fail-sleep-token');
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::SleepProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    $response = $this->withHeaders(
+        commandHeaders($agent, 'fail-sleep-token')
+    )->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+        'error_code' => 'SLEEP_FAILED',
+        'error_message' => 'Failed to suspend project.',
+    ]);
+
+    $response->assertNoContent();
+
+    $command->refresh();
+    $project->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Failed)
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Running);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.suspend_failed')
+            ->where('subject_type', Project::class)
+            ->where('subject_id', $project->id)
+            ->exists()
+    )->toBeTrue();
+});
+
+test('completing a stale StopProject command does not stop the current workload', function (): void {
+    $agent = commandAgent('stale-stop-token');
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $oldDeployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 1,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $oldDeployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::StopProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 2,
+    ]);
+
+    $response = $this->withHeaders(
+        commandHeaders($agent, 'stale-stop-token')
+    )->postJson("/api/agent/v1/commands/{$command->id}/complete", [
+        'result' => ['stopped' => true],
+    ]);
+
+    $response->assertNoContent();
+
+    $command->refresh();
+    $project->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Succeeded)
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Running);
+
+    expect(
+        AuditEvent::query()
+            ->where('action', 'project.stop_completed')
+            ->where('subject_type', Project::class)
+            ->where('subject_id', $project->id)
+            ->whereJsonContains('metadata->command_id', $command->id)
+            ->whereJsonContains('metadata->deployment_id', $oldDeployment->id)
+            ->exists()
+    )->toBeTrue();
+});
+
+test('stores only whitelisted context in audit when command succeeds', function (): void {
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::SleepProject,
+        'status' => AgentCommandStatus::Running,
+    ]);
+
+    $result = [
+        'status' => 'stopped',
+        'container_id' => 'container-123',
+        'runtime_detail' => 'some-runtime-data',
+    ];
+
+    app(CompleteAgentCommandAction::class)->handle(
+        agent: $agent,
+        commandId: $command->id,
+        result: $result,
+    );
+
+    $audit = AuditEvent::query()
+        ->where('action', 'project.suspend_completed')
+        ->where('subject_id', $project->id)
+        ->latest()
+        ->firstOrFail();
+
+    expect($audit->metadata)->toMatchArray([
+        'command_id' => $command->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'outcome' => 'succeeded',
+    ]);
+
+    expect($audit->metadata)
+        ->not->toHaveKey('result')
+        ->not->toHaveKey('container_id')
+        ->not->toHaveKey('runtime_detail');
+});
+
+test('claim waits on deployment lock before project lock during deployment transition', function (): void {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped(
+            'Requires PostgreSQL row-level locking.',
+        );
+    }
+
+    $agent = AgentNode::factory()->create([
+        'status' => AgentNodeStatus::Ready,
+        'capabilities' => ['dockerfile-build'],
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Building,
+    ]);
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::DeployProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+    ]);
+
+    $secondary = 'pgsql_secondary';
+
+    config([
+        "database.connections.{$secondary}" => config(
+            'database.connections.'.DB::getDefaultConnection(),
+        ),
+    ]);
+
+    DB::purge($secondary);
+
+    $defaultConnection = DB::getDefaultConnection();
+
+    DB::beginTransaction();
+
+    try {
+        /*
+         * Transaction A represents TransitionDeploymentAction.
+         *
+         * Transition locks Deployment first, then Project.
+         */
+        Deployment::query()
+            ->whereKey($deployment->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        Project::query()
+            ->whereKey($project->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $secondaryConnection = DB::connection($secondary);
+        $secondaryConnection->statement('SET lock_timeout = 250');
+
+        $claimException = null;
+
+        try {
+            DB::setDefaultConnection($secondary);
+
+            app(ClaimAgentCommandAction::class)->handle(
+                agent: $agent,
+                commandId: $command->id,
+            );
+        } catch (QueryException $e) {
+            /*
+             * Claim must wait on the Deployment lock first.
+             *
+             * SQLSTATE 55P03 = lock_not_available.
+             *
+             * A deadlock (40P01) here would indicate an inconsistent
+             * Deployment/Project lock order.
+             */
+            expect($e->getCode())->toBe('55P03');
+
+            $claimException = $e;
+        } finally {
+            DB::setDefaultConnection($defaultConnection);
+        }
+
+        expect($claimException)
+            ->toBeInstanceOf(QueryException::class)
+            ->and($secondaryConnection->transactionLevel())
+            ->toBe(0);
+
+        DB::commit();
+    } catch (Throwable $e) {
+        if (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+
+        throw $e;
+    } finally {
+        DB::purge($secondary);
+    }
+
+    /*
+     * After the transition-side locks are released, Claim can proceed.
+     */
+    app(ClaimAgentCommandAction::class)->handle(
+        agent: $agent,
+        commandId: $command->id,
+    );
+
+    expect($command->fresh()->status)
+        ->toBe(AgentCommandStatus::Claimed);
+
+    expect($deployment->fresh()->agent_node_id)
+        ->toBe($agent->id);
 });

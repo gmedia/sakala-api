@@ -8,12 +8,14 @@ use App\Enums\AgentCommandStatus;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Services\Agent\AgentCommandEligibilityService;
+use App\Services\Agent\ProjectCommandEligibilityService;
 use Illuminate\Support\Collection;
 
 final class PollAgentCommandsAction
 {
     public function __construct(
         private readonly AgentCommandEligibilityService $eligibility,
+        private readonly ProjectCommandEligibilityService $projectEligibility,
     ) {}
 
     /**
@@ -40,21 +42,27 @@ final class PollAgentCommandsAction
             return collect();
         }
 
-        return AgentCommand::query()
-            ->where('status', AgentCommandStatus::Pending)
-            ->whereIn('type', $eligibleTypes)
-            ->where('available_at', '<=', now())
-            ->where(function ($query): void {
-                $query->whereNull('expires_at')
-                    ->orWhere('expires_at', '>', now());
-            })
-            ->where(function ($query) use ($agent): void {
-                $query->whereNull('agent_node_id')
-                    ->orWhere('agent_node_id', $agent->id);
-            })
+        /** @var \Illuminate\Database\Eloquent\Collection<int, AgentCommand> $commands */
+        $commands = $this->projectEligibility
+            ->applyToQuery(
+                AgentCommand::query()
+                    ->where('status', AgentCommandStatus::Pending)
+                    ->whereIn('type', $eligibleTypes)
+                    ->where('available_at', '<=', now())
+                    ->where(function ($query): void {
+                        $query->whereNull('expires_at')
+                            ->orWhere('expires_at', '>', now());
+                    })
+                    ->where(function ($query) use ($agent): void {
+                        $query->whereNull('agent_node_id')
+                            ->orWhere('agent_node_id', $agent->id);
+                    })
+            )
             ->orderBy('available_at', 'asc')
             ->orderBy('created_at', 'asc')
             ->limit(config('sakala.agent.command_batch_size', 10))
             ->get();
+
+        return $commands;
     }
 }
