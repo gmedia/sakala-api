@@ -27,6 +27,7 @@ class AgentCommandFactory extends Factory
             'result' => null,
             'idempotency_key' => (string) Str::uuid(),
             'attempts' => 0,
+            'reported_log_bytes' => 0,
             'error_code' => null,
             'error_message' => null,
             'available_at' => now(),

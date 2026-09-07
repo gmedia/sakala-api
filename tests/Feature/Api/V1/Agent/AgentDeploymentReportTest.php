@@ -79,8 +79,12 @@ test('claiming agent can append a redacted event and receives an acknowledgement
 
     $response = $this->withHeaders(reportHeaders($context['agent'], $context['token']))
         ->postJson("/api/agent/v1/commands/{$context['command']->id}/events", [
-            ...eventReportBody('password="super-secret" {"api_key":"another-secret"}'),
-            'metadata' => ['authorization' => 'Bearer secret-token'],
+            ...eventReportBody('password="super-secret" {"api_key":"another-secret"} ghs_super-secret'),
+            'metadata' => [
+                'authorization' => 'Bearer secret-token',
+                'api_key' => 'metadata-api-secret',
+                'nested' => ['client_secret' => 'nested-secret'],
+            ],
         ]);
 
     $response
@@ -100,7 +104,10 @@ test('claiming agent can append a redacted event and receives an acknowledgement
         ->and($event->message)->toContain('[REDACTED]')
         ->and($event->message)->not->toContain('super-secret')
         ->and($event->message)->not->toContain('another-secret')
-        ->and($event->metadata['authorization'])->toBe('Bearer [REDACTED]');
+        ->and($event->message)->not->toContain('ghs_super-secret')
+        ->and($event->metadata['authorization'])->toBe('[REDACTED]')
+        ->and($event->metadata['api_key'])->toBe('[REDACTED]')
+        ->and($event->metadata['nested']['client_secret'])->toBe('[REDACTED]');
 });
 
 test('claiming agent can append logs and sequences follow request order', function (): void {
@@ -150,16 +157,34 @@ test('a report retry is idempotent and a changed payload conflicts', function ()
     expect(DeploymentEvent::query()->count())->toBe(1);
 });
 
-test('reports without an idempotency header deduplicate identical payloads', function (): void {
+test('reports without an idempotency header remain append-only even when redaction matches', function (): void {
     $context = reportContext();
     $url = "/api/agent/v1/commands/{$context['command']->id}/logs";
     $headers = reportHeaders($context['agent'], $context['token']);
 
-    $this->withHeaders($headers)->postJson($url, logReportBody())->assertSuccessful();
+    $this->withHeaders($headers)->postJson($url, logReportBody('TOKEN=alpha'))->assertSuccessful();
     $this->withHeaders($headers)
-        ->postJson($url, logReportBody())
+        ->postJson($url, logReportBody('TOKEN=beta'))
         ->assertSuccessful()
-        ->assertJsonPath('data.duplicate_count', 1);
+        ->assertJsonPath('data.duplicate_count', 0);
+
+    expect(DeploymentLog::query()->count())->toBe(2)
+        ->and(DeploymentLog::query()->orderBy('sequence')->pluck('message')->all())
+        ->toBe(['TOKEN=[REDACTED]', 'TOKEN=[REDACTED]']);
+});
+
+test('the same idempotency key conflicts when only a redacted secret changes', function (): void {
+    $context = reportContext();
+    $url = "/api/agent/v1/commands/{$context['command']->id}/logs";
+    $headers = [...reportHeaders($context['agent'], $context['token']), 'Idempotency-Key' => 'secret-report'];
+
+    $this->withHeaders($headers)
+        ->postJson($url, logReportBody('TOKEN=alpha'))
+        ->assertSuccessful();
+
+    $this->withHeaders($headers)
+        ->postJson($url, logReportBody('TOKEN=beta'))
+        ->assertStatus(409);
 
     expect(DeploymentLog::query()->count())->toBe(1);
 });
@@ -231,7 +256,7 @@ test('report limits reject oversized batches, command snapshots, and request bod
         ->assertStatus(422)
         ->assertJsonValidationErrors(['logs.0.message']);
 
-    config()->set('sakala.pilot_limits.log_bounds.max_total_bytes', 10);
+    config()->set('sakala.pilot_limits.log_bounds.max_request_bytes', 10);
 
     $this->withHeaders($headers)
         ->postJson($url, logReportBody('payload is larger than ten bytes'))
@@ -244,6 +269,117 @@ test('terminal commands cannot append reports', function (): void {
     $this->withHeaders(reportHeaders($context['agent'], $context['token']))
         ->postJson("/api/agent/v1/commands/{$context['command']->id}/events", eventReportBody())
         ->assertStatus(409);
+});
+
+test('an identical event retry is acknowledged after the command becomes terminal', function (): void {
+    $context = reportContext();
+    $url = "/api/agent/v1/commands/{$context['command']->id}/events";
+    $headers = [...reportHeaders($context['agent'], $context['token']), 'Idempotency-Key' => 'terminal-event'];
+    $body = eventReportBody();
+
+    $this->withHeaders($headers)->postJson($url, $body)->assertSuccessful();
+
+    $context['command']->update([
+        'status' => AgentCommandStatus::Succeeded,
+        'completed_at' => now(),
+    ]);
+
+    $this->withHeaders($headers)
+        ->postJson($url, $body)
+        ->assertSuccessful()
+        ->assertJsonPath('data.duplicate_count', 1)
+        ->assertJsonPath('data.first_sequence', 1)
+        ->assertJsonPath('data.last_sequence', 1);
+
+    $this->withHeaders($headers)
+        ->postJson($url, eventReportBody('a new terminal event'))
+        ->assertStatus(409);
+
+    expect(DeploymentEvent::query()->count())->toBe(1);
+});
+
+test('an identical log retry is acknowledged after the command fails', function (): void {
+    $context = reportContext();
+    $url = "/api/agent/v1/commands/{$context['command']->id}/logs";
+    $headers = [...reportHeaders($context['agent'], $context['token']), 'Idempotency-Key' => 'terminal-log'];
+    $body = logReportBody();
+
+    $this->withHeaders($headers)->postJson($url, $body)->assertSuccessful();
+
+    $context['command']->update([
+        'status' => AgentCommandStatus::Failed,
+        'failed_at' => now(),
+    ]);
+
+    $this->withHeaders($headers)
+        ->postJson($url, $body)
+        ->assertSuccessful()
+        ->assertJsonPath('data.duplicate_count', 1)
+        ->assertJsonPath('data.first_sequence', 1)
+        ->assertJsonPath('data.last_sequence', 1);
+
+    $this->withHeaders($headers)
+        ->postJson($url, logReportBody('a new terminal log'))
+        ->assertStatus(409);
+
+    expect(DeploymentLog::query()->count())->toBe(1);
+});
+
+test('log length uses UTF-8 byte length and cumulative command budget', function (): void {
+    config(['sakala.pilot_limits.log_bounds.max_line_length' => 4]);
+    $context = reportContext([
+        'payload' => [
+            'log_bounds' => [
+                'max_line_length' => 100,
+                'max_batch_lines' => 500,
+                'max_total_bytes' => 10,
+            ],
+        ],
+    ]);
+    $headers = reportHeaders($context['agent'], $context['token']);
+    $url = "/api/agent/v1/commands/{$context['command']->id}/logs";
+
+    $this->withHeaders($headers)
+        ->postJson($url, logReportBody('ééé'))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['logs.0.message']);
+
+    config(['sakala.pilot_limits.log_bounds.max_line_length' => 4096]);
+
+    $this->withHeaders($headers)
+        ->postJson($url, logReportBody('123456'))
+        ->assertSuccessful();
+
+    $this->withHeaders($headers)
+        ->postJson($url, logReportBody('12345'))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['logs']);
+
+    $context['command']->refresh();
+
+    expect($context['command']->reported_log_bytes)->toBe(6)
+        ->and(DeploymentLog::query()->count())->toBe(1);
+});
+
+test('wrong agent cannot replay another agent report after command termination', function (): void {
+    $context = reportContext();
+    $url = "/api/agent/v1/commands/{$context['command']->id}/events";
+    $headers = [...reportHeaders($context['agent'], $context['token']), 'Idempotency-Key' => 'private-replay'];
+    $body = eventReportBody();
+
+    $this->withHeaders($headers)->postJson($url, $body)->assertSuccessful();
+    $context['command']->update(['status' => AgentCommandStatus::Succeeded, 'completed_at' => now()]);
+
+    $otherToken = 'other-replay-agent-token';
+    $otherAgent = AgentNode::factory()->create([
+        'auth_status' => AgentAuthStatus::Active,
+        'token_hash' => hash_hmac('sha256', $otherToken, (string) config('app.key')),
+    ]);
+
+    $this->withHeaders([
+        ...reportHeaders($otherAgent, $otherToken),
+        'Idempotency-Key' => 'private-replay',
+    ])->postJson($url, $body)->assertStatus(409);
 });
 
 test('report endpoints require agent authentication', function (): void {

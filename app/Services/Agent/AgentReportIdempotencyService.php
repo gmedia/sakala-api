@@ -8,22 +8,20 @@ use JsonException;
 
 final class AgentReportIdempotencyService
 {
-    /**
-     * @param  array<string, mixed>  $payload
-     *
-     * @throws JsonException
-     */
     public function key(
         ?string $requestKey,
         string $reportType,
         int $itemIndex,
-        array $payload,
-    ): string {
-        $source = $requestKey === null
-            ? $reportType.'|'.$itemIndex.'|'.$this->payloadHash($payload)
-            : $requestKey.'|'.$reportType.'|'.$itemIndex;
+    ): ?string {
+        if ($requestKey === null) {
+            return null;
+        }
 
-        return hash('sha256', $source);
+        return hash_hmac(
+            'sha256',
+            $requestKey.'|'.$reportType.'|'.$itemIndex,
+            $this->hmacKey(),
+        );
     }
 
     /**
@@ -33,10 +31,19 @@ final class AgentReportIdempotencyService
      */
     public function payloadHash(array $payload): string
     {
-        return hash('sha256', json_encode(
-            $this->canonicalize($payload),
-            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
-        ));
+        return hash_hmac(
+            'sha256',
+            json_encode(
+                $this->canonicalize($payload),
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+            ),
+            $this->hmacKey(),
+        );
+    }
+
+    private function hmacKey(): string
+    {
+        return (string) config('app.key');
     }
 
     private function canonicalize(mixed $value): mixed

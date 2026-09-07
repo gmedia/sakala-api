@@ -42,7 +42,7 @@ final class ReportDeploymentLogAction
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $this->assertReportable($agent, $command);
+            $this->assertOwnership($agent, $command);
 
             /** @var Deployment $deployment */
             $deployment = Deployment::query()
@@ -54,37 +54,50 @@ final class ReportDeploymentLogAction
                 throw new CommandConflictException($command);
             }
 
-            $bounds = $this->bounds->resolve($command);
-            $this->assertWithinBounds($data, $bounds->max_batch_lines, $bounds->max_line_length, $bounds->max_total_bytes);
-
             $prepared = [];
             $keys = [];
 
             foreach ($data->items as $index => $item) {
-                $payload = $this->payload($item);
-                $key = $this->idempotency->key($data->idempotencyKey, 'log', $index, $payload);
+                $rawPayload = $this->rawPayload($item);
+                $key = $this->idempotency->key($data->idempotencyKey, 'log', $index);
 
-                $prepared[] = [$item, $payload, $key];
-                $keys[] = $key;
+                $prepared[] = [
+                    'item' => $item,
+                    'raw' => $rawPayload,
+                    'stored' => $this->storedPayload($rawPayload),
+                    'key' => $key,
+                ];
+
+                if ($key !== null) {
+                    $keys[] = $key;
+                }
             }
 
             /** @var array<string, DeploymentLog> $existing */
-            $existing = $command->logs()
-                ->whereIn('idempotency_key', $keys)
-                ->get()
-                ->keyBy('idempotency_key')
-                ->all();
+            $existing = $keys === []
+                ? []
+                : $command->logs()
+                    ->whereIn('idempotency_key', $keys)
+                    ->get()
+                    ->keyBy('idempotency_key')
+                    ->all();
 
-            $nextSequence = (int) $deployment->logs()->max('sequence') + 1;
             $duplicateCount = 0;
             $sequences = [];
+            $newReports = [];
+            $newBytes = 0;
 
-            foreach ($prepared as [$item, $payload, $key]) {
+            foreach ($prepared as $report) {
                 /** @var DeploymentLogReportItemData $item */
-                /** @var array<string, mixed> $payload */
-                /** @var string $key */
-                $payloadHash = $this->idempotency->payloadHash($payload);
-                $duplicate = $existing[$key] ?? null;
+                $item = $report['item'];
+                /** @var array<string, mixed> $rawPayload */
+                $rawPayload = $report['raw'];
+                /** @var array<string, mixed> $storedPayload */
+                $storedPayload = $report['stored'];
+                /** @var string|null $key */
+                $key = $report['key'];
+                $payloadHash = $key === null ? null : $this->idempotency->payloadHash($rawPayload);
+                $duplicate = $key === null ? null : ($existing[$key] ?? null);
 
                 if ($duplicate !== null) {
                     if ($duplicate->payload_hash !== $payloadHash) {
@@ -97,6 +110,32 @@ final class ReportDeploymentLogAction
                     continue;
                 }
 
+                $newReports[] = [$item, $storedPayload, $key, $payloadHash];
+                $newBytes += strlen($item->message);
+            }
+
+            if ($newReports === []) {
+                return $this->acknowledgement($data->items, $duplicateCount, $sequences);
+            }
+
+            $this->assertActive($command);
+
+            $bounds = $this->bounds->resolve($command);
+            $this->assertWithinBounds($data, $bounds->max_batch_lines, $bounds->max_line_length);
+
+            if ($command->reported_log_bytes + $newBytes > $bounds->max_total_bytes) {
+                throw ValidationException::withMessages([
+                    'logs' => ['The cumulative log budget for this command has been exceeded.'],
+                ]);
+            }
+
+            $nextSequence = (int) $deployment->logs()->max('sequence') + 1;
+
+            foreach ($newReports as [$item, $payload, $key, $payloadHash]) {
+                /** @var DeploymentLogReportItemData $item */
+                /** @var array<string, mixed> $payload */
+                /** @var string|null $key */
+                /** @var string|null $payloadHash */
                 $log = $deployment->logs()->create([
                     'agent_command_id' => $command->id,
                     'sequence' => $nextSequence,
@@ -110,31 +149,50 @@ final class ReportDeploymentLogAction
                 $realtimeSequence = $this->allocateRealtimeSequence->handle($deployment);
                 DeploymentLogCreated::dispatch($log, $realtimeSequence);
 
-                $existing[$key] = $log;
+                if ($key !== null) {
+                    $existing[$key] = $log;
+                }
                 $sequences[] = $nextSequence;
                 $nextSequence++;
             }
+
+            $command->increment('reported_log_bytes', $newBytes);
 
             return $this->acknowledgement($data->items, $duplicateCount, $sequences);
         });
     }
 
     /** @return array<string, mixed> */
-    private function payload(DeploymentLogReportItemData $item): array
+    private function rawPayload(DeploymentLogReportItemData $item): array
     {
         return [
             'stream' => $item->stream->value,
-            'message' => $this->redaction->redactString($item->message),
+            'message' => $item->message,
             'recorded_at' => $item->recordedAt->toISOString(),
         ];
     }
 
-    private function assertReportable(AgentNode $agent, AgentCommand $command): void
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function storedPayload(array $payload): array
+    {
+        return [
+            ...$payload,
+            'message' => $this->redaction->redactString((string) $payload['message']),
+        ];
+    }
+
+    private function assertOwnership(AgentNode $agent, AgentCommand $command): void
     {
         if ($command->agent_node_id !== $agent->id || $command->deployment_id === null) {
             throw new CommandConflictException($command);
         }
+    }
 
+    private function assertActive(AgentCommand $command): void
+    {
         if (! in_array($command->status, [
             AgentCommandStatus::Claimed,
             AgentCommandStatus::Running,
@@ -147,7 +205,6 @@ final class ReportDeploymentLogAction
         ReportDeploymentLogData $data,
         int $maxBatchLines,
         int $maxLineLength,
-        int $maxTotalBytes,
     ): void {
         if (count($data->items) > $maxBatchLines) {
             throw ValidationException::withMessages([
@@ -155,14 +212,8 @@ final class ReportDeploymentLogAction
             ]);
         }
 
-        if ($data->requestBytes > $maxTotalBytes) {
-            throw ValidationException::withMessages([
-                'body' => ['The report payload exceeds the command limit.'],
-            ]);
-        }
-
         foreach ($data->items as $index => $item) {
-            if (mb_strlen($item->message) > $maxLineLength) {
+            if (strlen($item->message) > $maxLineLength) {
                 throw ValidationException::withMessages([
                     "logs.{$index}.message" => ['The message exceeds the command limit.'],
                 ]);

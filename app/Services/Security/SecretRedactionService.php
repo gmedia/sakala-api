@@ -26,6 +26,7 @@ final class SecretRedactionService
     private const TOKEN_PREFIXES = [
         'ghp_',
         'gho_',
+        'ghs_',
         'github_pat_',
     ];
 
@@ -67,8 +68,8 @@ final class SecretRedactionService
     }
 
     /**
-     * @param  array<string, mixed>|null  $values
-     * @return array<string, mixed>|null
+     * @param  array<array-key, mixed>|null  $values
+     * @return array<array-key, mixed>|null
      */
     public function redactArray(?array $values): ?array
     {
@@ -79,13 +80,31 @@ final class SecretRedactionService
         $redacted = [];
 
         foreach ($values as $key => $value) {
-            $redacted[$key] = match (true) {
-                is_string($value) => $this->redactString($value),
-                is_array($value) => $this->redactArray($value),
-                default => $value,
-            };
+            $redacted[$key] = $this->isSensitiveKey($key)
+                ? self::REDACTED
+                : match (true) {
+                    is_string($value) => $this->redactString($value),
+                    is_array($value) => $this->redactArray($value),
+                    default => $value,
+                };
         }
 
         return $redacted;
+    }
+
+    private function isSensitiveKey(int|string $key): bool
+    {
+        $normalized = strtolower((string) $key);
+        $normalized = preg_replace('/([a-z])([A-Z])/', '$1_$2', (string) $key) ?? $normalized;
+        $normalized = str_replace(['-', ' '], '_', strtolower($normalized));
+
+        if (in_array($normalized, self::SENSITIVE_KEYS, true)) {
+            return true;
+        }
+
+        return preg_match(
+            '/(?:^|_)(?:token|password|secret|api_key|authorization|access_token|refresh_token|client_secret|database_url)$/',
+            $normalized,
+        ) === 1;
     }
 }

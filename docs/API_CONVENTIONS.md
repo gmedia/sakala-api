@@ -29,9 +29,9 @@ Endpoint machine agent berada di `/api/agent/v1` dan memakai `Authorization: Bea
 - `POST /commands/{command}/events` menerima payload event tunggal yang kompatibel dengan agent saat ini, atau batch `{ "events": [...] }`.
 - `POST /commands/{command}/logs` menerima payload log tunggal yang kompatibel dengan agent saat ini, atau batch `{ "logs": [...] }`.
 
-Batch dibatasi oleh `pilot_limits.log_bounds`. Payload yang melewati batas total request ditolak dengan `413`; field protocol yang tidak valid ditolak dengan `422`. Server menetapkan `sequence` secara monotonik per deployment dan tidak menyediakan endpoint update/delete untuk record append-only ini.
+Batch dibatasi oleh `pilot_limits.log_bounds`. `max_request_bytes` membatasi ukuran body setiap request dan ditolak dengan `413`; `max_line_length` dihitung dalam byte; `max_total_bytes` adalah budget kumulatif log untuk satu command. Field protocol yang tidak valid atau budget command yang habis ditolak dengan `422`. Server menetapkan `sequence` secara monotonik per deployment dan tidak menyediakan endpoint update/delete untuk record append-only ini.
 
-Header `Idempotency-Key` bersifat opsional. Bila dikirim, key berlaku untuk command, jenis report, dan index item dalam batch. Retry dengan payload yang sama mengembalikan range sequence yang sama dan menandai item sebagai duplicate; penggunaan key yang sama untuk payload berbeda menghasilkan `409`. Retry payload yang sama tanpa header juga dideduplikasi melalui fingerprint payload.
+Header `Idempotency-Key` bersifat opsional. Tanpa header, setiap request dianggap report baru dan append-only. Bila dikirim, key berlaku untuk command, jenis report, dan index item dalam batch. Retry dengan key dan payload logical yang sama mengembalikan range sequence yang sama dan menandai item sebagai duplicate; penggunaan key yang sama untuk payload logical berbeda menghasilkan `409`. Payload logical untuk idempotency dihitung sebelum redaction, sedangkan payload yang disimpan selalu diredaksi. Replay identik dengan key tetap dapat mengembalikan acknowledgement setelah command terminal; report baru pada command terminal tetap menghasilkan `409`.
 
 Response sukses berbentuk Resource berikut:
 
