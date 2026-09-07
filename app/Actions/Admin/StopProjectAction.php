@@ -8,6 +8,7 @@ use App\Data\Admin\ProjectControlData;
 use App\Data\Admin\ProjectControlResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\DeploymentStatus;
 use App\Enums\RuntimeStatus;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
@@ -119,8 +120,8 @@ final class StopProjectAction
 
             $deployment = Deployment::query()
                 ->where('project_id', $lockedProject->id)
+                ->where('status', DeploymentStatus::Succeeded)
                 ->whereNotNull('agent_node_id')
-                ->active()
                 ->orderByDesc('sequence')
                 ->first();
 

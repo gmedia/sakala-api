@@ -83,7 +83,9 @@ final class TransitionDeploymentAction
 
         $attributes = match ($status) {
             DeploymentStatus::Succeeded => [
-                'runtime_status' => RuntimeStatus::Running,
+                'runtime_status' => $project->status === ProjectStatus::Suspended
+                    ? RuntimeStatus::Stopped
+                    : RuntimeStatus::Running,
                 'last_deployed_at' => now(),
             ],
 

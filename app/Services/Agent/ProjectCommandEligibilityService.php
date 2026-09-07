@@ -21,12 +21,16 @@ final class ProjectCommandEligibilityService
         return $query->where(function (Builder $query): void {
             $query
                 ->whereNull('project_id')
-                ->orWhereHas('project', function (Builder $query): void {
-                    $query->where(function (Builder $query): void {
-                        $query
-                            ->where('status', '!=', ProjectStatus::Suspended)
-                            ->orWhere('status', ProjectStatus::Suspended);
-                    });
+                ->orWhere(function (Builder $query): void {
+                    $query
+                        ->where('type', '!=', AgentCommandType::DeployProject)
+                        ->orWhereHas('project', function (Builder $query): void {
+                            $query->where(
+                                'status',
+                                '!=',
+                                ProjectStatus::Suspended,
+                            );
+                        });
                 });
         });
     }

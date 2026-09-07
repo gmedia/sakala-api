@@ -9,12 +9,10 @@ use App\Models\Project;
 
 final readonly class ProjectControlResultData
 {
-    /**
-     * @param  array<string, mixed>|null  $responseContext
-     */
+    /** @param array<string, mixed> $responseContext */
     public function __construct(
         public Project $project,
-        public AgentCommand $command,
-        public ?array $responseContext = null,
+        public ?AgentCommand $command,
+        public array $responseContext,
     ) {}
 }

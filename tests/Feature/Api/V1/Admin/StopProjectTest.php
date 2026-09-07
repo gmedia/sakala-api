@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeStatus;
+use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Enums\UserRole;
@@ -36,6 +37,7 @@ test('admin can stop a project', function (): void {
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -92,6 +94,7 @@ test('stopping a project creates an audit event', function (): void {
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -198,6 +201,7 @@ test('stopping a project is idempotent with the same idempotency key', function 
     Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $idempotencyKey = (string) Str::uuid();
@@ -316,6 +320,7 @@ test('stopping a project succeeds when the agent is offline', function (): void 
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -361,12 +366,14 @@ test('stopping a project targets the latest active deployment and its owning age
         'project_id' => $project->id,
         'agent_node_id' => $oldAgent->id,
         'sequence' => 1,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $currentDeployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $currentAgent->id,
         'sequence' => 2,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -404,6 +411,7 @@ test('stopping a project rejects when a stop command is already in progress', fu
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     AgentCommand::factory()->create([
@@ -451,6 +459,7 @@ test('stopping a project rejects another stop while a stop command is pending', 
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     AgentCommand::factory()->create([
@@ -496,6 +505,7 @@ test('stopping a project rejects an idempotency key reused with a different reas
     Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $idempotencyKey = (string) Str::uuid();
@@ -550,6 +560,7 @@ test('stopping a project rejects an idempotency key reused by a different actor'
     Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $idempotencyKey = (string) Str::uuid();
@@ -600,6 +611,7 @@ test('stopping a project stores request context separately from runtime payload'
     Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -639,6 +651,7 @@ test('stopping a project replays the original response after the project lifecyc
     Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $idempotencyKey = (string) Str::uuid();
@@ -780,6 +793,7 @@ test('trims a valid idempotency key', function () {
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $this->actingAs($admin, 'web')
@@ -794,4 +808,125 @@ test('trims a valid idempotency key', function () {
             ->where('idempotency_key', 'emergency-stop-1')
             ->exists()
     )->toBeTrue();
+});
+
+test('stops a project using the succeeded deployment as the live target', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 1,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency stop',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+    $response->assertAccepted();
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->where('type', AgentCommandType::StopProject)
+        ->firstOrFail();
+
+    expect($command->deployment_id)->toBe($deployment->id);
+    expect($command->agent_node_id)->toBe($agent->id);
+});
+
+test('targets the live deployment when a newer deployment is still in flight', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $liveDeployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 1,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Queued,
+        'sequence' => 2,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency stop',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+    $response->assertAccepted();
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->where('type', AgentCommandType::StopProject)
+        ->firstOrFail();
+
+    expect($command->deployment_id)->toBe($liveDeployment->id);
+    expect($command->agent_node_id)->toBe($agent->id);
+});
+
+test('targets the succeeded deployment when a newer deployment is still in flight', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $liveDeployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 1,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Queued,
+        'sequence' => 2,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", [
+            'reason' => 'Emergency stop',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+    $response->assertAccepted();
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->where('type', AgentCommandType::StopProject)
+        ->firstOrFail();
+
+    expect($command->deployment_id)
+        ->toBe($liveDeployment->id);
+
+    expect($command->agent_node_id)
+        ->toBe($agent->id);
 });

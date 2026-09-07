@@ -28,11 +28,13 @@ final class ProjectControlResource extends JsonResource
             'project_id' => $this->project->id,
             'status' => $status,
             'runtime_status' => $runtimeStatus,
-            'command' => [
-                'id' => $this->command->id,
-                'type' => $this->command->type,
-                'status' => $this->command->status,
-            ],
+            'command' => $this->command === null
+                ? null
+                : [
+                    'id' => $this->command->id,
+                    'type' => $this->command->type->value,
+                    'status' => $this->command->status->value,
+                ],
         ];
     }
 }

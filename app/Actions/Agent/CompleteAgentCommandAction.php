@@ -6,11 +6,13 @@ namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\DeploymentStatus;
 use App\Enums\RuntimeStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\AuditEvent;
+use App\Models\Deployment;
 use App\Models\Project;
 use Illuminate\Support\Facades\DB;
 
@@ -55,23 +57,42 @@ final class CompleteAgentCommandAction
                 'result' => $result,
             ]);
 
-            if ($command->type === AgentCommandType::StopProject) {
+            if (in_array($command->type, [
+                AgentCommandType::StopProject,
+                AgentCommandType::SleepProject,
+            ], true)) {
                 $project = Project::query()
                     ->lockForUpdate()
                     ->findOrFail($command->project_id);
 
-                $project->update([
-                    'runtime_status' => RuntimeStatus::Stopped,
-                ]);
+                $currentDeployment = Deployment::query()
+                    ->where('project_id', $project->id)
+                    ->where('status', DeploymentStatus::Succeeded)
+                    ->whereNotNull('agent_node_id')
+                    ->orderByDesc('sequence')
+                    ->first();
+
+                $isCurrentWorkload = $command->deployment_id !== null && $currentDeployment?->id === $command->deployment_id;
+
+                if ($isCurrentWorkload) {
+                    $project->update([
+                        'runtime_status' => RuntimeStatus::Stopped,
+                    ]);
+                }
+
+                $action = $command->type === AgentCommandType::StopProject
+                    ? 'project.stop_completed'
+                    : 'project.suspend_completed';
 
                 AuditEvent::create([
                     'actor_type' => AgentNode::class,
                     'actor_id' => $agent->id,
-                    'action' => 'project.stop_completed',
+                    'action' => $action,
                     'subject_type' => Project::class,
                     'subject_id' => $project->id,
                     'metadata' => [
                         'command_id' => $command->id,
+                        'deployment_id' => $command->deployment_id,
                         'result' => $result,
                     ],
                 ]);

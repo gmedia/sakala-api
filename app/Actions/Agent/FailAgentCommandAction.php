@@ -74,15 +74,23 @@ final class FailAgentCommandAction
                 'error_message' => $errorMessage,
             ]);
 
-            if ($command->type === AgentCommandType::StopProject) {
+            if (in_array($command->type, [
+                AgentCommandType::StopProject,
+                AgentCommandType::SleepProject,
+            ], true)) {
+                $action = $command->type === AgentCommandType::StopProject
+                    ? 'project.stop_failed'
+                    : 'project.suspend_failed';
+
                 AuditEvent::create([
                     'actor_type' => AgentNode::class,
                     'actor_id' => $agent->id,
-                    'action' => 'project.stop_failed',
+                    'action' => $action,
                     'subject_type' => Project::class,
                     'subject_id' => $command->project_id,
                     'metadata' => [
                         'command_id' => $command->id,
+                        'deployment_id' => $command->deployment_id,
                         'error_code' => $errorCode,
                         'error_message' => $errorMessage,
                     ],

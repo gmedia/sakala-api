@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
+use App\Enums\AgentCommandType;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use App\Models\Deployment;
+use App\Models\Project;
 use App\Services\Agent\AgentCommandEligibilityService;
 use App\Services\Agent\ProjectCommandEligibilityService;
 use Illuminate\Support\Facades\DB;
@@ -69,6 +72,17 @@ final class ClaimAgentCommandAction
                 throw new CommandConflictException($command->fresh());
             }
 
+            if ($command->type === AgentCommandType::DeployProject && $command->deployment_id !== null) {
+                $deployment = Deployment::query()
+                    ->whereKey($command->deployment_id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $deployment->update([
+                    'agent_node_id' => $node->id,
+                ]);
+            }
+
             return $command->fresh();
         });
     }
@@ -99,7 +113,10 @@ final class ClaimAgentCommandAction
         }
 
         if ($command->project_id !== null) {
-            $project = $command->project()->firstOrFail();
+            $project = Project::query()
+                ->whereKey($command->project_id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             if (! $this->projectEligibility->isEligible(
                 $project,

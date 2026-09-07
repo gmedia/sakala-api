@@ -8,6 +8,7 @@ use App\Data\Admin\ProjectControlData;
 use App\Data\Admin\ProjectControlResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
@@ -117,20 +118,10 @@ final class SuspendProjectAction
 
             $deployment = Deployment::query()
                 ->where('project_id', $lockedProject->id)
+                ->where('status', DeploymentStatus::Succeeded)
                 ->whereNotNull('agent_node_id')
-                ->active()
                 ->orderByDesc('sequence')
                 ->first();
-
-            if (
-                $deployment === null
-                || $deployment->agent_node_id === null
-            ) {
-                abort(
-                    409,
-                    'Project does not have an active deployment target.',
-                );
-            }
 
             $lockedProject->update([
                 'status' => ProjectStatus::Suspended,
@@ -141,32 +132,32 @@ final class SuspendProjectAction
                 'runtime_status' => $lockedProject->runtime_status->value,
             ];
 
-            $command = AgentCommand::create([
-                'project_id' => $lockedProject->id,
-                'deployment_id' => $deployment->id,
-                'agent_node_id' => $deployment->agent_node_id,
-                'type' => AgentCommandType::SleepProject,
-                'status' => AgentCommandStatus::Pending,
+            $command = null;
 
-                // Runtime payload must remain empty.
-                'payload' => [],
+            if ($deployment !== null) {
+                $command = AgentCommand::create([
+                    'project_id' => $lockedProject->id,
+                    'deployment_id' => $deployment->id,
+                    'agent_node_id' => $deployment->agent_node_id,
+                    'type' => AgentCommandType::SleepProject,
+                    'status' => AgentCommandStatus::Pending,
 
-                // Control-plane request identity/context.
-                'request_context' => [
-                    'reason' => $data->reason,
-                    'actor_type' => User::class,
-                    'actor_id' => (string) $user->id,
-                ],
+                    'payload' => [],
 
-                // Snapshot of the response represented by the
-                // original request.
-                'response_context' => $responseContext,
+                    'request_context' => [
+                        'reason' => $data->reason,
+                        'actor_type' => User::class,
+                        'actor_id' => (string) $user->id,
+                    ],
 
-                'idempotency_key' => $data->idempotencyKey
-                    ?? Str::uuid()->toString(),
+                    'response_context' => $responseContext,
 
-                'available_at' => now(),
-            ]);
+                    'idempotency_key' => $data->idempotencyKey
+                        ?? Str::uuid()->toString(),
+
+                    'available_at' => now(),
+                ]);
+            }
 
             AuditEvent::create([
                 'actor_type' => User::class,
@@ -178,9 +169,9 @@ final class SuspendProjectAction
                 'user_agent' => request()->userAgent(),
                 'metadata' => [
                     'reason' => $data->reason,
-                    'command_id' => $command->id,
-                    'deployment_id' => $deployment->id,
-                    'agent_node_id' => $deployment->agent_node_id,
+                    'command_id' => $command?->id,
+                    'deployment_id' => $deployment?->id,
+                    'agent_node_id' => $deployment?->agent_node_id,
                 ],
             ]);
 

@@ -237,3 +237,25 @@ test('invalid deployment transition is rejected without changing state', functio
     expect($deployment->logs()->count())
         ->toBe(0);
 });
+
+test('does not mark a suspended project as running when an in-flight deployment succeeds', function () {
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::HealthChecking,
+    ]);
+
+    app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Succeeded,
+    );
+
+    expect($project->refresh()->status)
+        ->toBe(ProjectStatus::Suspended)
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Stopped);
+});

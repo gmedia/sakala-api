@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeStatus;
+use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Enums\UserRole;
@@ -36,6 +37,7 @@ test('admin can suspend a project', function (): void {
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -106,6 +108,7 @@ test('suspending a project creates an audit event', function (): void {
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -224,6 +227,7 @@ test('suspending a project is idempotent with the same idempotency key', functio
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $idempotencyKey = (string) Str::uuid();
@@ -302,10 +306,10 @@ test('suspending a project rejects an idempotency key reused with a different re
         'status' => ProjectStatus::Active,
         'runtime_status' => RuntimeStatus::Running,
     ]);
-
     Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $idempotencyKey = (string) Str::uuid();
@@ -362,10 +366,10 @@ test('suspending a project rejects an idempotency key reused by a different acto
         'status' => ProjectStatus::Active,
         'runtime_status' => RuntimeStatus::Running,
     ]);
-
     Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $idempotencyKey = (string) Str::uuid();
@@ -484,6 +488,7 @@ test('suspending a project succeeds when the agent is offline', function (): voi
     $deployment = Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $response = $this->actingAs($admin, 'web')
@@ -537,10 +542,10 @@ test('suspending a project replays the original response after the project lifec
         'status' => ProjectStatus::Active,
         'runtime_status' => RuntimeStatus::Running,
     ]);
-
     Deployment::factory()->create([
         'project_id' => $project->id,
         'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
     ]);
 
     $idempotencyKey = (string) Str::uuid();
@@ -624,4 +629,114 @@ test('suspending a project replays the original response after the project lifec
             ->where('idempotency_key', $idempotencyKey)
             ->count(),
     )->toBe(1);
+});
+
+test('suspends a project using the succeeded deployment as the live target', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 1,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/suspend", [
+            'reason' => 'Administrative suspension',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+    $response->assertAccepted();
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->where('type', AgentCommandType::SleepProject)
+        ->firstOrFail();
+
+    expect($command->deployment_id)->toBe($deployment->id);
+    expect($command->agent_node_id)->toBe($agent->id);
+});
+
+test('targets the live deployment when a newer deployment is still in flight', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $liveDeployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 1,
+    ]);
+
+    $candidateDeployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Queued,
+        'sequence' => 2,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/suspend", [
+            'reason' => 'Administrative suspension',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+    $response->assertAccepted();
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->where('type', AgentCommandType::SleepProject)
+        ->firstOrFail();
+
+    expect($command->deployment_id)
+        ->toBe($liveDeployment->id)
+        ->not->toBe($candidateDeployment->id);
+
+    expect($command->agent_node_id)
+        ->toBe($agent->id);
+});
+
+test('suspends a project without a live deployment target', function () {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Stopped,
+    ]);
+
+    $response = $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/suspend", [
+            'reason' => 'Administrative suspension',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+    $response->assertAccepted();
+
+    expect($project->refresh()->status)
+        ->toBe(ProjectStatus::Suspended);
+
+    expect(
+        AgentCommand::query()
+            ->where('project_id', $project->id)
+            ->where('type', AgentCommandType::SleepProject)
+            ->exists(),
+    )->toBeFalse();
 });
