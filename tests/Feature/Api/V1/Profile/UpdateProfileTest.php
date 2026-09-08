@@ -15,15 +15,15 @@ test('authenticated user can update their name', function () {
     $response = $this
         ->actingAs($user, 'web')
         ->patchJson('/api/v1/app/profile', [
-            'name' => 'Benjamin Netanyahu',
+            'name' => 'Sakala User',
         ]);
 
     $response
         ->assertSuccessful()
-        ->assertJsonPath('data.name', 'Benjamin Netanyahu');
+        ->assertJsonPath('data.name', 'Sakala User');
 
     expect($user->refresh()->name)
-        ->toBe('Benjamin Netanyahu');
+        ->toBe('Sakala User');
 });
 
 test('authenticated user can update their username', function () {
