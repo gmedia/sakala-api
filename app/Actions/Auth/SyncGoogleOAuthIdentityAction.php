@@ -11,10 +11,15 @@ use App\Enums\UserRole;
 use App\Exceptions\Auth\GoogleOAuthIdentityException;
 use App\Models\OAuthAccount;
 use App\Models\User;
+use App\Support\User\UsernameGenerator;
 use Illuminate\Support\Facades\DB;
 
 final class SyncGoogleOAuthIdentityAction
 {
+    public function __construct(
+        private UsernameGenerator $usernameGenerator,
+    ) {}
+
     public function handle(GoogleOAuthIdentityData $identity): User
     {
         return DB::transaction(function () use ($identity): User {
@@ -48,6 +53,7 @@ final class SyncGoogleOAuthIdentityAction
             $user = User::query()->create([
                 'name' => $identity->name,
                 'email' => $identity->email,
+                'username' => $this->usernameGenerator->generate($identity->providerUsername ?? $identity->name),
                 'role' => UserRole::User,
                 'avatar_url' => $identity->avatarUrl,
                 'last_login_at' => now(),

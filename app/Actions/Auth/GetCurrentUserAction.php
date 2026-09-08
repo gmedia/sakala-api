@@ -14,6 +14,7 @@ final class GetCurrentUserAction
         return new CurrentUserData(
             id: $user->id,
             name: $user->name,
+            username: $user->username,
             email: $user->email,
             avatarUrl: $user->avatar_url,
             role: $user->role,

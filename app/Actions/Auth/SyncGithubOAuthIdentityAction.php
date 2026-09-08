@@ -11,10 +11,15 @@ use App\Enums\UserRole;
 use App\Exceptions\Auth\GithubOAuthIdentityException;
 use App\Models\OAuthAccount;
 use App\Models\User;
+use App\Support\User\UsernameGenerator;
 use Illuminate\Support\Facades\DB;
 
 final class SyncGithubOAuthIdentityAction
 {
+    public function __construct(
+        private UsernameGenerator $usernameGenerator,
+    ) {}
+
     public function handle(GithubOAuthIdentityData $identity): User
     {
         return DB::transaction(function () use ($identity): User {
@@ -53,6 +58,7 @@ final class SyncGithubOAuthIdentityAction
             $user = User::query()->create([
                 'name' => $identity->name,
                 'email' => $identity->email,
+                'username' => $this->usernameGenerator->generate($identity->providerUsername ?? $identity->name),
                 'role' => UserRole::User,
                 'avatar_url' => $identity->avatarUrl,
                 'last_login_at' => now(),

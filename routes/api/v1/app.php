@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
 use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
 use App\Http\Controllers\Api\V1\GitHub\GithubInstallationController;
 use App\Http\Controllers\Api\V1\GitHub\GithubRepositoryController;
+use App\Http\Controllers\Api\V1\Profile\ProfileController;
 use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
@@ -29,6 +30,7 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
 
     // Project routes
     Route::apiResource('projects', ProjectController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+
     // Environment variable routes
     Route::scopeBindings()->group(function (): void {
         Route::get(
@@ -74,4 +76,8 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
                 Route::get('/logs', [DeploymentController::class, 'logs']);
             });
     });
+
+    // Profile routes
+    Route::patch('/profile', [ProfileController::class, 'update'])
+        ->name('api.v1.app.profile.update');
 });
