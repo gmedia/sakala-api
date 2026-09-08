@@ -10,23 +10,30 @@ use App\Actions\Agent\FailAgentCommandAction;
 use App\Actions\Agent\HeartbeatAgentAction;
 use App\Actions\Agent\PollAgentCommandsAction;
 use App\Actions\Agent\ProvisionAgentAction;
+use App\Actions\Agent\ReportDeploymentEventAction;
+use App\Actions\Agent\ReportDeploymentLogAction;
 use App\Actions\Agent\RevokeAgentAction;
 use App\Actions\Agent\RotateAgentTokenAction;
 use App\Enums\AgentCommandStatus;
 use App\Exceptions\Agent\CommandConflictException;
+use App\Exceptions\Agent\ReportIdempotencyConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Agent\AgentHeartbeatRequest;
 use App\Http\Requests\Api\V1\Agent\ClaimAgentCommandRequest;
 use App\Http\Requests\Api\V1\Agent\CompleteAgentCommandRequest;
 use App\Http\Requests\Api\V1\Agent\FailAgentCommandRequest;
+use App\Http\Requests\Api\V1\Agent\ReportDeploymentEventRequest;
+use App\Http\Requests\Api\V1\Agent\ReportDeploymentLogRequest;
 use App\Http\Requests\Api\V1\Agent\RevokeAgentRequest;
 use App\Http\Requests\Api\V1\Agent\RotateAgentTokenRequest;
 use App\Http\Requests\Api\V1\Agent\StoreAgentRequest;
 use App\Http\Resources\Api\V1\Agent\AgentCommandResource;
 use App\Http\Resources\Api\V1\Agent\AgentHeartbeatResource;
+use App\Http\Resources\Api\V1\Agent\AgentReportAcknowledgementResource;
 use App\Http\Resources\Api\V1\Agent\AgentResource;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use Dedoc\Scramble\Attributes\HeaderParameter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
@@ -217,6 +224,74 @@ final class AgentController extends Controller
         }
 
         return response()->noContent();
+    }
+
+    /**
+     * Append deployment events reported by the claiming agent.
+     *
+     * @scramble-return AgentReportAcknowledgementResource
+     */
+    #[HeaderParameter(
+        'Idempotency-Key',
+        description: 'Optional key used to safely retry an event report.',
+        type: 'string',
+        example: 'event-report-2026-09-07T10:00:00Z',
+    )]
+    public function reportEvents(
+        ReportDeploymentEventRequest $request,
+        ReportDeploymentEventAction $reportDeploymentEvent,
+        string $command,
+    ): AgentReportAcknowledgementResource|JsonResponse {
+        /** @var AgentNode $agent */
+        $agent = $request->input('agent');
+
+        try {
+            $acknowledgement = $reportDeploymentEvent->handle(
+                agent: $agent,
+                commandId: $command,
+                data: $request->toData(),
+            );
+        } catch (CommandConflictException $e) {
+            return $this->commandConflict($e->command());
+        } catch (ReportIdempotencyConflictException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return AgentReportAcknowledgementResource::make($acknowledgement);
+    }
+
+    /**
+     * Append deployment logs reported by the claiming agent.
+     *
+     * @scramble-return AgentReportAcknowledgementResource
+     */
+    #[HeaderParameter(
+        'Idempotency-Key',
+        description: 'Optional key used to safely retry a log report.',
+        type: 'string',
+        example: 'log-report-2026-09-07T10:00:00Z',
+    )]
+    public function reportLogs(
+        ReportDeploymentLogRequest $request,
+        ReportDeploymentLogAction $reportDeploymentLog,
+        string $command,
+    ): AgentReportAcknowledgementResource|JsonResponse {
+        /** @var AgentNode $agent */
+        $agent = $request->input('agent');
+
+        try {
+            $acknowledgement = $reportDeploymentLog->handle(
+                agent: $agent,
+                commandId: $command,
+                data: $request->toData(),
+            );
+        } catch (CommandConflictException $e) {
+            return $this->commandConflict($e->command());
+        } catch (ReportIdempotencyConflictException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return AgentReportAcknowledgementResource::make($acknowledgement);
     }
 
     /**

@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property array<string, mixed>|null $response_context
  * @property array<string, mixed>|null $result
  * @property int $attempts
+ * @property int $reported_log_bytes
  * @property CarbonImmutable $available_at
  * @property CarbonImmutable|null $claimed_at
  * @property CarbonImmutable|null $started_at
@@ -45,6 +46,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'result',
     'idempotency_key',
     'attempts',
+    'reported_log_bytes',
     'error_code',
     'error_message',
     'available_at',
@@ -106,6 +108,7 @@ class AgentCommand extends Model
             'response_context' => 'array',
             'result' => 'array',
             'attempts' => 'integer',
+            'reported_log_bytes' => 'integer',
             'available_at' => 'immutable_datetime',
             'claimed_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',

@@ -45,6 +45,7 @@ Index dibuat dari query path yang sudah diketahui:
 - polling command: `(status, available_at, created_at)`;
 - polling node tertentu: `(agent_node_id, status, available_at)`;
 - timeline/log: `(deployment_id, occurred_at|recorded_at)`;
+- report retry: unique `(agent_command_id, idempotency_key)` pada event dan log;
 - audit actor/subject: `(type, id, created_at)`.
 
 Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write dan storage. Query baru yang penting harus divalidasi dengan `EXPLAIN (ANALYZE, BUFFERS)` pada PostgreSQL sebelum menambah index.
@@ -55,14 +56,14 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 - `agent_commands.idempotency_key` mencegah command ganda akibat retry HTTP/job.
 - Claim command harus atomic. Implementasi PostgreSQL dapat memakai transaction dengan `FOR UPDATE SKIP LOCKED` pada query polling. Claim wajib memvalidasi ulang eligibility node (status operasional dan capability) di dalam transaction, karena state node bisa berubah antara poll dan claim.
 - Policy eligibility command (node status, capability, ownership) didefinisikan satu kali di `AgentCommandEligibilityService` dan dipakai bersama oleh poll dan claim agar aturan keduanya tidak drift.
-- Sequence event/log unik per deployment. Action penerima report harus mengalokasikan atau memvalidasi sequence secara atomic agar retry memakai sequence yang sama dan tidak menggandakan baris.
+- Sequence event/log unik per deployment. Action penerima report mengunci command dan deployment dalam transaction, lalu mengalokasikan sequence secara atomic. Setiap item dengan `Idempotency-Key` menyimpan HMAC `payload_hash` dari payload logical sebelum redaction; unique `(agent_command_id, idempotency_key)` membuat retry memakai sequence yang sama dan mencegah baris ganda. Request tanpa key sengaja tidak menyimpan idempotency key sehingga tetap append-only. `agent_commands.reported_log_bytes` menyimpan counter budget log kumulatif dan hanya ditambah di transaction setelah command di-lock.
 - Status transition tidak boleh dilakukan langsung dari controller; gunakan Action yang memvalidasi state saat ini.
 
 ## Secret dan Retention
 
 Kolom token OAuth dan environment value memakai encrypted cast Laravel bila memang digunakan. Flow login GitHub App menyimpan user access token dan refresh token terenkripsi pada `oauth_accounts`; token tersebut hanya dipakai untuk memverifikasi akses user ke installation/repository. Installation token pendek untuk operasi service disimpan sementara di cache dalam bentuk terenkripsi dan tidak masuk database. Agent bearer token tidak disimpan; database hanya menyimpan SHA-256/HMAC hash dan prefix untuk identifikasi. Model menyembunyikan seluruh nilai sensitif dari serialization.
 
-Log/event disimpan di database untuk MVP. Sebelum volume produksi meningkat, tentukan retention policy dan evaluasi partitioning PostgreSQL atau object storage. Jangan membuat pencarian tanpa batas atas; endpoint timeline/log harus memakai cursor pagination dan urutan sequence.
+Log/event disimpan di database untuk MVP. Record report bersifat append-only (`updated_at` tidak ada); tidak ada endpoint update/delete. Agent melakukan redaction sebelum pengiriman dan API mengulang redaction pada message serta metadata sebagai defense-in-depth sebelum persistensi dan broadcast. Sebelum volume produksi meningkat, tentukan retention policy dan evaluasi partitioning PostgreSQL atau object storage. Jangan membuat pencarian tanpa batas atas; endpoint timeline/log harus memakai cursor pagination dan urutan sequence.
 
 ## Data Lokal
 
