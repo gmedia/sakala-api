@@ -111,3 +111,52 @@ Idempotency key yang sama untuk request dengan identity yang sama diperlakukan s
 Idempotency key yang sama tidak boleh digunakan kembali untuk request dengan identity berbeda. Jika key sudah digunakan untuk project, action, actor, atau reason yang berbeda, request ditolak dengan `409 Conflict`.
 
 `ProjectControlRequest` menjadi durable record untuk idempotency project control. Agent command hanya dibuat ketika operasi membutuhkan pekerjaan runtime; karena itu, `Suspend` tanpa live workload tetap memiliki record idempotency meskipun tidak menghasilkan Agent command.
+
+## Profile Contract
+
+### Update Profile
+
+`PATCH /api/v1/app/profile`
+
+Authentication menggunakan authenticated session (`web` guard). Profile target selalu berasal dari authenticated user, sehingga user tidak dapat menentukan user/profile lain sebagai target update.
+
+Request bersifat partial. Field yang dapat dikirim:
+
+| Field      | Type   | Constraints                             |
+| ---------- | ------ | --------------------------------------- |
+| `name`     | string | Maks. 255 karakter                      |
+| `username` | string | Unique, format valid, maks. 50 karakter |
+| `avatar`   | file   | PNG, JPG, JPEG, WebP, maks. 1 MB        |
+
+Satu atau beberapa field dapat diperbarui dalam satu request.
+
+`email` tidak termasuk field yang dapat diperbarui melalui endpoint ini.
+
+### Avatar Storage Contract
+
+Avatar disimpan menggunakan configured filesystem melalui logical disk `avatars`.
+
+Database menyimpan **object key** pada:
+
+```text
+users.avatar_path
+```
+
+Contoh:
+
+```text
+avatars/<generated-filename>.jpg
+```
+
+Database tidak menyimpan public URL sebagai source of truth.
+
+`avatar_url` pada response dihasilkan oleh `AvatarUrlResolver` berdasarkan `avatar_path`. Jika `avatar_path` tidak tersedia, resolver menggunakan `avatar_url` lama sebagai fallback untuk identity yang berasal dari OAuth.
+
+Ketika avatar diganti:
+
+1. Avatar baru disimpan terlebih dahulu.
+2. `avatar_path` user diperbarui setelah penyimpanan berhasil.
+3. Setelah database update berhasil, avatar lama dihapus.
+4. Jika database update gagal setelah avatar baru tersimpan, avatar baru dibersihkan.
+
+Update `name` atau `username` tanpa mengirim avatar tidak akan memengaruhi avatar yang sudah tersimpan.
