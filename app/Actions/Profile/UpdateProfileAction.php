@@ -75,7 +75,7 @@ final class UpdateProfileAction
             throw $th;
         }
 
-        if ($oldAvatarPath !== null && $oldAvatarPath !== $newAvatarPath) {
+        if ($oldAvatarPath !== null && $newAvatarPath !== null && $oldAvatarPath !== $newAvatarPath) {
             try {
                 if (! Storage::disk('avatars')->delete($oldAvatarPath)) {
                     Log::warning('Failed to delete old avatar. ', [

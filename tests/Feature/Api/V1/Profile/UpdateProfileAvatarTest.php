@@ -256,3 +256,34 @@ test('uses the latest avatar path when updating from a stale user snapshot', fun
     Storage::disk('avatars')
         ->assertExists($secondAvatarPath);
 });
+
+test('keeps existing avatar when updating profile without avatar', function () {
+    Storage::fake('avatars');
+
+    $user = User::factory()->create([
+        'avatar_path' => 'avatars/existing-avatar.jpg',
+    ]);
+
+    Storage::disk('avatars')->put(
+        'avatars/existing-avatar.jpg',
+        'avatar',
+    );
+
+    $response = $this
+        ->actingAs($user)
+        ->patchJson('/api/v1/app/profile', [
+            'name' => 'Updated Name',
+        ]);
+
+    $response
+        ->assertSuccessful()
+        ->assertJsonPath('data.avatar_path', null);
+
+    $user->refresh();
+
+    expect($user->avatar_path)
+        ->toBe('avatars/existing-avatar.jpg');
+
+    Storage::disk('avatars')
+        ->assertExists('avatars/existing-avatar.jpg');
+});
