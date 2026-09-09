@@ -102,3 +102,27 @@ repository dari installation. OAuth saat installation harus dimatikan karena
 Sakala memulai user-to-server OAuth sendiri melalui
 `GET /auth/github/redirect`; bila dinyalakan GitHub mengarahkan flow tersebut
 ke OAuth callback, bukan Setup URL.
+## RustFS Setup
+
+The development environment uses RustFS as an S3-compatible object storage backend.
+
+### Environment
+
+```env
+AWS_BUCKET=sakala
+AWS_ENDPOINT=http://rustfs:9000
+AWS_USE_PATH_STYLE_ENDPOINT=true
+AWS_URL=http://localhost:9000/sakala
+```
+
+`AWS_ENDPOINT` is the internal endpoint used by the application container to communicate with RustFS through the Docker network.
+
+`AWS_URL` is the public base URL used when generating object URLs consumed by the browser or host environment.
+
+With this configuration, avatar objects use the following URL format:
+
+```text
+http://localhost:9000/sakala/avatars/<object-key>
+```
+
+The `s3` and `avatars` filesystem disks share the same S3-compatible provider configuration. The `avatars` disk remains a logical domain-specific filesystem boundary, allowing avatar-specific configuration to be added independently when needed.

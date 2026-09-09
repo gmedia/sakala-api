@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\OAuthProvider;
 use App\Models\OAuthAccount;
 use App\Models\User;
+use App\Support\User\UsernameGenerator;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\InvalidStateException;
@@ -238,4 +239,82 @@ test('Google callback hides unexpected provider failures', function (): void {
         ->assertRedirect('http://app.sakala.localhost:5173/login?error=google_provider_failure');
 
     $this->assertGuest('web');
+});
+
+test('Google callback retries with another username when generated username collides', function (): void {
+    User::factory()->create([
+        'username' => 'sakala-builder',
+    ]);
+
+    Socialite::fake('google', fakeGoogleUser([
+        'name' => 'sakala-builder',
+        'email' => 'builder@example.test',
+    ]));
+
+    $this->get(route('auth.google.callback'))
+        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+
+    $user = User::query()
+        ->where('email', 'builder@example.test')
+        ->sole();
+
+    expect($user->username)->toBe('sakala-builder-2');
+
+    expect(User::query()->count())->toBe(2)
+        ->and(OAuthAccount::query()->count())->toBe(1);
+});
+
+test('Google callback retries user creation after a username collision', function (): void {
+    Socialite::fake('google', fakeGoogleUser([
+        'name' => 'sakala-builder',
+        'email' => 'builder@example.test',
+    ]));
+
+    $generator = Mockery::mock(UsernameGenerator::class);
+
+    $generator->shouldReceive('generate')
+        ->once()
+        ->with('sakala-builder')
+        ->andReturn('sakala-builder');
+
+    $generator->shouldReceive('generateAfterCollision')
+        ->once()
+        ->with('sakala-builder', 1)
+        ->andReturn('sakala-builder-2');
+
+    $this->app->instance(UsernameGenerator::class, $generator);
+
+    User::factory()->create([
+        'username' => 'sakala-builder',
+    ]);
+
+    $this->get(route('auth.google.callback'))
+        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+
+    $user = User::query()
+        ->where('email', 'builder@example.test')
+        ->sole();
+
+    expect($user->username)->toBe('sakala-builder-2')
+        ->and(User::query()->count())->toBe(2)
+        ->and(OAuthAccount::query()->count())->toBe(1);
+});
+
+test('Google callback does not retry when email already exists', function (): void {
+    User::factory()->create([
+        'email' => 'builder@example.test',
+        'username' => 'existing-user',
+    ]);
+
+    Socialite::fake('google', fakeGoogleUser([
+        'email' => 'builder@example.test',
+    ]));
+
+    $this->get(route('auth.google.callback'))
+        ->assertRedirect(
+            'http://app.sakala.localhost:5173/login?error=google_email_conflict'
+        );
+
+    expect(User::query()->count())->toBe(1)
+        ->and(OAuthAccount::query()->count())->toBe(0);
 });

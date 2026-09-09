@@ -13,6 +13,7 @@ final readonly class CurrentUserData
     public function __construct(
         public int $id,
         public string $name,
+        public string $username,
         public string $email,
         public ?string $avatarUrl,
         public UserRole $role,

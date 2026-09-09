@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\OAuthAccount;
 use App\Models\User;
 use App\Services\GitHub\GithubAppOAuthService;
+use App\Support\User\UsernameGenerator;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -183,4 +184,86 @@ test('a stale OAuth account instance uses the token refreshed by another request
 
     expect($token)->toBe('refreshed-by-other-request');
     Http::assertNothingSent();
+});
+
+test('GitHub App callback retries with another username when generated username collides', function (): void {
+    User::factory()->create([
+        'username' => 'sakala-builder',
+    ]);
+
+    fakeGithubAppIdentity();
+
+    $this->withSession(['github_app_oauth_state' => 'state'])
+        ->get(route('auth.github.callback', [
+            'code' => 'oauth-code',
+            'state' => 'state',
+        ]))
+        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+
+    $user = User::query()
+        ->where('email', 'builder@example.test')
+        ->sole();
+
+    expect($user->username)->toBe('sakala-builder-2');
+
+    expect(User::query()->count())->toBe(2)
+        ->and(OAuthAccount::query()->count())->toBe(1);
+});
+
+test('GitHub App callback retries user creation after a username collision', function (): void {
+    fakeGithubAppIdentity();
+
+    $generator = Mockery::mock(UsernameGenerator::class);
+
+    $generator->shouldReceive('generate')
+        ->once()
+        ->with('sakala-builder')
+        ->andReturn('sakala-builder');
+
+    $generator->shouldReceive('generateAfterCollision')
+        ->once()
+        ->with('sakala-builder', 1)
+        ->andReturn('sakala-builder-2');
+
+    $this->app->instance(UsernameGenerator::class, $generator);
+
+    User::factory()->create([
+        'username' => 'sakala-builder',
+    ]);
+
+    $this->withSession(['github_app_oauth_state' => 'state'])
+        ->get(route('auth.github.callback', [
+            'code' => 'oauth-code',
+            'state' => 'state',
+        ]))
+        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+
+    $user = User::query()
+        ->where('email', 'builder@example.test')
+        ->sole();
+
+    expect($user->username)->toBe('sakala-builder-2')
+        ->and(User::query()->count())->toBe(2)
+        ->and(OAuthAccount::query()->count())->toBe(1);
+});
+
+test('GitHub App callback does not retry when email already exists', function (): void {
+    User::factory()->create([
+        'email' => 'builder@example.test',
+        'username' => 'existing-user',
+    ]);
+
+    fakeGithubAppIdentity();
+
+    $this->withSession(['github_app_oauth_state' => 'state'])
+        ->get(route('auth.github.callback', [
+            'code' => 'oauth-code',
+            'state' => 'state',
+        ]))
+        ->assertRedirect(
+            'http://app.sakala.localhost:5173/login?error=github_email_conflict'
+        );
+
+    expect(User::query()->count())->toBe(1)
+        ->and(OAuthAccount::query()->count())->toBe(0);
 });
