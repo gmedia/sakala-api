@@ -35,6 +35,7 @@ class UserFactory extends Factory
             'password' => static::$password ??= Hash::make('password'),
             'role' => UserRole::User,
             'avatar_url' => null,
+            'avatar_path' => null,
             'onboarding_source' => null,
             'onboarding_completed_at' => null,
             'last_login_at' => null,

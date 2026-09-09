@@ -11,65 +11,109 @@ use App\Enums\UserRole;
 use App\Exceptions\Auth\GoogleOAuthIdentityException;
 use App\Models\OAuthAccount;
 use App\Models\User;
-use App\Support\User\UsernameGenerator;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 final class SyncGoogleOAuthIdentityAction
 {
+    private const MAX_USERNAME_ATTEMPTS = 10;
+
+    private function isUsernameCollision(
+        UniqueConstraintViolationException $exception,
+    ): bool {
+        $message = strtolower($exception->getMessage());
+
+        return str_contains($message, 'users_username_unique')
+            || str_contains($message, 'users.username');
+    }
+
     public function __construct(
-        private UsernameGenerator $usernameGenerator,
+        private CreateUserWithUniqueUsernameAction $createUserWithUniqueUsernameAction,
     ) {}
 
     public function handle(GoogleOAuthIdentityData $identity): User
     {
-        return DB::transaction(function () use ($identity): User {
-            $account = OAuthAccount::query()
-                ->where('provider', OAuthProvider::Google)
-                ->where('provider_user_id', $identity->providerUserId)
-                ->lockForUpdate()
-                ->first();
+        $usernameSource = $identity->providerUsername ?? $identity->name;
 
-            if ($account instanceof OAuthAccount) {
-                $account->update([
-                    'provider_username' => $identity->providerUsername,
-                    'avatar_url' => $identity->avatarUrl,
-                ]);
+        for ($attempt = 0; $attempt <= self::MAX_USERNAME_ATTEMPTS; $attempt++) {
+            try {
+                return DB::transaction(function () use (
+                    $identity,
+                    $usernameSource,
+                    $attempt,
+                ): User {
+                    $account = OAuthAccount::query()
+                        ->where('provider', OAuthProvider::Google)
+                        ->where('provider_user_id', $identity->providerUserId)
+                        ->lockForUpdate()
+                        ->first();
 
-                $user = User::query()->lockForUpdate()->findOrFail($account->user_id);
-                $user->update(['last_login_at' => now()]);
+                    if ($account instanceof OAuthAccount) {
+                        $account->update([
+                            'provider_username' => $identity->providerUsername,
+                            'avatar_url' => $identity->avatarUrl,
+                        ]);
 
-                return $user;
+                        $user = User::query()
+                            ->lockForUpdate()
+                            ->findOrFail($account->user_id);
+
+                        $user->update([
+                            'last_login_at' => now(),
+                        ]);
+
+                        return $user;
+                    }
+
+                    $emailAlreadyExists = User::query()
+                        ->where('email', $identity->email)
+                        ->lockForUpdate()
+                        ->exists();
+
+                    if ($emailAlreadyExists) {
+                        throw new GoogleOAuthIdentityException(
+                            GoogleOAuthFailure::EmailConflict,
+                        );
+                    }
+
+                    $user = $this->createUserWithUniqueUsernameAction->handle(
+                        attributes: [
+                            'name' => $identity->name,
+                            'email' => $identity->email,
+                            'role' => UserRole::User,
+                            'avatar_url' => $identity->avatarUrl,
+                            'last_login_at' => now(),
+                        ],
+                        usernameSource: $usernameSource,
+                        attempt: $attempt,
+                    );
+
+                    $user->forceFill([
+                        'email_verified_at' => now(),
+                    ])->save();
+
+                    OAuthAccount::query()->create([
+                        'user_id' => $user->id,
+                        'provider' => OAuthProvider::Google,
+                        'provider_user_id' => $identity->providerUserId,
+                        'provider_username' => $identity->providerUsername,
+                        'avatar_url' => $identity->avatarUrl,
+                    ]);
+
+                    return $user;
+                });
+            } catch (UniqueConstraintViolationException $exception) {
+                if (! $this->isUsernameCollision($exception)) {
+                    throw $exception;
+                }
+
+                if ($attempt === self::MAX_USERNAME_ATTEMPTS) {
+                    throw $exception;
+                }
             }
+        }
 
-            $emailAlreadyExists = User::query()
-                ->where('email', $identity->email)
-                ->lockForUpdate()
-                ->exists();
-
-            if ($emailAlreadyExists) {
-                throw new GoogleOAuthIdentityException(GoogleOAuthFailure::EmailConflict);
-            }
-
-            $user = User::query()->create([
-                'name' => $identity->name,
-                'email' => $identity->email,
-                'username' => $this->usernameGenerator->generate($identity->providerUsername ?? $identity->name),
-                'role' => UserRole::User,
-                'avatar_url' => $identity->avatarUrl,
-                'last_login_at' => now(),
-            ]);
-
-            $user->forceFill(['email_verified_at' => now()])->save();
-
-            OAuthAccount::query()->create([
-                'user_id' => $user->id,
-                'provider' => OAuthProvider::Google,
-                'provider_user_id' => $identity->providerUserId,
-                'provider_username' => $identity->providerUsername,
-                'avatar_url' => $identity->avatarUrl,
-            ]);
-
-            return $user;
-        });
+        throw new RuntimeException('Unable to create user.');
     }
 }

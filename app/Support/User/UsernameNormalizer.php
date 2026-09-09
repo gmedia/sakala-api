@@ -10,11 +10,11 @@ final class UsernameNormalizer
 {
     public function normalize(string $value): string
     {
-        return Str::of($value)
-            ->ascii()
-            ->lower()
-            ->replaceMatches('/[^a-z0-9]+/', '-')
-            ->trim('-')
-            ->toString();
+        $ascii = Str::ascii($value);
+        $lower = Str::lower($ascii);
+
+        $slug = preg_replace('/[^a-z0-9]+/', '-', $lower) ?? '';
+
+        return trim($slug, '-');
     }
 }

@@ -40,6 +40,7 @@ use Laravel\Sanctum\HasApiTokens;
     'password',
     'role',
     'avatar_url',
+    'avatar_path',
     'onboarding_source',
     'onboarding_completed_at',
     'last_login_at',

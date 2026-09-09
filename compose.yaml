@@ -26,7 +26,6 @@ services:
             - pgsql
             - redis
             - mailpit
-            - mysql
             - rustfs
     pgsql:
         image: 'postgres:18-alpine'
@@ -75,31 +74,7 @@ services:
             - '${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025'
         networks:
             - sail
-    mysql:
-        image: 'mysql:8.4'
-        ports:
-            - '${FORWARD_DB_PORT:-3306}:3306'
-        environment:
-            MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
-            MYSQL_ROOT_HOST: '%'
-            MYSQL_DATABASE: '${DB_DATABASE}'
-            MYSQL_USER: '${DB_USERNAME}'
-            MYSQL_PASSWORD: '${DB_PASSWORD}'
-            MYSQL_ALLOW_EMPTY_PASSWORD: 1
-            MYSQL_EXTRA_OPTIONS: '${MYSQL_EXTRA_OPTIONS:-}'
-        volumes:
-            - 'sail-mysql:/var/lib/mysql'
-            - './vendor/laravel/sail/database/mysql/create-testing-database.sh:/docker-entrypoint-initdb.d/10-create-testing-database.sh'
-        networks:
-            - sail
-        healthcheck:
-            test:
-                - CMD
-                - mysqladmin
-                - ping
-                - '-p${DB_PASSWORD}'
-            retries: 3
-            timeout: 5s
+
     rustfs:
         image: 'rustfs/rustfs:latest'
         ports:
@@ -113,8 +88,8 @@ services:
             RUSTFS_EXTERNAL_ADDRESS: ':9000'
             RUSTFS_CORS_ALLOWED_ORIGINS: '*'
             RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS: '*'
-            RUSTFS_ACCESS_KEY: sail
-            RUSTFS_SECRET_KEY: password
+            RUSTFS_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+            RUSTFS_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
             RUSTFS_LOG_LEVEL: info
         volumes:
             - 'sail-rustfs:/data'
@@ -137,8 +112,6 @@ volumes:
     sail-pgsql:
         driver: local
     sail-redis:
-        driver: local
-    sail-mysql:
         driver: local
     sail-rustfs:
         driver: local

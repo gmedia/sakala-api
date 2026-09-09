@@ -22,7 +22,7 @@ final class UpdateProfileRequest extends FormRequest
     {
         return [
             'name' => ['sometimes', 'string', 'max:255'],
-            'username' => ['sometimes', 'string', 'max:50', 'regex:/^[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*$/', Rule::unique('users', 'username')->ignore($this->user()->id)],
+            'username' => ['sometimes', 'string', 'max:50', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/', Rule::unique('users', 'username')->ignore($this->user()->id)],
             'avatar' => ['sometimes', 'image', 'mimes:png,jpg,jpeg,webp', 'max:1024'],
         ];
     }
