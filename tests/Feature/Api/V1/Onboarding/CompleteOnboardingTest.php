@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Onboarding\CompleteOnboardingAction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -93,4 +94,30 @@ test('onboarding completion endpoint requires web guard authentication', functio
     $this->actingAs($user, 'sanctum')
         ->postJson(route('api.v1.onboarding.complete'))
         ->assertUnauthorized();
+});
+
+test('stale user instance cannot overwrite onboarding completion timestamp', function (): void {
+    $user = User::factory()->create([
+        'onboarding_completed_at' => null,
+    ]);
+
+    $firstInstance = $user->fresh();
+    $secondInstance = $user->fresh();
+
+    $action = app(CompleteOnboardingAction::class);
+
+    $this->travelTo(now()->startOfMinute());
+
+    $action->handle($firstInstance);
+
+    $firstCompletedAt = $firstInstance->fresh()->onboarding_completed_at;
+
+    $this->travel(5)->minutes();
+
+    $action->handle($secondInstance);
+
+    $finalCompletedAt = $user->fresh()->onboarding_completed_at;
+
+    expect($finalCompletedAt->toIso8601String())
+        ->toBe($firstCompletedAt->toIso8601String());
 });
