@@ -37,6 +37,7 @@ class UserFactory extends Factory
             'avatar_url' => null,
             'avatar_path' => null,
             'onboarding_source' => null,
+            'onboarding_role' => null,
             'onboarding_completed_at' => null,
             'last_login_at' => null,
             'remember_token' => Str::random(10),
