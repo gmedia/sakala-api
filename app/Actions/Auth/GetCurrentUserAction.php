@@ -24,6 +24,7 @@ final class GetCurrentUserAction
             avatarUrl: $this->avatarUrlResolver->resolve($user),
             role: $user->role,
             onboardingSource: $user->onboarding_source,
+            onboardingRole: $user->onboarding_role,
             onboardingCompletedAt: $user->onboarding_completed_at,
             lastLoginAt: $user->last_login_at,
         );

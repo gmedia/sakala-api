@@ -19,7 +19,7 @@ test('authenticated user can save a valid onboarding source', function (): void 
         'onboarding_completed_at' => null,
     ]);
 
-    $this->actingAs($user)
+    $this->actingAs($user, 'web')
         ->postJson(route('api.v1.onboarding.source'), [
             'source' => 'campus',
         ])
@@ -32,8 +32,11 @@ test('authenticated user can save a valid onboarding source', function (): void 
         ]);
 
     $user->refresh();
-    expect($user->onboarding_source)->toBe(OnboardingSource::Campus)
-        ->and($user->onboarding_completed_at)->not->toBeNull();
+
+    expect($user->onboarding_source)
+        ->toBe(OnboardingSource::Campus)
+        ->and($user->onboarding_completed_at)
+        ->toBeNull();
 });
 
 test('authenticated user can skip onboarding without dummy values', function (): void {
@@ -42,7 +45,7 @@ test('authenticated user can skip onboarding without dummy values', function ():
         'onboarding_completed_at' => null,
     ]);
 
-    $this->actingAs($user)
+    $this->actingAs($user, 'web')
         ->postJson(route('api.v1.onboarding.source'), [
             'skip' => true,
         ])
@@ -55,8 +58,11 @@ test('authenticated user can skip onboarding without dummy values', function ():
         ]);
 
     $user->refresh();
-    expect($user->onboarding_source)->toBeNull()
-        ->and($user->onboarding_completed_at)->not->toBeNull();
+
+    expect($user->onboarding_source)
+        ->toBeNull()
+        ->and($user->onboarding_completed_at)
+        ->toBeNull();
 });
 
 test('submitting invalid source returns validation error', function (): void {
@@ -80,8 +86,6 @@ test('repeated identical onboarding submission is idempotent for the same user',
         ->postJson(route('api.v1.onboarding.source'), ['source' => 'github'])
         ->assertOk();
 
-    $initialCompletedAt = $user->refresh()->onboarding_completed_at;
-
     $this->actingAs($user)
         ->postJson(route('api.v1.onboarding.source'), ['source' => 'github'])
         ->assertOk()
@@ -92,24 +96,25 @@ test('repeated identical onboarding submission is idempotent for the same user',
         ]);
 
     $user->refresh();
-    expect($user->onboarding_source)->toBe(OnboardingSource::Github)
-        ->and($user->onboarding_completed_at->toIso8601String())->toBe($initialCompletedAt?->toIso8601String());
+
+    expect($user->onboarding_source)
+        ->toBe(OnboardingSource::Github)
+        ->and($user->onboarding_completed_at)
+        ->toBeNull();
 });
 
 test('authenticated user can update onboarding source after completion', function (): void {
     $user = User::factory()->create([
-        'onboarding_source' => null,
-        'onboarding_completed_at' => null,
+        'onboarding_source' => 'github',
+        'onboarding_completed_at' => now(),
     ]);
 
-    $this->actingAs($user)
-        ->postJson(route('api.v1.onboarding.source'), ['source' => 'github'])
-        ->assertOk();
+    $initialCompletedAt = $user->onboarding_completed_at;
 
-    $initialCompletedAt = $user->refresh()->onboarding_completed_at;
-
-    $this->actingAs($user)
-        ->postJson(route('api.v1.onboarding.source'), ['source' => 'workshop'])
+    $this->actingAs($user, 'web')
+        ->postJson(route('api.v1.onboarding.source'), [
+            'source' => 'workshop',
+        ])
         ->assertOk()
         ->assertJson([
             'data' => [
@@ -118,8 +123,11 @@ test('authenticated user can update onboarding source after completion', functio
         ]);
 
     $user->refresh();
-    expect($user->onboarding_source)->toBe(OnboardingSource::Workshop)
-        ->and($user->onboarding_completed_at->toIso8601String())->toBe($initialCompletedAt?->toIso8601String());
+
+    expect($user->onboarding_source)
+        ->toBe(OnboardingSource::Workshop)
+        ->and($user->onboarding_completed_at->toIso8601String())
+        ->toBe($initialCompletedAt?->toIso8601String());
 });
 
 test('submitting both source and skip returns validation error', function (): void {

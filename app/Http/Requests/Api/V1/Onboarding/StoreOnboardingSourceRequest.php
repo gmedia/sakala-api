@@ -29,7 +29,7 @@ final class StoreOnboardingSourceRequest extends FormRequest
     {
         return [
             'source' => ['required_without:skip', 'prohibits:skip', Rule::enum(OnboardingSource::class)],
-            'skip' => ['sometimes', 'accepted', 'prohibits:source'],
+            'skip' => ['sometimes', 'boolean', 'accepted', 'prohibits:source'],
         ];
     }
 
