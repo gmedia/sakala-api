@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Actions\Agent\ClaimAgentCommandAction;
 use App\Actions\Agent\CompleteAgentCommandAction;
+use App\Actions\Agent\FailAgentCommandAction;
 use App\Actions\Agent\PollAgentCommandsAction;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
@@ -1728,3 +1729,121 @@ test('claim waits on deployment lock before project lock during deployment trans
     expect($deployment->fresh()->agent_node_id)
         ->toBe($agent->id);
 });
+
+test('complete and fail serialize on the same command lock', function (): void {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped(
+            'Requires PostgreSQL row-level locking.',
+        );
+    }
+
+    $agent = commandAgent('terminal-race-token');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Running,
+        'claimed_at' => now(),
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $secondary = 'pgsql_secondary';
+
+    config([
+        "database.connections.{$secondary}" => config(
+            'database.connections.'.DB::getDefaultConnection(),
+        ),
+    ]);
+
+    DB::purge($secondary);
+
+    $defaultConnection = DB::getDefaultConnection();
+
+    DB::beginTransaction();
+
+    try {
+        /*
+         * Transaction A represents CompleteAgentCommandAction.
+         *
+         * Hold the AgentCommand row lock before transaction B attempts
+         * to fail the same command.
+         */
+        AgentCommand::query()
+            ->whereKey($command->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $secondaryConnection = DB::connection($secondary);
+        $secondaryConnection->statement('SET lock_timeout = 250');
+
+        $failException = null;
+
+        try {
+            /*
+             * Transaction B represents FailAgentCommandAction.
+             *
+             * It must wait for the AgentCommand lock held by transaction A.
+             */
+            DB::setDefaultConnection($secondary);
+
+            app(FailAgentCommandAction::class)->handle(
+                agent: $agent,
+                commandId: $command->id,
+                errorCode: 'runtime_execution_failed',
+                errorMessage: 'container crashed',
+            );
+        } catch (QueryException $e) {
+            /*
+             * SQLSTATE 55P03 = lock_not_available.
+             *
+             * A different SQLSTATE here would indicate that the failure
+             * path is not respecting the AgentCommand row lock.
+             */
+            expect($e->getCode())->toBe('55P03');
+
+            $failException = $e;
+        } finally {
+            DB::setDefaultConnection($defaultConnection);
+        }
+
+        expect($failException)
+            ->toBeInstanceOf(QueryException::class)
+            ->and($secondaryConnection->transactionLevel())
+            ->toBe(0);
+
+        /*
+         * Complete transaction A.
+         */
+        DB::commit();
+    } catch (Throwable $e) {
+        if (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+
+        throw $e;
+    } finally {
+        DB::purge($secondary);
+    }
+
+    /*
+     * Once the lock is released, CompleteAgentCommandAction can finish.
+     * The important guarantee is that FailAgentCommandAction could not
+     * modify the same command while Complete held the row lock.
+     */
+    app(CompleteAgentCommandAction::class)->handle(
+        agent: $agent,
+        commandId: $command->id,
+        result: ['healthy' => true],
+    );
+
+    $command->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Succeeded)
+        ->and($command->failed_at)
+        ->toBeNull()
+        ->and($command->error_code)
+        ->toBeNull();
+})->skip(
+    fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
+    'Requires PostgreSQL row-level locking.',
+);
