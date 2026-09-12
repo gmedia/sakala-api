@@ -10,6 +10,7 @@ use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeStatus;
+use App\Enums\DeploymentFailureCategory;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
@@ -19,6 +20,7 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -1847,3 +1849,89 @@ test('complete and fail serialize on the same command lock', function (): void {
     fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
     'Requires PostgreSQL row-level locking.',
 );
+
+test('failing a DeployProject command exposes safe deployment failure details', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'requested_by' => $user->id,
+        'sequence' => 1,
+        'status' => DeploymentStatus::Deploying,
+        'failure_code' => null,
+        'failure_summary' => null,
+    ]);
+
+    $agent = commandAgent('fail-deploy-token');
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::DeployProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    $rawErrorMessage = 'docker build failed at stage 3 with internal diagnostics';
+
+    $response = $this
+        ->withHeaders(commandHeaders($agent, 'fail-deploy-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            'error_code' => 'runtime_build_failed',
+            'error_message' => $rawErrorMessage,
+        ]);
+
+    $response->assertNoContent();
+
+    $command = $command->fresh();
+    $deployment = $deployment->fresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Failed)
+        ->and($command->error_code)
+        ->toBe('runtime_build_failed')
+        ->and($command->error_message)
+        ->toBe($rawErrorMessage);
+
+    expect($deployment->status)
+        ->toBe(DeploymentStatus::Failed)
+        ->and($deployment->failure_code)
+        ->toBe('runtime_build_failed')
+        ->and($deployment->failure_summary)
+        ->toBe('Deployment gagal saat proses build aplikasi.');
+
+    $deploymentResponse = $this
+        ->actingAs($user, 'web')
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}"
+        );
+
+    $deploymentResponse
+        ->assertOk()
+        ->assertJsonPath(
+            'data.failure.code',
+            'runtime_build_failed',
+        )
+        ->assertJsonPath(
+            'data.failure.category',
+            DeploymentFailureCategory::Build->value,
+        )
+        ->assertJsonPath(
+            'data.failure.summary',
+            'Deployment gagal saat proses build aplikasi.',
+        )
+        ->assertJsonPath(
+            'data.failure.recovery_hint',
+            'Periksa konfigurasi build dan dependency aplikasi.',
+        )
+        ->assertJsonMissing([
+            'error_message' => $rawErrorMessage,
+        ]);
+});

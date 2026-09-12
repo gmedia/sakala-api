@@ -60,7 +60,7 @@ test('project owner can view deployment failure details', function (): void {
         'requested_by' => $user->id,
         'sequence' => 1,
         'status' => DeploymentStatus::Failed,
-        'failure_code' => 'build_failed',
+        'failure_code' => 'runtime_build_failed',
         'failure_summary' => 'Deployment gagal saat proses build aplikasi.',
     ]);
 
@@ -72,7 +72,7 @@ test('project owner can view deployment failure details', function (): void {
 
     $response
         ->assertOk()
-        ->assertJsonPath('data.failure.code', 'build_failed')
+        ->assertJsonPath('data.failure.code', 'runtime_build_failed')
         ->assertJsonPath(
             'data.failure.category',
             DeploymentFailureCategory::Build->value,
