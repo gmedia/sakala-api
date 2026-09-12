@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 use App\Actions\Agent\ClaimAgentCommandAction;
 use App\Actions\Agent\CompleteAgentCommandAction;
+use App\Actions\Agent\FailAgentCommandAction;
 use App\Actions\Agent\PollAgentCommandsAction;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeStatus;
+use App\Enums\DeploymentFailureCategory;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
@@ -18,6 +20,7 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -1727,4 +1730,208 @@ test('claim waits on deployment lock before project lock during deployment trans
 
     expect($deployment->fresh()->agent_node_id)
         ->toBe($agent->id);
+});
+
+test('complete and fail serialize on the same command lock', function (): void {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped(
+            'Requires PostgreSQL row-level locking.',
+        );
+    }
+
+    $agent = commandAgent('terminal-race-token');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Running,
+        'claimed_at' => now(),
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $secondary = 'pgsql_secondary';
+
+    config([
+        "database.connections.{$secondary}" => config(
+            'database.connections.'.DB::getDefaultConnection(),
+        ),
+    ]);
+
+    DB::purge($secondary);
+
+    $defaultConnection = DB::getDefaultConnection();
+
+    DB::beginTransaction();
+
+    try {
+        /*
+         * Transaction A represents CompleteAgentCommandAction.
+         *
+         * Hold the AgentCommand row lock before transaction B attempts
+         * to fail the same command.
+         */
+        AgentCommand::query()
+            ->whereKey($command->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $secondaryConnection = DB::connection($secondary);
+        $secondaryConnection->statement('SET lock_timeout = 250');
+
+        $failException = null;
+
+        try {
+            /*
+             * Transaction B represents FailAgentCommandAction.
+             *
+             * It must wait for the AgentCommand lock held by transaction A.
+             */
+            DB::setDefaultConnection($secondary);
+
+            app(FailAgentCommandAction::class)->handle(
+                agent: $agent,
+                commandId: $command->id,
+                errorCode: 'runtime_execution_failed',
+                errorMessage: 'container crashed',
+            );
+        } catch (QueryException $e) {
+            /*
+             * SQLSTATE 55P03 = lock_not_available.
+             *
+             * A different SQLSTATE here would indicate that the failure
+             * path is not respecting the AgentCommand row lock.
+             */
+            expect($e->getCode())->toBe('55P03');
+
+            $failException = $e;
+        } finally {
+            DB::setDefaultConnection($defaultConnection);
+        }
+
+        expect($failException)
+            ->toBeInstanceOf(QueryException::class)
+            ->and($secondaryConnection->transactionLevel())
+            ->toBe(0);
+
+        /*
+         * Complete transaction A.
+         */
+        DB::commit();
+    } catch (Throwable $e) {
+        if (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+
+        throw $e;
+    } finally {
+        DB::purge($secondary);
+    }
+
+    /*
+     * Once the lock is released, CompleteAgentCommandAction can finish.
+     * The important guarantee is that FailAgentCommandAction could not
+     * modify the same command while Complete held the row lock.
+     */
+    app(CompleteAgentCommandAction::class)->handle(
+        agent: $agent,
+        commandId: $command->id,
+        result: ['healthy' => true],
+    );
+
+    $command->refresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Succeeded)
+        ->and($command->failed_at)
+        ->toBeNull()
+        ->and($command->error_code)
+        ->toBeNull();
+})->skip(
+    fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
+    'Requires PostgreSQL row-level locking.',
+);
+
+test('failing a DeployProject command exposes safe deployment failure details', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'requested_by' => $user->id,
+        'sequence' => 1,
+        'status' => DeploymentStatus::Deploying,
+        'failure_code' => null,
+        'failure_summary' => null,
+    ]);
+
+    $agent = commandAgent('fail-deploy-token');
+
+    $command = AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'type' => AgentCommandType::DeployProject,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+    ]);
+
+    $rawErrorMessage = 'docker build failed at stage 3 with internal diagnostics';
+
+    $response = $this
+        ->withHeaders(commandHeaders($agent, 'fail-deploy-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            'error_code' => 'runtime_build_failed',
+            'error_message' => $rawErrorMessage,
+        ]);
+
+    $response->assertNoContent();
+
+    $command = $command->fresh();
+    $deployment = $deployment->fresh();
+
+    expect($command->status)
+        ->toBe(AgentCommandStatus::Failed)
+        ->and($command->error_code)
+        ->toBe('runtime_build_failed')
+        ->and($command->error_message)
+        ->toBe($rawErrorMessage);
+
+    expect($deployment->status)
+        ->toBe(DeploymentStatus::Failed)
+        ->and($deployment->failure_code)
+        ->toBe('runtime_build_failed')
+        ->and($deployment->failure_summary)
+        ->toBe('Deployment gagal saat proses build aplikasi.');
+
+    $deploymentResponse = $this
+        ->actingAs($user, 'web')
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}"
+        );
+
+    $deploymentResponse
+        ->assertOk()
+        ->assertJsonPath(
+            'data.failure.code',
+            'runtime_build_failed',
+        )
+        ->assertJsonPath(
+            'data.failure.category',
+            DeploymentFailureCategory::Build->value,
+        )
+        ->assertJsonPath(
+            'data.failure.summary',
+            'Deployment gagal saat proses build aplikasi.',
+        )
+        ->assertJsonPath(
+            'data.failure.recovery_hint',
+            'Periksa konfigurasi build dan dependency aplikasi.',
+        )
+        ->assertJsonMissing([
+            'error_message' => $rawErrorMessage,
+        ]);
 });

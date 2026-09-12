@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace App\Actions\Agent;
 
+use App\Actions\Deployment\TransitionDeploymentAction;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\DeploymentStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\AuditEvent;
+use App\Models\Deployment;
 use App\Models\Project;
+use App\Services\Deployment\DeploymentFailureClassifier;
 use Illuminate\Support\Facades\DB;
 
 final class FailAgentCommandAction
@@ -18,6 +22,11 @@ final class FailAgentCommandAction
     public const MAX_ERROR_CODE_LENGTH = 64;
 
     public const MAX_ERROR_MESSAGE_LENGTH = 1000;
+
+    public function __construct(
+        private readonly DeploymentFailureClassifier $failureClassifier,
+        private readonly TransitionDeploymentAction $transitionDeploymentAction,
+    ) {}
 
     /**
      * Mark a claimed/running command as failed.
@@ -73,6 +82,18 @@ final class FailAgentCommandAction
                 'error_code' => $errorCode,
                 'error_message' => $errorMessage,
             ]);
+
+            if ($command->type === AgentCommandType::DeployProject && $command->deployment_id !== null) {
+                $failureData = $this->failureClassifier->classify($errorCode);
+
+                $this->transitionDeploymentAction->handleWithinTransaction(
+                    deployment: Deployment::query()
+                        ->whereKey($command->deployment_id)
+                        ->firstOrFail(),
+                    nextStatus: DeploymentStatus::Failed,
+                    failureData: $failureData,
+                );
+            }
 
             if (in_array($command->type, [
                 AgentCommandType::StopProject,

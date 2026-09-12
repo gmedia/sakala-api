@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use App\Actions\Deployment\TransitionDeploymentAction;
+use App\Data\Deployment\DeploymentFailureData;
 use App\Enums\AgentCommandType;
+use App\Enums\DeploymentFailureCategory;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
@@ -300,4 +302,31 @@ test('keeps suspended project running until sleep command completes', function (
         ->toBe(ProjectStatus::Suspended)
         ->and($project->runtime_status)
         ->toBe(RuntimeStatus::Running);
+});
+
+test('failed transition stores failure data', function (): void {
+    $deployment = Deployment::factory()->create([
+        'status' => DeploymentStatus::Building,
+        'failure_code' => null,
+        'failure_summary' => null,
+    ]);
+
+    $failureData = new DeploymentFailureData(
+        code: 'build_failed',
+        category: DeploymentFailureCategory::Build,
+        summary: 'Deployment gagal saat proses build aplikasi.',
+        recoveryHint: 'Periksa konfigurasi build dan dependency aplikasi.',
+    );
+
+    $result = app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Failed,
+        failureData: $failureData,
+    );
+
+    expect($result->failure_code)
+        ->toBe('build_failed');
+
+    expect($result->failure_summary)
+        ->toBe('Deployment gagal saat proses build aplikasi.');
 });

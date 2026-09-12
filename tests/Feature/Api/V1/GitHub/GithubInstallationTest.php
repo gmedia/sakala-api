@@ -212,7 +212,7 @@ test('installation setup accepts a configuration callback for the intended insta
 
     $this->actingAs($user, 'web')->withSession(['github_app_configure_installation_id' => 100])
         ->get(route('auth.github.setup', ['installation_id' => 100]))
-        ->assertRedirect('http://app.sakala.localhost:5173/dashboard?github_installation=connected');
+        ->assertRedirect(config('sakala.console_url').'/dashboard?github_installation=connected');
 });
 
 test('installation setup rejects a configuration callback for a different installation', function (): void {
