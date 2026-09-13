@@ -2009,3 +2009,39 @@ test('fail rejects mismatched X-Agent-Id against bearer token', function (): voi
 
     $response->assertUnauthorized();
 });
+
+// ─── State Transition Race Tests ──────────────────────────────────────────────
+
+test('claim returns 409 when command expires between poll and claim', function (): void {
+    $agent = commandAgent('poll-expire-token');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    // Poll: command is eligible
+    $pollResponse = $this->withHeaders(commandHeaders($agent, 'poll-expire-token'))
+        ->getJson('/api/agent/v1/commands');
+
+    $pollResponse->assertOk();
+    $pollResponse->assertJsonCount(1, 'data');
+    expect($pollResponse->json('data.0.id'))->toBe($command->id);
+
+    // Simulate time passing: expire the command in the database
+    $command->update(['expires_at' => now()->subMinute()]);
+
+    // Claim: should fail because command is now expired
+    $claimResponse = $this->withHeaders(commandHeaders($agent, 'poll-expire-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/claim");
+
+    $claimResponse->assertStatus(409);
+    $claimResponse->assertJson([
+        'status' => AgentCommandStatus::Pending->value,
+    ]);
+
+    // Command must still be Pending in DB — not claimed
+    expect($command->fresh()->status)->toBe(AgentCommandStatus::Pending);
+});
