@@ -48,6 +48,15 @@ Index dibuat dari query path yang sudah diketahui:
 - report retry: unique `(agent_command_id, idempotency_key)` pada event dan log;
 - audit actor/subject: `(type, id, created_at)`.
 
+### Pilot validation metrics
+
+Pilot validation metrics uses the following additional query paths:
+
+- activated users: `(onboarding_completed_at)` pada `users`;
+- unique dan repeat deployers: partial `(created_at, requested_by)` pada `deployments` dengan `requested_by IS NOT NULL`.
+
+Kedua index tersebut ditambahkan setelah query divalidasi menggunakan `EXPLAIN (ANALYZE, BUFFERS)` pada PostgreSQL. Index `(status, created_at)` yang sudah ada tetap digunakan untuk successful deployments dan failure-category metrics, sehingga tidak diperlukan index tambahan untuk metric tersebut. Existing feedback indexes juga sudah mencukupi untuk pilot feedback count.
+
 Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write dan storage. Query baru yang penting harus divalidasi dengan `EXPLAIN (ANALYZE, BUFFERS)` pada PostgreSQL sebelum menambah index.
 
 ## Concurrency dan Idempotensi
