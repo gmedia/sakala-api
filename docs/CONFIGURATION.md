@@ -13,17 +13,18 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
 
 ## Agent Reporting dan Log Retention
- 
+
 - `SAKALA_LOG_MAX_LINE_LENGTH`: batas panjang satu message dalam byte.
 - `SAKALA_LOG_MAX_BATCH_LINES`: jumlah maksimum item dalam satu report.
 - `SAKALA_LOG_MAX_TOTAL_BYTES`: budget kumulatif message log per command.
 - `SAKALA_LOG_MAX_REQUEST_BYTES`: batas ukuran body setiap request report, terpisah dari budget kumulatif.
-- `SAKALA_LOG_RETENTION_DAYS`: durasi retensi log pilot dalam hari (default: `7`). Lihat [Pilot Log Retention Policy](LOG_RETENTION.md).
+- `SAKALA_LOG_RETENTION_DAYS`: durasi retensi log pilot dalam hari (default: `7`). Lihat [Pilot Log Retention Policy](LOG_RETENTION.md). Cleanup otomatis berjalan melalui scheduler harian ketika runtime menjalankan Laravel scheduler.
 
 ## Database dan Infrastruktur
 
 - `DB_*`: koneksi PostgreSQL.
 - `REDIS_*`: cache dan scaling Reverb.
+- `CACHE_STORE` atau `SCHEDULE_CACHE_STORE`: cache store untuk mutex scheduler (`withoutOverlapping`/`onOneServer`). Gunakan store bersama pada deployment multi-instance.
 - `QUEUE_CONNECTION`: queue driver; local default memakai database.
 - `MAIL_*`: Mailpit pada local runtime.
 

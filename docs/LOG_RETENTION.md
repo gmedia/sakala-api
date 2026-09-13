@@ -6,7 +6,7 @@ Dokumen ini mendefinisikan kebijakan retensi log, batasan akses, tanggung jawab 
 
 ## 1. Latar Belakang dan Tujuan
 
-Pada fase Pilot MVP, Sakala API bertindak sebagai control plane yang menyimpan log proses build aplikasi, log output runtime container, serta event timeline deployment di database PostgreSQL. 
+Pada fase Pilot MVP, Sakala API bertindak sebagai control plane yang menyimpan log proses build aplikasi, log output runtime container, serta event timeline deployment di database PostgreSQL.
 
 Tujuan kebijakan ini adalah:
 1. Memberikan batasan yang jujur dan transparan bagi pengguna pilot sebelum mereka mengandalkan penyimpanan log.
@@ -36,7 +36,7 @@ Semua record log disimpan pada tabel `deployment_logs`, sedangkan record event d
 Selama fase Pilot MVP, durasi retensi log diatur sebagai berikut:
 
 - **Durasi Retensi Default**: **7 hari** (dikonfigurasi via `SAKALA_LOG_RETENTION_DAYS`, default: `7`).
-- **Sifat Retensi**: *Bounded rolling window*. Data log dan event dari deployment yang berumur lebih dari 7 hari sejak dibuat (`created_at`) memenuhi syarat (*eligible*) untuk dipangkas (*pruned*).
+- **Sifat Retensi**: *Bounded rolling window*. Data log dan event dari deployment terminal yang telah melewati 7 hari sejak waktu terminal memenuhi syarat (*eligible*) untuk dipangkas (*pruned*). Waktu terminal memakai `finished_at`, lalu `cancelled_at`; record legacy yang tidak memiliki keduanya memakai `created_at`.
 - **Syarat Status Terminal**: Pemangkasan **hanya** menargetkan deployment yang berada pada status terminal:
   - `succeeded`
   - `failed`
@@ -55,7 +55,7 @@ Batasan hak akses terhadap log dan event ditegakkan secara ketat pada layer Poli
 +---------------------+-------------------+-----------------------------------+
 | Project Owner       | Read-only         | Terbatas hanya pada project milik  |
 | (Console User)      |                   | sendiri ($user->id === project->user_id). |
-|                     |                   | Endpoint: GET /app/projects/.../logs |
+|                     |                   | Endpoint: GET /api/v1/app/projects/.../logs |
 |                     |                   | WebSocket: private-deployment.{id}|
 +---------------------+-------------------+-----------------------------------+
 | Platform Admin      | Read & Operations | Akses investigasi lintas project  |
@@ -65,7 +65,7 @@ Batasan hak akses terhadap log dan event ditegakkan secara ketat pada layer Poli
 +---------------------+-------------------+-----------------------------------+
 | Machine Agent       | Write-only        | Terbatas hanya pada command aktif |
 | (Runtime Node)      | (Append)          | yang di-claim (agent_node_id).    |
-|                     |                   | Endpoint: POST /agent/v1/.../logs |
+|                     |                   | Endpoint: POST /api/agent/v1/.../logs |
 |                     |                   | Tidak memiliki akses GET log/user.|
 +---------------------+-------------------+-----------------------------------+
 ```
@@ -86,7 +86,7 @@ Batasan hak akses terhadap log dan event ditegakkan secara ketat pada layer Poli
 
 3. **Machine Agent (Sakala Agent)**:
    - Menggunakan autentikasi Bearer token mesin (`Authorization: Bearer <agent-token>` dan header `X-Agent-Id`).
-   - Hanya diizinkan melaporkan (*write/append*) log dan event baru pada endpoint `POST /agent/v1/commands/{command}/logs` dan `POST /agent/v1/commands/{command}/events`.
+   - Hanya diizinkan melaporkan (*write/append*) log dan event baru pada endpoint `POST /api/agent/v1/commands/{command}/logs` dan `POST /api/agent/v1/commands/{command}/events`.
    - Hanya dapat melaporkan ke command yang berstatus `Claimed` atau `Running` serta tercatat sebagai pemilik klaim (`agent_node_id === $agent->id`).
    - **Agent tidak memiliki endpoint untuk membaca log** yang sudah tersimpan di API (*write-only contract*).
    - Agent tidak dapat menghapus atau mengubah log yang telah dilaporkan.
@@ -145,14 +145,15 @@ Pengguna dan operator harus memahami keterbatasan berikut:
 2. **Ketiadaan SLA Durabilitas**: Sakala tidak memberikan komitmen ketersediaan log 99.9% atau garansi pemulihan data log jika terjadi kegagalan hardware, kerusakan node, atau bencana infrastruktur.
 3. **Pembersihan Tanpa Pemberitahuan Sebelumnya**: Pada kondisi darurat kapasitas penyimpanan, migrasi arsitektur, atau kegagalan node, log historis dapat dipangkas sewaktu-waktu demi menjaga kelangsungan operasional API control plane.
 4. **Bukan Catatan Kepatuhan (*Compliance*)**: Pengguna dilarang keras mengandalkan log Sakala API sebagai satu-satunya catatan audit hukum, finansial, atau regulasi industri.
+5. **Backup dan Restore**: Kebijakan backup database berada pada operator infrastruktur. Backup dapat mempertahankan salinan log setelah cleanup database, dan Sakala tidak menjamin durasi retensi backup, keberhasilan restore, atau penghapusan salinan backup pada waktu yang sama dengan data operasional.
 
 ---
 
 ## 8. Mekanisme Pembersihan (Cleanup Mechanisms)
 
-Pembersihan log dilakukan secara terukur menggunakan dua pendekatan: command otomatis terisolasi dan prosedur SQL manual untuk operator.
+Pembersihan log dilakukan secara terukur menggunakan dua pendekatan: command yang dijalankan scheduler harian dan prosedur SQL manual untuk operator. Runtime wajib menjalankan `php artisan schedule:work` atau memanggil `php artisan schedule:run` secara berkala agar cleanup terjadwal benar-benar berjalan.
 
-### 8.1. Perintah Otomatis: `php artisan pilot:prune-logs`
+### 8.1. Perintah Terjadwal: `php artisan pilot:prune-logs`
 
 Sakala API menyediakan Artisan console command yang didukung oleh `PruneDeploymentLogsAction`:
 
@@ -172,8 +173,10 @@ php artisan pilot:prune-logs --days=7 --batch=500
 
 #### Karakteristik Teknis Action:
 - Menghitung tanggal cutoff: `now()->subDays($days)`.
-- Mengidentifikasi deployment terminal (`succeeded`, `failed`, `cancelled`) yang dibuat sebelum tanggal cutoff menggunakan index `(status, created_at)` pada tabel `deployments`.
+- Mengidentifikasi deployment terminal (`succeeded`, `failed`, `cancelled`) yang waktu terminalnya sebelum tanggal cutoff menggunakan index `(status, finished_at)` atau `(status, cancelled_at)` pada tabel `deployments`. Record legacy tanpa timestamp terminal memakai `created_at` sebagai fallback.
 - Melakukan penghapusan secara bertahap (*chunked batches*) untuk mencegah *table lock escalation* pada PostgreSQL.
+- Scheduler menjalankan command sekali sehari dengan `withoutOverlapping()` dan `onOneServer()`.
+- Cleanup aman untuk diulang. Jika proses terhenti setelah sebagian batch terhapus, proses berikutnya hanya menghapus record eligible yang tersisa.
 - Mengembalikan ringkasan data DTO `PruneDeploymentLogsResultData`.
 
 ### 8.2. Prosedur SQL Manual untuk Operator Database
@@ -183,7 +186,7 @@ Jika operator perlu melakukan audit kapasitas atau melakukan pembersihan langsun
 #### Langkah 1: Evaluasi Kandidat Data dan Estimasi Kapasitas
 ```sql
 -- Periksa ukuran fisik tabel log dan event saat ini
-SELECT 
+SELECT
     relname AS table_name,
     pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
     pg_size_pretty(pg_relation_size(relid)) AS table_size,
@@ -191,14 +194,14 @@ SELECT
 FROM pg_catalog.pg_statio_user_tables
 WHERE relname IN ('deployment_logs', 'deployment_events');
 
--- Hitung jumlah baris log yang memenuhi kriteria retensi (> 7 hari pada terminal deployments)
+-- Hitung jumlah baris log yang memenuhi kriteria retensi (> 7 hari setelah deployment terminal)
 SELECT COUNT(*) AS eligible_logs_count
 FROM deployment_logs l
 WHERE l.deployment_id IN (
     SELECT d.id
     FROM deployments d
     WHERE d.status IN ('succeeded', 'failed', 'cancelled')
-      AND d.created_at < NOW() - INTERVAL '7 days'
+      AND COALESCE(d.finished_at, d.cancelled_at, d.created_at) < NOW() - INTERVAL '7 days'
 );
 ```
 
@@ -214,15 +217,28 @@ WHERE id IN (
         SELECT d.id
         FROM deployments d
         WHERE d.status IN ('succeeded', 'failed', 'cancelled')
-          AND d.created_at < NOW() - INTERVAL '7 days'
+          AND COALESCE(d.finished_at, d.cancelled_at, d.created_at) < NOW() - INTERVAL '7 days'
     )
     LIMIT 5000
 );
 
--- Ulangi perintah di atas hingga nilai affected rows menjadi 0.
+DELETE FROM deployment_events
+WHERE id IN (
+    SELECT e.id
+    FROM deployment_events e
+    WHERE e.deployment_id IN (
+        SELECT d.id
+        FROM deployments d
+        WHERE d.status IN ('succeeded', 'failed', 'cancelled')
+          AND COALESCE(d.finished_at, d.cancelled_at, d.created_at) < NOW() - INTERVAL '7 days'
+    )
+    LIMIT 5000
+);
+
+-- Ulangi kedua perintah di atas hingga affected rows menjadi 0.
 ```
 
-Lakukan hal yang sama untuk tabel `deployment_events` jika diperlukan.
+Jalankan SQL menggunakan client terparameterisasi bila menerima nilai dari operator. Jangan menulis credential yang bocor atau nilai rahasia literal ke query maupun shell history.
 
 #### Langkah 3: Verifikasi Pasca-Pembersihan
 ```sql
@@ -230,6 +246,11 @@ Lakukan hal yang sama untuk tabel `deployment_events` jika diperlukan.
 SELECT COUNT(*) AS active_deployments_logs
 FROM deployment_logs l
 JOIN deployments d ON d.id = l.deployment_id
+WHERE d.status NOT IN ('succeeded', 'failed', 'cancelled');
+
+SELECT COUNT(*) AS active_deployments_events
+FROM deployment_events e
+JOIN deployments d ON d.id = e.deployment_id
 WHERE d.status NOT IN ('succeeded', 'failed', 'cancelled');
 
 -- Reklamasi ruang penyimpanan disk jika diperlukan
@@ -246,27 +267,40 @@ VACUUM ANALYZE deployment_events;
 Jika seorang pengguna atau operator melaporkan adanya credential produksi yang tercetak ke log:
 
 1. **Rotasi Segera**: Pengguna WAJIB segera merotasi/merevoke credential yang bocor pada provider asal (GitHub token, database password, API key).
-2. **Identifikasi Baris Log**:
+2. **Identifikasi Baris Log dan Event**: Gunakan `deployment_id` dan rentang `sequence` yang diketahui. Jika hanya memiliki potongan nilai rahasia, gunakan parameter binding pada client SQL yang aman; jangan menaruh nilai rahasia langsung di query atau shell history.
    ```sql
    SELECT id, deployment_id, sequence, recorded_at, message
    FROM deployment_logs
-   WHERE deployment_id = '<target-deployment-uuid>'
-     AND (message LIKE '%<leaked-value-fragment>%' OR sequence BETWEEN <start_seq> AND <end_seq>);
+   WHERE deployment_id = :deployment_id
+     AND sequence BETWEEN :start_seq AND :end_seq;
+
+   SELECT id, deployment_id, sequence, occurred_at, message
+   FROM deployment_events
+   WHERE deployment_id = :deployment_id
+     AND sequence BETWEEN :start_seq AND :end_seq;
    ```
-3. **Penghapusan Tertarget**:
+3. **Penghapusan Tertarget**: Jalankan dalam transaction dan hapus dari kedua tabel.
    ```sql
+   BEGIN;
+
    DELETE FROM deployment_logs
-   WHERE deployment_id = '<target-deployment-uuid>'
-     AND sequence BETWEEN <start_seq> AND <end_seq>;
+   WHERE deployment_id = :deployment_id
+     AND sequence BETWEEN :start_seq AND :end_seq;
+
+   DELETE FROM deployment_events
+   WHERE deployment_id = :deployment_id
+     AND sequence BETWEEN :start_seq AND :end_seq;
+
+   COMMIT;
    ```
-4. **Verifikasi**: Pastikan respons endpoint `/logs` untuk deployment tersebut tidak lagi memuat baris yang bersangkutan.
+4. **Verifikasi**: Pastikan respons endpoint `/api/v1/app/projects/{project}/deployments/{deployment}/logs` dan `/api/v1/app/projects/{project}/deployments/{deployment}/events` untuk deployment tersebut tidak lagi memuat baris yang bersangkutan.
 
 ### 9.2. Kondisi Darurat Kapasitas Disk (*Disk Space Exhaustion*)
 
 Jika monitoring server mendeteksi penggunaan disk PostgreSQL melebihi 85%:
 
 1. Operator menjalankan `php artisan pilot:prune-logs --days=3` untuk memangkas log yang lebih tua dari 3 hari.
-2. Jika kapasitas masih kritis, jalankan pemangkasan darurat untuk deployment yang berstatus `cancelled` atau `failed` lebih tua dari 24 jam.
+2. Jika kapasitas masih kritis, jalankan pemangkasan darurat terparameterisasi yang disetujui operator untuk deployment `cancelled` atau `failed` dengan waktu terminal lebih tua dari 24 jam, terhadap kedua tabel.
 3. Jalankan `VACUUM FULL deployment_logs;` di luar jam sibuk untuk mengembalikan space disk fisik ke OS bila PostgreSQL *dead tuples* menumpuk signifikan.
 
 ---

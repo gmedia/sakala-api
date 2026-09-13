@@ -115,6 +115,50 @@ test('protects recent terminal deployments within the retention threshold', func
     CarbonImmutable::setTestNow();
 });
 
+test('retention starts at terminal time instead of deployment creation time', function (): void {
+    CarbonImmutable::setTestNow('2026-09-13 12:00:00');
+
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create();
+
+    $deployment = Deployment::factory()->for($project)->create([
+        'status' => DeploymentStatus::Succeeded,
+        'created_at' => CarbonImmutable::now()->subDays(30),
+        'finished_at' => CarbonImmutable::now()->subDays(2),
+    ]);
+
+    DeploymentLog::factory()->create([
+        'deployment_id' => $deployment->id,
+        'created_at' => CarbonImmutable::now()->subDays(30),
+    ]);
+
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'created_at' => CarbonImmutable::now()->subDays(30),
+    ]);
+
+    $action = app(PruneDeploymentLogsAction::class);
+    $result = $action->handle(days: 7);
+
+    expect($result->affectedDeploymentsCount)->toBe(0)
+        ->and($result->prunedLogsCount)->toBe(0)
+        ->and($result->prunedEventsCount)->toBe(0)
+        ->and(DeploymentLog::query()->whereBelongsTo($deployment)->exists())->toBeTrue()
+        ->and(DeploymentEvent::query()->whereBelongsTo($deployment)->exists())->toBeTrue();
+
+    $deployment->update([
+        'finished_at' => CarbonImmutable::now()->subDays(8),
+    ]);
+
+    $result = $action->handle(days: 7);
+
+    expect($result->affectedDeploymentsCount)->toBe(1)
+        ->and($result->prunedLogsCount)->toBe(1)
+        ->and($result->prunedEventsCount)->toBe(1);
+
+    CarbonImmutable::setTestNow();
+});
+
 test('dry run returns candidate count without deleting records', function (): void {
     CarbonImmutable::setTestNow('2026-09-13 12:00:00');
 
@@ -155,6 +199,13 @@ test('throws InvalidArgumentException for invalid retention days', function (): 
 
     expect(fn () => $action->handle(days: 0))
         ->toThrow(InvalidArgumentException::class, 'Retention days must be at least 1.');
+});
+
+test('throws InvalidArgumentException for invalid batch size', function (): void {
+    $action = app(PruneDeploymentLogsAction::class);
+
+    expect(fn () => $action->handle(batchSize: 0))
+        ->toThrow(InvalidArgumentException::class, 'Batch size must be at least 1.');
 });
 
 test('handles empty dataset gracefully', function (): void {

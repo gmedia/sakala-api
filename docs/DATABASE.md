@@ -42,6 +42,7 @@ Index dibuat dari query path yang sudah diketahui:
 - ringkasan runtime user: `(user_id, runtime_status)`;
 - riwayat deployment: `(project_id, created_at)`;
 - deployment aktif/bermasalah: `(status, created_at)` dan `(failure_code, created_at)`;
+- cleanup log terminal: `(status, finished_at)` dan `(status, cancelled_at)`;
 - polling command: `(status, available_at, created_at)`;
 - polling node tertentu: `(agent_node_id, status, available_at)`;
 - timeline/log: `(deployment_id, occurred_at|recorded_at)`;
@@ -72,9 +73,9 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 
 Kolom token OAuth dan environment value memakai encrypted cast Laravel bila memang digunakan. Flow login GitHub App menyimpan user access token dan refresh token terenkripsi pada `oauth_accounts`; token tersebut hanya dipakai untuk memverifikasi akses user ke installation/repository. Installation token pendek untuk operasi service disimpan sementara di cache dalam bentuk terenkripsi dan tidak masuk database. Agent bearer token tidak disimpan; database hanya menyimpan SHA-256/HMAC hash dan prefix untuk identifikasi. Model menyembunyikan seluruh nilai sensitif dari serialization.
 
-Log/event disimpan di database untuk MVP. Record report bersifat append-only (`updated_at` tidak ada); tidak ada endpoint update/delete dari API publik atau machine agent. Agent melakukan redaction sebelum pengiriman dan API mengulang redaction pada message serta metadata sebagai defense-in-depth sebelum persistensi dan broadcast. 
+Log/event disimpan di database untuk MVP. Record report bersifat append-only (`updated_at` tidak ada); tidak ada endpoint update/delete dari API publik atau machine agent. Agent melakukan redaction sebelum pengiriman dan API mengulang redaction pada message serta metadata sebagai defense-in-depth sebelum persistensi dan broadcast.
 
-Kebijakan retensi log fase pilot didefinisikan secara lengkap di [Pilot Log Retention Policy](LOG_RETENTION.md). Selama fase pilot, durasi retensi default adalah 7 hari (`SAKALA_LOG_RETENTION_DAYS=7`). Pembersihan data log dan event dilakukan secara terjadwal atau manual melalui `php artisan pilot:prune-logs` yang menargetkan deployment berstatus terminal (`succeeded`, `failed`, `cancelled`) yang melewati batas retensi. Query pembersihan memanfaatkan index `(status, created_at)` pada tabel `deployments` dan foreign key `deployment_id` pada `deployment_logs`, sehingga tidak membebani performa write tabel append-only dengan index tambahan yang tidak esensial. Jangan membuat pencarian tanpa batas atas; endpoint timeline/log harus memakai cursor pagination dan urutan sequence. Evaluasi partitioning PostgreSQL atau object storage akan dilakukan sebelum transisi ke volume produksi.
+Kebijakan retensi log fase pilot didefinisikan secara lengkap di [Pilot Log Retention Policy](LOG_RETENTION.md). Selama fase pilot, durasi retensi default adalah 7 hari (`SAKALA_LOG_RETENTION_DAYS=7`). Pembersihan data log dan event dijalankan oleh scheduler harian atau manual melalui `php artisan pilot:prune-logs` yang menargetkan deployment berstatus terminal (`succeeded`, `failed`, `cancelled`) berdasarkan `finished_at`/`cancelled_at`, dengan fallback `created_at` untuk record legacy. Query pembersihan memanfaatkan index timestamp terminal pada tabel `deployments` dan foreign key `deployment_id` pada `deployment_logs` serta `deployment_events`. Jangan membuat pencarian tanpa batas atas; endpoint timeline/log harus memakai cursor pagination dan urutan sequence. Evaluasi partitioning PostgreSQL atau object storage akan dilakukan sebelum transisi ke volume produksi.
 
 ## Data Lokal
 

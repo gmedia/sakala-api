@@ -10,6 +10,7 @@ use App\Models\Deployment;
 use App\Models\DeploymentEvent;
 use App\Models\DeploymentLog;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use InvalidArgumentException;
 
 final class PruneDeploymentLogsAction
@@ -41,15 +42,10 @@ final class PruneDeploymentLogsAction
 
         $cutoffDate = CarbonImmutable::now()->subDays($effectiveDays);
 
-        $terminalDeploymentIds = Deployment::query()
-            ->select('id')
-            ->whereIn('status', self::TERMINAL_STATUSES)
-            ->where('created_at', '<', $cutoffDate);
+        $eligibleDeployments = $this->eligibleDeployments($cutoffDate);
+        $terminalDeploymentIds = (clone $eligibleDeployments)->select('id');
 
-        $affectedDeploymentsCount = Deployment::query()
-            ->whereIn('status', self::TERMINAL_STATUSES)
-            ->where('created_at', '<', $cutoffDate)
-            ->count();
+        $affectedDeploymentsCount = $eligibleDeployments->count();
 
         if ($dryRun) {
             $candidateLogsCount = DeploymentLog::query()
@@ -75,6 +71,7 @@ final class PruneDeploymentLogsAction
             /** @var list<int> $logIds */
             $logIds = DeploymentLog::query()
                 ->whereIn('deployment_id', $terminalDeploymentIds)
+                ->orderBy('id')
                 ->limit($batchSize)
                 ->pluck('id')
                 ->all();
@@ -95,6 +92,7 @@ final class PruneDeploymentLogsAction
             /** @var list<int> $eventIds */
             $eventIds = DeploymentEvent::query()
                 ->whereIn('deployment_id', $terminalDeploymentIds)
+                ->orderBy('id')
                 ->limit($batchSize)
                 ->pluck('id')
                 ->all();
@@ -118,5 +116,29 @@ final class PruneDeploymentLogsAction
             retentionDays: $effectiveDays,
             cutoffDate: $cutoffDate,
         );
+    }
+
+    /**
+     * @return Builder<Deployment>
+     */
+    private function eligibleDeployments(CarbonImmutable $cutoffDate): Builder
+    {
+        return Deployment::query()
+            ->whereIn('status', self::TERMINAL_STATUSES)
+            ->where(function (Builder $query) use ($cutoffDate): void {
+                $query
+                    ->where('finished_at', '<', $cutoffDate)
+                    ->orWhere(function (Builder $query) use ($cutoffDate): void {
+                        $query
+                            ->whereNull('finished_at')
+                            ->where('cancelled_at', '<', $cutoffDate);
+                    })
+                    ->orWhere(function (Builder $query) use ($cutoffDate): void {
+                        $query
+                            ->whereNull('finished_at')
+                            ->whereNull('cancelled_at')
+                            ->where('created_at', '<', $cutoffDate);
+                    });
+            });
     }
 }
