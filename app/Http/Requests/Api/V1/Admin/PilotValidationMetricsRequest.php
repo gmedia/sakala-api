@@ -7,6 +7,7 @@ namespace App\Http\Requests\Api\V1\Admin;
 use App\Data\Admin\PilotValidationMetricsRequestData;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\ValidationException;
 
 final class PilotValidationMetricsRequest extends FormRequest
 {
@@ -28,13 +29,28 @@ final class PilotValidationMetricsRequest extends FormRequest
 
     public function toData(): PilotValidationMetricsRequestData
     {
+        $from = $this->input('from') !== null
+            ? CarbonImmutable::parse($this->input('from'))->utc()
+            : null;
+
+        $to = $this->input('to') !== null
+            ? CarbonImmutable::parse($this->input('to'))->utc()
+            : null;
+
+        $now = now()->toImmutable()->utc();
+
+        $effectiveFrom = $from ?? $now->startOfMonth();
+        $effectiveTo = $to ?? $now;
+
+        if ($effectiveFrom->greaterThan($effectiveTo)) {
+            throw ValidationException::withMessages([
+                'from' => 'The from date must be before or equal to the effective to date.',
+            ]);
+        }
+
         return new PilotValidationMetricsRequestData(
-            from: $this->input('from') !== null
-                ? CarbonImmutable::parse($this->input('from'))
-                : null,
-            to: $this->input('to') !== null
-                ? CarbonImmutable::parse($this->input('to'))
-                : null
+            from: $from,
+            to: $to,
         );
     }
 }
