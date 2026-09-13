@@ -36,7 +36,6 @@ final class GetPilotValidationMetricsAction
 
         $failures = DB::table('deployments')
             ->where('status', DeploymentStatus::Failed->value)
-            ->whereNotNull('failure_code')
             ->where('created_at', '>=', $from)
             ->where('created_at', '<', $to)
             ->selectRaw('COUNT(*) as total, failure_code')
@@ -44,6 +43,11 @@ final class GetPilotValidationMetricsAction
             ->get();
 
         foreach ($failures as $failure) {
+            if ($failure->failure_code === null) {
+                $categories[DeploymentFailureCategory::Unknown->value] += (int) $failure->total;
+
+                continue;
+            }
             $category = $this->failureClassifier
                 ->classify((string) $failure->failure_code)
                 ->category;

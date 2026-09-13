@@ -343,3 +343,95 @@ test('default date range uses current month until now', function (): void {
         ->assertJsonPath('data.activated_users', 1)
         ->assertJsonPath('data.successful_deployments', 1);
 });
+
+test('equivalent date range offsets produce the same UTC window and metrics', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $user = User::factory()->create([
+        'onboarding_completed_at' => '2026-09-05 10:00:00',
+    ]);
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'requested_by' => $user->id,
+        'status' => DeploymentStatus::Succeeded,
+        'created_at' => '2026-09-05 12:00:00',
+    ]);
+
+    $utcResponse = $this
+        ->actingAs($admin, 'web')
+        ->getJson(
+            '/api/v1/admin/metrics/pilot-validation?'.
+            'from=2026-09-01T00:00:00Z&'.
+            'to=2026-09-07T00:00:00Z',
+        );
+
+    $offsetResponse = $this
+        ->actingAs($admin, 'web')
+        ->getJson(
+            '/api/v1/admin/metrics/pilot-validation?'.
+            'from=2026-09-01T07:00:00%2B07:00&'.
+            'to=2026-09-07T07:00:00%2B07:00',
+        );
+
+    $utcResponse
+        ->assertOk()
+        ->assertJsonPath('data.from', '2026-09-01T00:00:00+00:00')
+        ->assertJsonPath('data.to', '2026-09-07T00:00:00+00:00')
+        ->assertJsonPath('data.successful_deployments', 1);
+
+    $offsetResponse
+        ->assertOk()
+        ->assertJsonPath('data.from', '2026-09-01T00:00:00+00:00')
+        ->assertJsonPath('data.to', '2026-09-07T00:00:00+00:00')
+        ->assertJsonPath('data.successful_deployments', 1);
+});
+
+test('future from without to is rejected when effective range is reversed', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $this
+        ->actingAs($admin, 'web')
+        ->getJson(
+            '/api/v1/admin/metrics/pilot-validation?'.
+            'from=2026-09-13T00:00:00Z',
+        )
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['from']);
+});
+
+test('counts failed deployments without failure code as unknown', function (): void {
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'requested_by' => $user->id,
+        'status' => DeploymentStatus::Failed,
+        'failure_code' => null,
+        'created_at' => '2026-09-05 12:00:00',
+    ]);
+
+    $response = $this
+        ->actingAs($admin, 'web')
+        ->getJson('/api/v1/admin/metrics/pilot-validation');
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('data.failure_categories.unknown', 1);
+});
