@@ -1,0 +1,280 @@
+# Pilot Log Retention Policy
+
+Dokumen ini mendefinisikan kebijakan retensi log, batasan akses, tanggung jawab redaksi rahasia, batas kapasitas, ketiadaan garansi SLA durabilitas, serta mekanisme pembersihan (cleanup) untuk fase Pilot MVP pada Sakala API.
+
+---
+
+## 1. Latar Belakang dan Tujuan
+
+Pada fase Pilot MVP, Sakala API bertindak sebagai control plane yang menyimpan log proses build aplikasi, log output runtime container, serta event timeline deployment di database PostgreSQL. 
+
+Tujuan kebijakan ini adalah:
+1. Memberikan batasan yang jujur dan transparan bagi pengguna pilot sebelum mereka mengandalkan penyimpanan log.
+2. Mencegah kejenuhan kapasitas storage database (*disk exhaustion*) akibat append-only logging tak terbatas.
+3. Menetapkan batasan akses yang tegas antara pengguna pemilik project (*owner*), administrator platform (*admin*), dan mesin agen (*agent*).
+4. Menjelaskan kemampuan dan limitasi teknis dari sistem penyaringan rahasia (*secret redaction*).
+5. Menyediakan prosedur pembersihan terjadwal dan manual serta panduan respon insiden bila terjadi kebocoran credential.
+
+---
+
+## 2. Klasifikasi Jenis Log
+
+Sakala API membagi log operasional menjadi tiga jenis:
+
+| Jenis Log | Sumber Penghasil | Stream / Level | Deskripsi & Kegunaan |
+| --- | --- | --- | --- |
+| **Build Logs** | Agent runner selama fase build/cloning | `stdout`, `stderr` | Output kompilasi kode, resolusi dependensi, dan pembuatan container image. Digunakan terutama untuk mendiagnosis kegagalan deployment (*build failure*). |
+| **Runtime Logs** | Container aplikasi yang sedang berjalan | `stdout`, `stderr` | Output standar dari proses aplikasi pengguna (request log, application log, error traces). Digunakan untuk monitoring dan debugging langsung dari Console. |
+| **Deployment Events** | Agent lifecycle transitions & API state machine | Level: `info`, `warn`, `error` | Rekaman audit transisi state deployment (`queued`, `cloning`, `analyzing`, `building`, `deploying`, `routing`, `health_checking`, `succeeded`, `failed`, `cancelled`) beserta metadata eksekusi. |
+
+Semua record log disimpan pada tabel `deployment_logs`, sedangkan record event disimpan pada tabel `deployment_events`. Keduanya bersifat append-only dengan nomor urut (`sequence`) yang bertambah secara monotonik per deployment.
+
+---
+
+## 3. Durasi Retensi Pilot
+
+Selama fase Pilot MVP, durasi retensi log diatur sebagai berikut:
+
+- **Durasi Retensi Default**: **7 hari** (dikonfigurasi via `SAKALA_LOG_RETENTION_DAYS`, default: `7`).
+- **Sifat Retensi**: *Bounded rolling window*. Data log dan event dari deployment yang berumur lebih dari 7 hari sejak dibuat (`created_at`) memenuhi syarat (*eligible*) untuk dipangkas (*pruned*).
+- **Syarat Status Terminal**: Pemangkasan **hanya** menargetkan deployment yang berada pada status terminal:
+  - `succeeded`
+  - `failed`
+  - `cancelled`
+- **Proteksi Deployment Aktif**: Deployment yang masih berstatus aktif (`queued`, `cloning`, `analyzing`, `building`, `deploying`, `routing`, `health_checking`) **tidak akan dipangkas**, terlepas dari usianya, guna menjamin integritas observabilitas runtime yang sedang berjalan.
+
+---
+
+## 4. Batasan Akses (Access Boundaries)
+
+Batasan hak akses terhadap log dan event ditegakkan secara ketat pada layer Policy dan Route Middleware:
+
+```text
++---------------------+-------------------+-----------------------------------+
+| Persona / Actor     | Mode Akses        | Boundary & Otorisasi              |
++---------------------+-------------------+-----------------------------------+
+| Project Owner       | Read-only         | Terbatas hanya pada project milik  |
+| (Console User)      |                   | sendiri ($user->id === project->user_id). |
+|                     |                   | Endpoint: GET /app/projects/.../logs |
+|                     |                   | WebSocket: private-deployment.{id}|
++---------------------+-------------------+-----------------------------------+
+| Platform Admin      | Read & Operations | Akses investigasi lintas project  |
+|                     |                   | via ProjectPolicy::before().       |
+|                     |                   | Wewenang eksekusi prune/cleanup.  |
+|                     |                   | Metrik agregasi tanpa raw logs.   |
++---------------------+-------------------+-----------------------------------+
+| Machine Agent       | Write-only        | Terbatas hanya pada command aktif |
+| (Runtime Node)      | (Append)          | yang di-claim (agent_node_id).    |
+|                     |                   | Endpoint: POST /agent/v1/.../logs |
+|                     |                   | Tidak memiliki akses GET log/user.|
++---------------------+-------------------+-----------------------------------+
+```
+
+### Detail Persona
+
+1. **Project Owner (Pengguna Console)**:
+   - Mengakses log melalui endpoint `GET /api/v1/app/projects/{project}/deployments/{deployment}/logs` dan `GET /api/v1/app/projects/{project}/deployments/{deployment}/events`.
+   - Menggunakan autentikasi session cookie Sanctum SPA.
+   - Hak akses divalidasi oleh `ProjectPolicy@view`. Akses terhadap project milik pengguna lain ditolak dengan respons `403 Forbidden`.
+   - Dapat menerima stream log real-time melalui private channel Reverb `deployment.{deployment_id}`.
+   - **Tidak memiliki hak write, edit, atau delete** log melalui API.
+
+2. **Platform Admin**:
+   - Memiliki otorisasi penuh membaca deployment logs seluruh pengguna untuk keperluan *incident response* dan *troubleshooting* operasional melalui bypass `ProjectPolicy::before()` (`$user->isAdmin()`).
+   - Dapat mengakses endpoint metrik agregasi platform (`GET /api/v1/admin/metrics/pilot-validation`) yang menyajikan statistik kegagalan tanpa membocorkan payload log mentah.
+   - Memiliki wewenang untuk menjalankan proses pruning dan prosedur cleanup manual database.
+
+3. **Machine Agent (Sakala Agent)**:
+   - Menggunakan autentikasi Bearer token mesin (`Authorization: Bearer <agent-token>` dan header `X-Agent-Id`).
+   - Hanya diizinkan melaporkan (*write/append*) log dan event baru pada endpoint `POST /agent/v1/commands/{command}/logs` dan `POST /agent/v1/commands/{command}/events`.
+   - Hanya dapat melaporkan ke command yang berstatus `Claimed` atau `Running` serta tercatat sebagai pemilik klaim (`agent_node_id === $agent->id`).
+   - **Agent tidak memiliki endpoint untuk membaca log** yang sudah tersimpan di API (*write-only contract*).
+   - Agent tidak dapat menghapus atau mengubah log yang telah dilaporkan.
+
+---
+
+## 5. Batas Maksimum dan Kuota (Bounds & Quotas)
+
+Untuk menjaga stabilitas performa control plane, payload log dibatasi oleh konfigurasi `sakala.pilot_limits.log_bounds`:
+
+1. **Batas Panjang Baris (`max_line_length`)**: Maksimum **4.096 byte** (4 KB) per baris pesan log. Pesan yang melebihi batas ini ditolak dengan `422 Unprocessable Entity`.
+2. **Batas Ukuran Batch (`max_batch_lines`)**: Maksimum **500 baris** per HTTP request report.
+3. **Batas Request Body (`max_request_bytes`)**: Maksimum **1 MB** (1.048.576 byte) per payload HTTP request, ditegakkan oleh middleware `LimitAgentReportPayload`. Request yang melampaui batas ini ditolak dengan `413 Payload Too Large`.
+4. **Batas Anggaran Kumulatif (`max_total_bytes`)**: Budget akumulasi log maksimum sebesar **10 MB** (10.485.760 byte) per command/deployment. Penghitungan dilakukan secara atomic pada counter `reported_log_bytes` di tabel `agent_commands`. Jika budget habis, pelaporan log baru ditolak dengan `422 Unprocessable Entity`.
+
+---
+
+## 6. Tanggung Jawab dan Batasan Redaksi Rahasia (Secret Redaction)
+
+### Model Tanggung Jawab Bersama (*Shared Responsibility*)
+
+Keamanan credential dan data rahasia menerapkan prinsip pertahanan berlapis (*defense-in-depth*):
+
+1. **Layer 1 - Agent Runtime (Primary Scrubber)**: Agent wajib memfilter dan menyensor nilai sensitif di tingkat lokal sebelum payload dikirimkan melalui jaringan ke API.
+2. **Layer 2 - API Control Plane (Defense-in-Depth)**: API mengulang proses sanitasi menggunakan `SecretRedactionService` pada setiap baris pesan (`message`) dan struktur `metadata` sebelum persistensi ke PostgreSQL dan sebelum dipublikasikan ke private WebSocket channel Reverb.
+
+### Pola yang Didukung
+
+Penyaringan otomatis oleh `SecretRedactionService` mencakup:
+- Prefix token GitHub: `ghp_`, `gho_`, `ghs_`, `github_pat_`.
+- Format HTTP header: `Bearer <token>`.
+- Format URL dengan basic auth: `https://user:password@host...`.
+- Pasangan key-value sensitif (case-insensitive, mendukung snake_case, camelCase, kebab-case): `password`, `token`, `secret`, `app_key`, `authorization`, `api_key`, `access_token`, `refresh_token`, `client_secret`, `database_url`.
+- Seluruh key sensitif pada objek bersarang (*nested arrays*) di kolom `metadata`.
+
+### Keterbatasan Teknis yang Harus Dipahami
+
+> [!WARNING]
+> **Limitasi Redaksi**: Penyaringan berbasis pattern regex tidak dapat menjamin 100% deteksi seluruh rahasia.
+
+Pengguna dan operator harus memahami keterbatasan berikut:
+- **Token Tanpa Pola Standar**: API key dari penyedia pihak ketiga yang tidak memiliki prefix terdaftar (misalnya AWS Secret Access Keys acak, API key custom, string UUID tanpa nama key) tidak dapat dideteksi secara otomatis.
+- **Fragmentasi Baris**: Rahasia yang terpotong menjadi beberapa paket stream atau terpecah di tengah string oleh newline tidak akan cocok dengan pola regex tunggal.
+- **Payload Terenkripsi atau Terenkode**: Nilai rahasia dalam bentuk Base64, Hexadecimal, URL encoded, atau format terenkripsi tidak didecode untuk inspeksi konten.
+- **Tanggung Jawab Kode Aplikasi**: Developer bertanggung jawab penuh memastikan aplikasi dan build script mereka tidak mencetak password, private key, sertifikat TLS, atau file `.env` ke stream `stdout`/`stderr`.
+- **Imutabilitas Sisi Klien WebSocket**: Log yang sudah terlanjur dibroadcast ke browser yang sedang membuka console tidak dapat ditarik kembali secara retroaktif dari memori tab browser pengguna jika terjadi kebocoran sebelum deteksi.
+
+---
+
+## 7. Ketiadaan Garansi SLA Durabilitas (No Production Durability/SLA Claim)
+
+> [!IMPORTANT]
+> **Pernyataan Pilot MVP**: Sakala API pada fase pilot disediakan sebagai lingkungan pengujian kelayakan sistem dan **BUKAN** layanan produksi ber-SLA tinggi.
+
+1. **Tidak Ada Garansi Arsip Permanen (*No Permanent Archival Guarantee*)**: Database PostgreSQL Sakala API adalah *operational metadata store*, bukan sistem *cold storage* atau *data lake*. Data log tidak disimpan secara permanen.
+2. **Ketiadaan SLA Durabilitas**: Sakala tidak memberikan komitmen ketersediaan log 99.9% atau garansi pemulihan data log jika terjadi kegagalan hardware, kerusakan node, atau bencana infrastruktur.
+3. **Pembersihan Tanpa Pemberitahuan Sebelumnya**: Pada kondisi darurat kapasitas penyimpanan, migrasi arsitektur, atau kegagalan node, log historis dapat dipangkas sewaktu-waktu demi menjaga kelangsungan operasional API control plane.
+4. **Bukan Catatan Kepatuhan (*Compliance*)**: Pengguna dilarang keras mengandalkan log Sakala API sebagai satu-satunya catatan audit hukum, finansial, atau regulasi industri.
+
+---
+
+## 8. Mekanisme Pembersihan (Cleanup Mechanisms)
+
+Pembersihan log dilakukan secara terukur menggunakan dua pendekatan: command otomatis terisolasi dan prosedur SQL manual untuk operator.
+
+### 8.1. Perintah Otomatis: `php artisan pilot:prune-logs`
+
+Sakala API menyediakan Artisan console command yang didukung oleh `PruneDeploymentLogsAction`:
+
+```bash
+# Menjalankan simulasi pembersihan (tanpa menghapus data)
+php artisan pilot:prune-logs --dry-run
+
+# Menjalankan pembersihan dengan retensi default (7 hari)
+php artisan pilot:prune-logs
+
+# Menjalankan pembersihan dengan batas hari khusus (misal 14 hari)
+php artisan pilot:prune-logs --days=14
+
+# Menjalankan pembersihan dengan ukuran batch kustom
+php artisan pilot:prune-logs --days=7 --batch=500
+```
+
+#### Karakteristik Teknis Action:
+- Menghitung tanggal cutoff: `now()->subDays($days)`.
+- Mengidentifikasi deployment terminal (`succeeded`, `failed`, `cancelled`) yang dibuat sebelum tanggal cutoff menggunakan index `(status, created_at)` pada tabel `deployments`.
+- Melakukan penghapusan secara bertahap (*chunked batches*) untuk mencegah *table lock escalation* pada PostgreSQL.
+- Mengembalikan ringkasan data DTO `PruneDeploymentLogsResultData`.
+
+### 8.2. Prosedur SQL Manual untuk Operator Database
+
+Jika operator perlu melakukan audit kapasitas atau melakukan pembersihan langsung di PostgreSQL:
+
+#### Langkah 1: Evaluasi Kandidat Data dan Estimasi Kapasitas
+```sql
+-- Periksa ukuran fisik tabel log dan event saat ini
+SELECT 
+    relname AS table_name,
+    pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+    pg_size_pretty(pg_relation_size(relid)) AS table_size,
+    pg_size_pretty(pg_indexes_size(relid)) AS index_size
+FROM pg_catalog.pg_statio_user_tables
+WHERE relname IN ('deployment_logs', 'deployment_events');
+
+-- Hitung jumlah baris log yang memenuhi kriteria retensi (> 7 hari pada terminal deployments)
+SELECT COUNT(*) AS eligible_logs_count
+FROM deployment_logs l
+WHERE l.deployment_id IN (
+    SELECT d.id
+    FROM deployments d
+    WHERE d.status IN ('succeeded', 'failed', 'cancelled')
+      AND d.created_at < NOW() - INTERVAL '7 days'
+);
+```
+
+#### Langkah 2: Eksekusi Penghapusan Bertahap (Chunked Deletion)
+Untuk menghindari *lock timeout* pada transaksi aktif, hapus baris dalam batasan limit per iterasi:
+```sql
+-- Contoh batch 5.000 baris
+DELETE FROM deployment_logs
+WHERE id IN (
+    SELECT l.id
+    FROM deployment_logs l
+    WHERE l.deployment_id IN (
+        SELECT d.id
+        FROM deployments d
+        WHERE d.status IN ('succeeded', 'failed', 'cancelled')
+          AND d.created_at < NOW() - INTERVAL '7 days'
+    )
+    LIMIT 5000
+);
+
+-- Ulangi perintah di atas hingga nilai affected rows menjadi 0.
+```
+
+Lakukan hal yang sama untuk tabel `deployment_events` jika diperlukan.
+
+#### Langkah 3: Verifikasi Pasca-Pembersihan
+```sql
+-- Pastikan tidak ada log dari deployment aktif yang terhapus
+SELECT COUNT(*) AS active_deployments_logs
+FROM deployment_logs l
+JOIN deployments d ON d.id = l.deployment_id
+WHERE d.status NOT IN ('succeeded', 'failed', 'cancelled');
+
+-- Reklamasi ruang penyimpanan disk jika diperlukan
+VACUUM ANALYZE deployment_logs;
+VACUUM ANALYZE deployment_events;
+```
+
+---
+
+## 9. Prosedur Tanggap Insiden (Incident Procedures)
+
+### 9.1. Kebocoran Kredensial Tidak Sengaja (*Accidental Credential Leakage*)
+
+Jika seorang pengguna atau operator melaporkan adanya credential produksi yang tercetak ke log:
+
+1. **Rotasi Segera**: Pengguna WAJIB segera merotasi/merevoke credential yang bocor pada provider asal (GitHub token, database password, API key).
+2. **Identifikasi Baris Log**:
+   ```sql
+   SELECT id, deployment_id, sequence, recorded_at, message
+   FROM deployment_logs
+   WHERE deployment_id = '<target-deployment-uuid>'
+     AND (message LIKE '%<leaked-value-fragment>%' OR sequence BETWEEN <start_seq> AND <end_seq>);
+   ```
+3. **Penghapusan Tertarget**:
+   ```sql
+   DELETE FROM deployment_logs
+   WHERE deployment_id = '<target-deployment-uuid>'
+     AND sequence BETWEEN <start_seq> AND <end_seq>;
+   ```
+4. **Verifikasi**: Pastikan respons endpoint `/logs` untuk deployment tersebut tidak lagi memuat baris yang bersangkutan.
+
+### 9.2. Kondisi Darurat Kapasitas Disk (*Disk Space Exhaustion*)
+
+Jika monitoring server mendeteksi penggunaan disk PostgreSQL melebihi 85%:
+
+1. Operator menjalankan `php artisan pilot:prune-logs --days=3` untuk memangkas log yang lebih tua dari 3 hari.
+2. Jika kapasitas masih kritis, jalankan pemangkasan darurat untuk deployment yang berstatus `cancelled` atau `failed` lebih tua dari 24 jam.
+3. Jalankan `VACUUM FULL deployment_logs;` di luar jam sibuk untuk mengembalikan space disk fisik ke OS bila PostgreSQL *dead tuples* menumpuk signifikan.
+
+---
+
+## 10. Referensi Terkait
+
+- [Arsitektur Sistem (ARCHITECTURE.md)](../ARCHITECTURE.md)
+- [Desain Database & Index Strategy (docs/DATABASE.md)](DATABASE.md)
+- [Konvensi API & Batasan Report (docs/API_CONVENTIONS.md)](API_CONVENTIONS.md)
+- [Dokumentasi Konfigurasi Environment (docs/CONFIGURATION.md)](CONFIGURATION.md)
+- [Kebijakan Keamanan (SECURITY.md)](../SECURITY.md)

@@ -48,6 +48,8 @@ Response sukses berbentuk Resource berikut:
 
 Message dan metadata event selalu melewati redaction defense-in-depth API sebelum disimpan atau dibroadcast. Agent tetap wajib melakukan redaction lebih awal. Secret tidak pernah dikembalikan pada acknowledgement atau error response.
 
+Untuk ketentuan lengkap durasi retensi, batasan akses (owner, admin, machine agent), keterbatasan teknis redaksi, serta mekanisme pembersihan log, lihat [Pilot Log Retention Policy](LOG_RETENTION.md).
+
 ## HTTP
 
 Gunakan method dan status code sesuai semantik HTTP. Validation error memakai `422`, unauthenticated `401`, forbidden `403`, missing resource `404`, dan conflict `409` bila state tidak memungkinkan operasi.

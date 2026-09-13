@@ -12,6 +12,7 @@ Jangan membuka public issue untuk kerentanan yang belum diperbaiki. Laporkan sec
 - Agent token dan OAuth secret tidak boleh dicatat dalam log atau commit.
 - CORS dan Reverb origin harus berupa allowlist eksplisit.
 - Environment variable sensitif tidak boleh dikirim kembali melalui API.
+- Output log disanitasi berlapis (agent dan API defense-in-depth), memiliki batasan retensi dan model akses yang didokumentasikan di [Pilot Log Retention Policy](docs/LOG_RETENTION.md).
 
 ## Status
 

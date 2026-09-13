@@ -12,12 +12,13 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
 
-## Agent Reporting
-
+## Agent Reporting dan Log Retention
+ 
 - `SAKALA_LOG_MAX_LINE_LENGTH`: batas panjang satu message dalam byte.
 - `SAKALA_LOG_MAX_BATCH_LINES`: jumlah maksimum item dalam satu report.
 - `SAKALA_LOG_MAX_TOTAL_BYTES`: budget kumulatif message log per command.
 - `SAKALA_LOG_MAX_REQUEST_BYTES`: batas ukuran body setiap request report, terpisah dari budget kumulatif.
+- `SAKALA_LOG_RETENTION_DAYS`: durasi retensi log pilot dalam hari (default: `7`). Lihat [Pilot Log Retention Policy](LOG_RETENTION.md).
 
 ## Database dan Infrastruktur
 

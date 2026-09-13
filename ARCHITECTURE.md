@@ -29,7 +29,7 @@ Fondasi saat ini baru mengekspos service status. Domain route ditambahkan setela
 
 PostgreSQL menyimpan metadata control plane dan durable agent command. Entitas yang melewati boundary API/agent memakai UUIDv7, sedangkan event/log/audit append-only memakai bigint internal. Nilai status didefinisikan sebagai backed enum PHP dan disimpan sebagai string agar kontrak dapat berkembang tanpa migrasi native enum database.
 
-Project dimiliki user secara langsung pada MVP. Workspace/team dan custom domain sengaja belum dimodelkan. Lihat [desain database](docs/DATABASE.md) untuk relasi, pola query, idempotensi, dan strategi index.
+Project dimiliki user secara langsung pada MVP. Workspace/team dan custom domain sengaja belum dimodelkan. Lihat [desain database](docs/DATABASE.md) untuk relasi, pola query, idempotensi, dan strategi index, serta [kebijakan retensi log pilot](docs/LOG_RETENTION.md) untuk batas retensi, model akses, dan prosedur pembersihan log.
 
 ## Authentication
 
