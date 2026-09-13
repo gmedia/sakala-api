@@ -102,10 +102,52 @@ https://api.sakala.dev/auth/github/callback
 Jangan mematikan atau melewati state callback. State session adalah proteksi
 callback browser terhadap CSRF.
 
-### Batasan Login Google
+### Login Google
 
-Login Google belum diimplementasikan dalam API. Jangan menambahkan route atau
-credential provider baru tanpa issue dan kontrak keamanan terpisah.
+Login Google memakai Socialite sebagai browser OAuth flow dan menggunakan
+session `web` yang sama dengan login email/password. Route OAuth tidak berada
+di bawah `/api/v1` karena callback harus mempertahankan state session browser:
+
+| Endpoint | Kegunaan |
+| --- | --- |
+| `GET /auth/google/redirect` | Membuka authorization flow Google. |
+| `GET /auth/google/callback` | Menerima callback Google dan membuat session Console. |
+
+Flow Google:
+
+1. Browser membuka `GET /auth/google/redirect` pada API.
+2. API menyimpan OAuth state pada session Laravel dan meminta scope `openid`,
+   `profile`, serta `email`.
+3. Google mengarahkan browser ke callback API.
+4. API hanya menerima profile dengan `email_verified` bernilai true.
+5. API menemukan identitas berdasarkan kombinasi `provider=google` dan
+   `provider_user_id`.
+6. Jika identitas belum ada tetapi email sudah dipakai user lain, API menolak
+   login dengan `google_email_conflict` dan tidak melakukan account linking
+   otomatis.
+7. Jika identitas belum ada dan email belum dipakai, API membuat user baru
+   terverifikasi tanpa password lokal dan membuat `OAuthAccount` Google.
+8. Laravel membuat session baru dan meregenerasi session ID.
+9. API mengarahkan browser kembali ke Console tanpa credential pada URL.
+10. Console mengambil user melalui `GET /api/v1/auth/user`.
+
+Access token dan refresh token Google hanya digunakan oleh Socialite selama
+callback dan tidak disimpan ke database. Login Google tidak membuat bearer
+token atau personal access token. Callback yang gagal mengarahkan user ke
+halaman login Console dengan kode error non-sensitif:
+`google_access_denied`, `google_invalid_state`,
+`google_email_unavailable`, `google_email_conflict`, atau
+`google_provider_failure`.
+
+Konfigurasi Google harus memakai callback URI yang persis sama dengan
+`GOOGLE_REDIRECT_URI`. Untuk local development:
+
+```text
+http://api.sakala.localhost:8000/auth/google/callback
+```
+
+State callback tidak boleh dimatikan atau diganti dengan `stateless()`. State
+session melindungi callback browser terhadap CSRF.
 
 ## Agent dan Machine Client
 

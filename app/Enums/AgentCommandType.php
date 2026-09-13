@@ -31,4 +31,18 @@ enum AgentCommandType: string
             self::RefreshRoute => ['caddy-file-routing'],
         };
     }
+
+    public function isBlockedForSuspendedProject(): bool
+    {
+        return match ($this) {
+            self::DeployProject,
+            self::RestartProject,
+            self::WakeProject,
+            self::RefreshRoute => true,
+
+            self::StopProject,
+            self::SleepProject,
+            self::HealthCheck => false,
+        };
+    }
 }

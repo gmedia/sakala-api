@@ -3,9 +3,14 @@
 declare(strict_types=1);
 
 use App\Actions\Deployment\TransitionDeploymentAction;
+use App\Data\Deployment\DeploymentFailureData;
+use App\Enums\AgentCommandType;
+use App\Enums\DeploymentFailureCategory;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Models\AgentCommand;
+use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\Project;
 use Illuminate\Broadcasting\BroadcastEvent;
@@ -236,4 +241,92 @@ test('invalid deployment transition is rejected without changing state', functio
 
     expect($deployment->logs()->count())
         ->toBe(0);
+});
+
+test('stops an in-flight deployment that succeeds after project is suspended', function (): void {
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::HealthChecking,
+    ]);
+
+    app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Succeeded,
+    );
+
+    $deployment->refresh();
+
+    expect($deployment->status)
+        ->toBe(DeploymentStatus::Succeeded);
+
+    $command = AgentCommand::query()
+        ->where('project_id', $project->id)
+        ->where('deployment_id', $deployment->id)
+        ->where('agent_node_id', $agent->id)
+        ->where('type', AgentCommandType::SleepProject)
+        ->first();
+
+    expect($command)->not->toBeNull();
+});
+
+test('keeps suspended project running until sleep command completes', function (): void {
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Suspended,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+
+    $agent = AgentNode::factory()->create();
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::HealthChecking,
+    ]);
+
+    app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Succeeded,
+    );
+
+    $project->refresh();
+
+    expect($project->status)
+        ->toBe(ProjectStatus::Suspended)
+        ->and($project->runtime_status)
+        ->toBe(RuntimeStatus::Running);
+});
+
+test('failed transition stores failure data', function (): void {
+    $deployment = Deployment::factory()->create([
+        'status' => DeploymentStatus::Building,
+        'failure_code' => null,
+        'failure_summary' => null,
+    ]);
+
+    $failureData = new DeploymentFailureData(
+        code: 'build_failed',
+        category: DeploymentFailureCategory::Build,
+        summary: 'Deployment gagal saat proses build aplikasi.',
+        recoveryHint: 'Periksa konfigurasi build dan dependency aplikasi.',
+    );
+
+    $result = app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Failed,
+        failureData: $failureData,
+    );
+
+    expect($result->failure_code)
+        ->toBe('build_failed');
+
+    expect($result->failure_summary)
+        ->toBe('Deployment gagal saat proses build aplikasi.');
 });

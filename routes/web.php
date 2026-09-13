@@ -7,6 +7,8 @@ use App\Http\Controllers\Auth\GithubInstallationConfigureController;
 use App\Http\Controllers\Auth\GithubInstallationRedirectController;
 use App\Http\Controllers\Auth\GithubInstallationSetupController;
 use App\Http\Controllers\Auth\GithubRedirectController;
+use App\Http\Controllers\Auth\GoogleCallbackController;
+use App\Http\Controllers\Auth\GoogleRedirectController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')
@@ -14,6 +16,8 @@ Route::prefix('auth')
     ->group(function (): void {
         Route::get('github/redirect', GithubRedirectController::class)->name('auth.github.redirect');
         Route::get('github/callback', GithubCallbackController::class)->name('auth.github.callback');
+        Route::get('google/redirect', GoogleRedirectController::class)->name('auth.google.redirect');
+        Route::get('google/callback', GoogleCallbackController::class)->name('auth.google.callback');
         Route::middleware('auth:web')->group(function (): void {
             Route::get('github/install', GithubInstallationRedirectController::class)->name('auth.github.install');
             Route::get('github/installations/{installation}/configure', GithubInstallationConfigureController::class)->name('auth.github.installations.configure');

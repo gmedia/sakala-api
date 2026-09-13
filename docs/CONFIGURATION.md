@@ -12,6 +12,13 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
 
+## Agent Reporting
+
+- `SAKALA_LOG_MAX_LINE_LENGTH`: batas panjang satu message dalam byte.
+- `SAKALA_LOG_MAX_BATCH_LINES`: jumlah maksimum item dalam satu report.
+- `SAKALA_LOG_MAX_TOTAL_BYTES`: budget kumulatif message log per command.
+- `SAKALA_LOG_MAX_REQUEST_BYTES`: batas ukuran body setiap request report, terpisah dari budget kumulatif.
+
 ## Database dan Infrastruktur
 
 - `DB_*`: koneksi PostgreSQL.
@@ -42,6 +49,18 @@ request dengan credentials agar cookie session dan CSRF dapat dipakai.
 - `REVERB_ALLOWED_ORIGINS`: allowlist origin WebSocket dipisahkan koma.
 
 Nilai credential sengaja kosong di `.env.example`; buat nilai lokal sendiri dan gunakan GitLab File variable untuk private key di environment deployment. Private key, webhook secret, dan installation token tidak boleh masuk log, OpenAPI, atau database.
+
+## Login Google
+
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: credential OAuth client Google.
+- `GOOGLE_REDIRECT_URI`: callback login Google. Callback local default:
+  `http://api.sakala.localhost:8000/auth/google/callback`.
+
+Callback URI Google Cloud OAuth Client harus sama persis dengan
+`GOOGLE_REDIRECT_URI`. `GOOGLE_CLIENT_ID` adalah public identifier dan normal
+untuk dikirim pada authorization redirect ke browser. `GOOGLE_CLIENT_SECRET`
+adalah credential rahasia yang hanya boleh dibaca server melalui
+`config/services.php`; jangan masukkan ke browser, log, atau response API.
 
 ## Realtime dan Broadcasting
 
@@ -83,3 +102,27 @@ repository dari installation. OAuth saat installation harus dimatikan karena
 Sakala memulai user-to-server OAuth sendiri melalui
 `GET /auth/github/redirect`; bila dinyalakan GitHub mengarahkan flow tersebut
 ke OAuth callback, bukan Setup URL.
+## RustFS Setup
+
+The development environment uses RustFS as an S3-compatible object storage backend.
+
+### Environment
+
+```env
+AWS_BUCKET=sakala
+AWS_ENDPOINT=http://rustfs:9000
+AWS_USE_PATH_STYLE_ENDPOINT=true
+AWS_URL=http://localhost:9000/sakala
+```
+
+`AWS_ENDPOINT` is the internal endpoint used by the application container to communicate with RustFS through the Docker network.
+
+`AWS_URL` is the public base URL used when generating object URLs consumed by the browser or host environment.
+
+With this configuration, avatar objects use the following URL format:
+
+```text
+http://localhost:9000/sakala/avatars/<object-key>
+```
+
+The `s3` and `avatars` filesystem disks share the same S3-compatible provider configuration. The `avatars` disk remains a logical domain-specific filesystem boundary, allowing avatar-specific configuration to be added independently when needed.

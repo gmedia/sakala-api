@@ -7,6 +7,7 @@ namespace App\Actions\Deployment;
 use App\Enums\DeploymentEventLevel;
 use App\Events\Deployment\DeploymentEventCreated;
 use App\Models\Deployment;
+use Illuminate\Support\Facades\DB;
 
 final class CreateDeploymentEventAction
 {
@@ -22,22 +23,29 @@ final class CreateDeploymentEventAction
         string $message,
         ?array $metadata = null
     ): void {
-        $sequence = (int) $deployment->events()->max('sequence') + 1;
+        DB::transaction(function () use ($deployment, $level, $type, $message, $metadata): void {
+            $deployment = Deployment::query()
+                ->whereKey($deployment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $deploymentEvent = $deployment->events()->create([
-            'sequence' => $sequence,
-            'level' => $level,
-            'type' => $type,
-            'message' => $message,
-            'metadata' => $metadata,
-            'occurred_at' => now(),
-        ]);
+            $sequence = (int) $deployment->events()->max('sequence') + 1;
 
-        $realtimeSequence = $this->allocateDeploymentRealtimeSequenceAction->handle($deployment);
+            $deploymentEvent = $deployment->events()->create([
+                'sequence' => $sequence,
+                'level' => $level,
+                'type' => $type,
+                'message' => $message,
+                'metadata' => $metadata,
+                'occurred_at' => now(),
+            ]);
 
-        DeploymentEventCreated::dispatch(
-            deploymentEvent: $deploymentEvent,
-            realtimeSequence: $realtimeSequence
-        );
+            $realtimeSequence = $this->allocateDeploymentRealtimeSequenceAction->handle($deployment);
+
+            DeploymentEventCreated::dispatch(
+                deploymentEvent: $deploymentEvent,
+                realtimeSequence: $realtimeSequence
+            );
+        });
     }
 }

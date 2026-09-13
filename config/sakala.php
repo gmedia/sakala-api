@@ -45,6 +45,7 @@ return [
             'max_line_length' => (int) env('SAKALA_LOG_MAX_LINE_LENGTH', 4096),
             'max_batch_lines' => (int) env('SAKALA_LOG_MAX_BATCH_LINES', 500),
             'max_total_bytes' => (int) env('SAKALA_LOG_MAX_TOTAL_BYTES', 10 * 1024 * 1024),
+            'max_request_bytes' => (int) env('SAKALA_LOG_MAX_REQUEST_BYTES', 1024 * 1024),
         ],
     ],
 ];

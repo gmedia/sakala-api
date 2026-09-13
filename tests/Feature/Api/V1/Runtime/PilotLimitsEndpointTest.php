@@ -51,6 +51,7 @@ test('authenticated user can view pilot limits and current quota usage', functio
                     'max_line_length',
                     'max_batch_lines',
                     'max_total_bytes',
+                    'max_request_bytes',
                 ],
             ],
         ])

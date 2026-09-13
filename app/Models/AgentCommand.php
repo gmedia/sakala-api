@@ -14,13 +14,17 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * @property AgentCommandType $type
  * @property AgentCommandStatus $status
  * @property array<string, mixed>|null $payload
+ * @property array<string, mixed>|null $request_context
+ * @property array<string, mixed>|null $response_context
  * @property array<string, mixed>|null $result
  * @property int $attempts
+ * @property int $reported_log_bytes
  * @property CarbonImmutable $available_at
  * @property CarbonImmutable|null $claimed_at
  * @property CarbonImmutable|null $started_at
@@ -37,9 +41,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'type',
     'status',
     'payload',
+    'request_context',
+    'response_context',
     'result',
     'idempotency_key',
     'attempts',
+    'reported_log_bytes',
     'error_code',
     'error_message',
     'available_at',
@@ -84,6 +91,12 @@ class AgentCommand extends Model
         return $this->hasMany(DeploymentLog::class);
     }
 
+    /** @return HasOne<ProjectControlRequest, $this> */
+    public function controlRequests(): HasOne
+    {
+        return $this->hasOne(ProjectControlRequest::class);
+    }
+
     /** @return array<string, string> */
     protected function casts(): array
     {
@@ -91,8 +104,11 @@ class AgentCommand extends Model
             'type' => AgentCommandType::class,
             'status' => AgentCommandStatus::class,
             'payload' => 'array',
+            'request_context' => 'array',
+            'response_context' => 'array',
             'result' => 'array',
             'attempts' => 'integer',
+            'reported_log_bytes' => 'integer',
             'available_at' => 'immutable_datetime',
             'claimed_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',

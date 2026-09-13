@@ -23,6 +23,8 @@ use Illuminate\Support\Carbon;
     'stream',
     'message',
     'recorded_at',
+    'idempotency_key',
+    'payload_hash',
 ])]
 
 class DeploymentLog extends Model

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\OnboardingProfile;
 use App\Enums\OnboardingSource;
 use App\Enums\UserRole;
 use Carbon\Carbon;
@@ -22,12 +23,14 @@ use Laravel\Sanctum\HasApiTokens;
 /**
  * @property int $id
  * @property string $name
+ * @property string $username
  * @property string $email
  * @property Carbon|null $email_verified_at
  * @property string|null $password
  * @property UserRole $role
  * @property string|null $avatar_url
  * @property OnboardingSource|null $onboarding_source
+ * @property OnboardingProfile|null $onboarding_role
  * @property CarbonImmutable|null $onboarding_completed_at
  * @property CarbonImmutable|null $last_login_at
  * @property UserRole $role
@@ -35,10 +38,13 @@ use Laravel\Sanctum\HasApiTokens;
 #[Fillable([
     'name',
     'email',
+    'username',
     'password',
     'role',
     'avatar_url',
+    'avatar_path',
     'onboarding_source',
+    'onboarding_role',
     'onboarding_completed_at',
     'last_login_at',
 ])]
@@ -95,6 +101,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'role' => UserRole::class,
             'onboarding_source' => OnboardingSource::class,
+            'onboarding_role' => OnboardingProfile::class,
             'onboarding_completed_at' => 'immutable_datetime',
             'last_login_at' => 'immutable_datetime',
         ];

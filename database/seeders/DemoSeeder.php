@@ -36,6 +36,7 @@ class DemoSeeder extends Seeder
                 ['email' => 'demo@sakala.localhost'],
                 [
                     'name' => 'Sakala Demo',
+                    'username' => 'sakala-demo',
                     'password' => null,
                     'role' => UserRole::Admin,
                     'onboarding_source' => OnboardingSource::Github,

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\DeploymentFailureCategory;
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
 use App\Models\Deployment;
@@ -45,6 +46,72 @@ test('project owner can view deployment', function (): void {
         ->assertJsonPath('data.trigger', DeploymentTrigger::Manual->value)
         ->assertJsonPath('data.commit_sha', str_repeat('a', 40))
         ->assertJsonPath('data.commit_message', 'feat: latest deployment');
+});
+
+test('project owner can view deployment failure details', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'requested_by' => $user->id,
+        'sequence' => 1,
+        'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_build_failed',
+        'failure_summary' => 'Deployment gagal saat proses build aplikasi.',
+    ]);
+
+    $response = $this
+        ->actingAs($user, 'web')
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}"
+        );
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('data.failure.code', 'runtime_build_failed')
+        ->assertJsonPath(
+            'data.failure.category',
+            DeploymentFailureCategory::Build->value,
+        )
+        ->assertJsonPath(
+            'data.failure.summary',
+            'Deployment gagal saat proses build aplikasi.',
+        )
+        ->assertJsonPath(
+            'data.failure.recovery_hint',
+            'Periksa konfigurasi build dan dependency aplikasi.',
+        );
+});
+
+test('project owner sees null failure details when deployment has no failure', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'requested_by' => $user->id,
+        'sequence' => 1,
+        'status' => DeploymentStatus::Succeeded,
+        'failure_code' => null,
+        'failure_summary' => null,
+    ]);
+
+    $response = $this
+        ->actingAs($user, 'web')
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}"
+        );
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('data.failure', null);
 });
 
 test('user cannot view another users deployment', function (): void {

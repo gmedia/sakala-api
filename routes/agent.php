@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Agent\AgentController;
 use App\Http\Middleware\EnsureAgentToken;
 use App\Http\Middleware\LimitAgentHeartbeatPayload;
+use App\Http\Middleware\LimitAgentReportPayload;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -31,6 +32,10 @@ Route::prefix('agent/v1')->group(function (): void {
         // Command lifecycle endpoints.
         Route::get('commands', [AgentController::class, 'pollCommands']);
         Route::post('commands/{command:uuid}/claim', [AgentController::class, 'claimCommand']);
+        Route::post('commands/{command:uuid}/events', [AgentController::class, 'reportEvents'])
+            ->middleware(LimitAgentReportPayload::class);
+        Route::post('commands/{command:uuid}/logs', [AgentController::class, 'reportLogs'])
+            ->middleware(LimitAgentReportPayload::class);
         Route::post('commands/{command:uuid}/complete', [AgentController::class, 'completeCommand']);
         Route::post('commands/{command:uuid}/fail', [AgentController::class, 'failCommand']);
     });
