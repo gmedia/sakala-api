@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Admin\PilotValidationMetricsController;
 use App\Http\Controllers\Api\V1\Admin\ProjectControlController;
+use App\Http\Controllers\Api\V1\Admin\UsageSignalsController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -19,4 +20,7 @@ Route::prefix('admin')->middleware('auth:web')->group(function (): void {
 
     // Metrics Routes
     Route::get('metrics/pilot-validation', PilotValidationMetricsController::class);
+
+    // Usage & Abuse Signals Routes
+    Route::get('signals', UsageSignalsController::class);
 });

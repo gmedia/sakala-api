@@ -25,6 +25,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `deployment_events` | Timeline state yang dilaporkan agent. |
 | `deployment_logs` | Output redacted dari build/runtime. |
 | `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. |
+| `usage_signal_records` | Sinyal agregat penggunaan dan abuse (deployment attempts, agent failures, rejected limits, dll.) untuk observabilitas pilot. Append-only, diproses secara berkala oleh scheduler. |
 
 Project dimiliki langsung oleh user selama MVP. Project dari GitHub App menyimpan installation UUID dan repository ID; project URL publik tidak memerlukan installation. Model workspace/team baru boleh ditambahkan setelah ownership dan policy multi-user disetujui.
 
