@@ -42,14 +42,14 @@ final class AgentFullLifecycleTest extends TestCase
         $this->assertIsString($token);
         $this->assertEquals(64, strlen($token));
 
-        // Clear Sanctum auth so subsequent lifecycle requests rely solely on Agent credentials
-        $this->actingAsGuest('sanctum');
-
-        // Token must not appear in show response
+        // Token must not appear in show response (admin still authenticated from setUp)
         $showResponse = $this->actingAs($this->admin, 'sanctum')
             ->getJson("/api/agent/v1/agents/{$response->json('data.id')}");
         $showResponse->assertOk();
         $this->assertArrayNotHasKey('token', $showResponse->json('data'));
+
+        // Clear Sanctum auth — all requests below must rely solely on Agent Bearer + X-Agent-Id
+        $this->actingAsGuest('sanctum');
 
         // 2. Send heartbeat with the registered token
         $heartbeatResponse = $this->withHeaders([
