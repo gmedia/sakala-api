@@ -1935,3 +1935,113 @@ test('failing a DeployProject command exposes safe deployment failure details', 
             'error_message' => $rawErrorMessage,
         ]);
 });
+
+// ─── Identity Mismatch Tests (command endpoints) ──────────────────────────────
+
+test('poll rejects mismatched X-Agent-Id against bearer token', function (): void {
+    $agentA = commandAgent('mismatch-poll-token-a');
+    $agentB = commandAgent('mismatch-poll-token-b');
+
+    $response = $this->withHeaders([
+        'Authorization' => 'Bearer mismatch-poll-token-a',
+        'X-Agent-Id' => $agentB->agent_id,
+    ])->getJson('/api/agent/v1/commands');
+
+    $response->assertUnauthorized();
+});
+
+test('claim rejects mismatched X-Agent-Id against bearer token', function (): void {
+    $agentA = commandAgent('mismatch-claim-token-a');
+    $agentB = commandAgent('mismatch-claim-token-b');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::DeployProject,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    $response = $this->withHeaders([
+        'Authorization' => 'Bearer mismatch-claim-token-a',
+        'X-Agent-Id' => $agentB->agent_id,
+    ])->postJson("/api/agent/v1/commands/{$command->id}/claim");
+
+    $response->assertUnauthorized();
+});
+
+test('complete rejects mismatched X-Agent-Id against bearer token', function (): void {
+    $agentA = commandAgent('mismatch-complete-token-a');
+    $agentB = commandAgent('mismatch-complete-token-b');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+        'agent_node_id' => $agentB->id,
+    ]);
+
+    $response = $this->withHeaders([
+        'Authorization' => 'Bearer mismatch-complete-token-a',
+        'X-Agent-Id' => $agentB->agent_id,
+    ])->postJson("/api/agent/v1/commands/{$command->id}/complete");
+
+    $response->assertUnauthorized();
+});
+
+test('fail rejects mismatched X-Agent-Id against bearer token', function (): void {
+    $agentA = commandAgent('mismatch-fail-token-a');
+    $agentB = commandAgent('mismatch-fail-token-b');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Claimed,
+        'claimed_at' => now(),
+        'agent_node_id' => $agentB->id,
+    ]);
+
+    $response = $this->withHeaders([
+        'Authorization' => 'Bearer mismatch-fail-token-a',
+        'X-Agent-Id' => $agentB->agent_id,
+    ])->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+        'error_code' => 'build_error',
+        'error_message' => 'compile failed',
+    ]);
+
+    $response->assertUnauthorized();
+});
+
+// ─── State Transition Race Tests ──────────────────────────────────────────────
+
+test('claim returns 409 when command expires between poll and claim', function (): void {
+    $agent = commandAgent('poll-expire-token');
+
+    $command = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'status' => AgentCommandStatus::Pending,
+        'available_at' => now()->subMinute(),
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    // Poll: command is eligible
+    $pollResponse = $this->withHeaders(commandHeaders($agent, 'poll-expire-token'))
+        ->getJson('/api/agent/v1/commands');
+
+    $pollResponse->assertOk();
+    $pollResponse->assertJsonCount(1, 'data');
+    expect($pollResponse->json('data.0.id'))->toBe($command->id);
+
+    // Simulate time passing: expire the command in the database
+    $command->update(['expires_at' => now()->subMinute()]);
+
+    // Claim: should fail because command is now expired
+    $claimResponse = $this->withHeaders(commandHeaders($agent, 'poll-expire-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/claim");
+
+    $claimResponse->assertStatus(409);
+    $claimResponse->assertJson([
+        'status' => AgentCommandStatus::Pending->value,
+    ]);
+
+    // Command must still be Pending in DB — not claimed
+    expect($command->fresh()->status)->toBe(AgentCommandStatus::Pending);
+});
