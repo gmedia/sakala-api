@@ -42,6 +42,9 @@ final class AgentFullLifecycleTest extends TestCase
         $this->assertIsString($token);
         $this->assertEquals(64, strlen($token));
 
+        // Clear Sanctum auth so subsequent lifecycle requests rely solely on Agent credentials
+        $this->actingAsGuest('sanctum');
+
         // Token must not appear in show response
         $showResponse = $this->actingAs($this->admin, 'sanctum')
             ->getJson("/api/agent/v1/agents/{$response->json('data.id')}");
