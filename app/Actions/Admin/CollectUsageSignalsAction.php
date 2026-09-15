@@ -52,18 +52,25 @@ final class CollectUsageSignalsAction
             collectedAt: $to,
         );
 
+        // Terminal signals use the time the event actually completed
+        // (finished_at) rather than when it was created, so deployments
+        // started before the window but finished inside it are still
+        // counted.
         $successful = Deployment::query()
             ->where('status', DeploymentStatus::Succeeded)
-            ->where('created_at', '>=', $from)
-            ->where('created_at', '<', $to)
+            ->whereNotNull('finished_at')
+            ->where('finished_at', '>=', $from)
+            ->where('finished_at', '<', $to)
             ->count();
 
-        $this->recordAction->handle(
-            type: UsageSignalType::SuccessfulDeployment,
-            count: $successful,
-            scope: 'global',
-            collectedAt: $to,
-        );
+        if ($successful > 0) {
+            $this->recordAction->handle(
+                type: UsageSignalType::SuccessfulDeployment,
+                count: $successful,
+                scope: 'global',
+                collectedAt: $to,
+            );
+        }
     }
 
     private function collectActiveProjectsSignal(
@@ -109,10 +116,15 @@ final class CollectUsageSignalsAction
     ): void {
         $threshold = (int) config('sakala.usage_signals.repeat_failure_threshold', 3);
 
+        // Only canonical runtime build failures count toward this signal;
+        // other failure categories (checkout, health, route, timeout, etc.)
+        // are intentionally excluded.
         $repeaters = Deployment::query()
             ->where('status', DeploymentStatus::Failed)
-            ->where('created_at', '>=', $from)
-            ->where('created_at', '<', $to)
+            ->where('failure_code', 'runtime_build_failed')
+            ->whereNotNull('finished_at')
+            ->where('finished_at', '>=', $from)
+            ->where('finished_at', '<', $to)
             ->groupBy('project_id')
             ->havingRaw('COUNT(*) >= ?', [$threshold])
             ->select('project_id')

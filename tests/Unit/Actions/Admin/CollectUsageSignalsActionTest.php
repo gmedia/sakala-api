@@ -35,12 +35,15 @@ test('collect action records deployment attempts and successful deployments', fu
         'project_id' => $project->id,
         'status' => DeploymentStatus::Succeeded,
         'created_at' => '2026-09-14 10:00:00',
+        'finished_at' => '2026-09-14 10:05:00',
     ]);
 
     Deployment::factory()->create([
         'project_id' => $project->id,
         'status' => DeploymentStatus::Failed,
         'created_at' => '2026-09-14 11:00:00',
+        'failure_code' => 'runtime_build_failed',
+        'finished_at' => '2026-09-14 11:05:00',
     ]);
 
     $action = app(CollectUsageSignalsAction::class);
@@ -61,6 +64,62 @@ test('collect action records deployment attempts and successful deployments', fu
 
     expect($successSignal)->not->toBeNull();
     expect($successSignal->count)->toBe(1);
+});
+
+test('successful deployment created before window but finished inside is counted', function (): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->create(['user_id' => $user->id]);
+
+    // Created before window, finished inside — must still be counted.
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Succeeded,
+        'created_at' => '2026-09-13 23:50:00',
+        'finished_at' => '2026-09-14 01:00:00',
+    ]);
+
+    // Created and finished before window — must not be counted.
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Succeeded,
+        'created_at' => '2026-09-13 10:00:00',
+        'finished_at' => '2026-09-13 10:05:00',
+    ]);
+
+    $action = app(CollectUsageSignalsAction::class);
+    $from = CarbonImmutable::parse('2026-09-14 00:00:00 UTC');
+    $to = CarbonImmutable::parse('2026-09-14 12:00:00 UTC');
+    $action->handle($from, $to);
+
+    $successSignal = UsageSignalRecord::where('signal_type', UsageSignalType::SuccessfulDeployment->value)
+        ->where('collected_at', '>=', $from)
+        ->first();
+
+    expect($successSignal)->not->toBeNull();
+    expect($successSignal->count)->toBe(1);
+});
+
+test('successful deployment with no finished_at is not counted', function (): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->create(['user_id' => $user->id]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Succeeded,
+        'created_at' => '2026-09-14 10:00:00',
+        'finished_at' => null,
+    ]);
+
+    $action = app(CollectUsageSignalsAction::class);
+    $from = CarbonImmutable::parse('2026-09-14 00:00:00 UTC');
+    $to = CarbonImmutable::parse('2026-09-14 12:00:00 UTC');
+    $action->handle($from, $to);
+
+    $successSignal = UsageSignalRecord::where('signal_type', UsageSignalType::SuccessfulDeployment->value)
+        ->where('collected_at', '>=', $from)
+        ->first();
+
+    expect($successSignal)->toBeNull();
 });
 
 test('collect action records active projects count', function (): void {
@@ -142,22 +201,27 @@ test('collect action does not record zero agent failures', function (): void {
     expect($failureSignal)->toBeNull();
 });
 
-test('collect action records repeated build failures above threshold', function (): void {
+test('collect action records repeated build failures above threshold using canonical code', function (): void {
     config(['sakala.usage_signals.repeat_failure_threshold' => 2]);
 
     $user = User::factory()->create();
     $project = Project::factory()->create(['user_id' => $user->id]);
 
+    // Two canonical runtime_build_failed inside window → should trigger.
     Deployment::factory()->create([
         'project_id' => $project->id,
         'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_build_failed',
         'created_at' => '2026-09-14 10:00:00',
+        'finished_at' => '2026-09-14 10:05:00',
     ]);
 
     Deployment::factory()->create([
         'project_id' => $project->id,
         'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_build_failed',
         'created_at' => '2026-09-14 11:00:00',
+        'finished_at' => '2026-09-14 11:05:00',
     ]);
 
     $action = app(CollectUsageSignalsAction::class);
@@ -174,22 +238,27 @@ test('collect action records repeated build failures above threshold', function 
     expect($repeatSignal->tags['threshold'])->toBe(2);
 });
 
-test('collect action skips repeated build failures below threshold', function (): void {
-    config(['sakala.usage_signals.repeat_failure_threshold' => 3]);
+test('health and route failures do not increment repeated_build_failure', function (): void {
+    config(['sakala.usage_signals.repeat_failure_threshold' => 2]);
 
     $user = User::factory()->create();
     $project = Project::factory()->create(['user_id' => $user->id]);
 
+    // Health and route failures should be ignored.
     Deployment::factory()->create([
         'project_id' => $project->id,
         'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_health_check_failed',
         'created_at' => '2026-09-14 10:00:00',
+        'finished_at' => '2026-09-14 10:05:00',
     ]);
 
     Deployment::factory()->create([
         'project_id' => $project->id,
         'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_routing_failed',
         'created_at' => '2026-09-14 11:00:00',
+        'finished_at' => '2026-09-14 11:05:00',
     ]);
 
     $action = app(CollectUsageSignalsAction::class);
@@ -204,20 +273,94 @@ test('collect action skips repeated build failures below threshold', function ()
     expect($repeatSignal)->toBeNull();
 });
 
-test('collect action only counts records within window', function (): void {
+test('collect action skips repeated build failures below threshold', function (): void {
+    config(['sakala.usage_signals.repeat_failure_threshold' => 3]);
+
     $user = User::factory()->create();
     $project = Project::factory()->create(['user_id' => $user->id]);
 
     Deployment::factory()->create([
         'project_id' => $project->id,
-        'status' => DeploymentStatus::Succeeded,
-        'created_at' => '2026-09-13 10:00:00',
+        'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_build_failed',
+        'created_at' => '2026-09-14 10:00:00',
+        'finished_at' => '2026-09-14 10:05:00',
     ]);
 
     Deployment::factory()->create([
         'project_id' => $project->id,
+        'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_build_failed',
+        'created_at' => '2026-09-14 11:00:00',
+        'finished_at' => '2026-09-14 11:05:00',
+    ]);
+
+    $action = app(CollectUsageSignalsAction::class);
+    $from = CarbonImmutable::parse('2026-09-14 00:00:00 UTC');
+    $to = CarbonImmutable::parse('2026-09-14 12:00:00 UTC');
+    $action->handle($from, $to);
+
+    $repeatSignal = UsageSignalRecord::where('signal_type', UsageSignalType::RepeatedBuildFailure->value)
+        ->where('collected_at', '>=', $from)
+        ->first();
+
+    expect($repeatSignal)->toBeNull();
+});
+
+test('repeated build failure uses terminal time, not created_at', function (): void {
+    config(['sakala.usage_signals.repeat_failure_threshold' => 2]);
+
+    $user = User::factory()->create();
+    $project = Project::factory()->create(['user_id' => $user->id]);
+
+    // Both finished inside the window even though created before it.
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_build_failed',
+        'created_at' => '2026-09-13 20:00:00',
+        'finished_at' => '2026-09-14 01:00:00',
+    ]);
+
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Failed,
+        'failure_code' => 'runtime_build_failed',
+        'created_at' => '2026-09-13 21:00:00',
+        'finished_at' => '2026-09-14 02:00:00',
+    ]);
+
+    $action = app(CollectUsageSignalsAction::class);
+    $from = CarbonImmutable::parse('2026-09-14 00:00:00 UTC');
+    $to = CarbonImmutable::parse('2026-09-14 12:00:00 UTC');
+    $action->handle($from, $to);
+
+    $repeatSignal = UsageSignalRecord::where('signal_type', UsageSignalType::RepeatedBuildFailure->value)
+        ->where('collected_at', '>=', $from)
+        ->first();
+
+    expect($repeatSignal)->not->toBeNull();
+    expect($repeatSignal->count)->toBe(1);
+});
+
+test('collect action only counts successful deployments finished within window', function (): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->create(['user_id' => $user->id]);
+
+    // Finished before the window — excluded.
+    Deployment::factory()->create([
+        'project_id' => $project->id,
         'status' => DeploymentStatus::Succeeded,
-        'created_at' => '2026-09-14 10:00:00',
+        'created_at' => '2026-09-13 10:00:00',
+        'finished_at' => '2026-09-13 10:05:00',
+    ]);
+
+    // Finished inside the window — included.
+    Deployment::factory()->create([
+        'project_id' => $project->id,
+        'status' => DeploymentStatus::Succeeded,
+        'created_at' => '2026-09-13 23:00:00',
+        'finished_at' => '2026-09-14 10:00:00',
     ]);
 
     $action = app(CollectUsageSignalsAction::class);
@@ -229,5 +372,6 @@ test('collect action only counts records within window', function (): void {
         ->where('collected_at', '>=', $from)
         ->first();
 
+    expect($successSignal)->not->toBeNull();
     expect($successSignal->count)->toBe(1);
 });
