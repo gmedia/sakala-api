@@ -319,3 +319,4 @@ Jika monitoring server mendeteksi penggunaan disk PostgreSQL melebihi 85%:
 - [Konvensi API & Batasan Report (docs/API_CONVENTIONS.md)](API_CONVENTIONS.md)
 - [Dokumentasi Konfigurasi Environment (docs/CONFIGURATION.md)](CONFIGURATION.md)
 - [Kebijakan Keamanan (SECURITY.md)](../SECURITY.md)
+- [Sakala Agent Security](https://github.com/gmedia/sakala-agent/blob/main/SECURITY.md)
