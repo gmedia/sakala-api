@@ -58,10 +58,13 @@ Batasan hak akses terhadap log dan event ditegakkan secara ketat pada layer Poli
 |                     |                   | Endpoint: GET /api/v1/app/projects/.../logs |
 |                     |                   | WebSocket: private-deployment.{id}|
 +---------------------+-------------------+-----------------------------------+
-| Platform Admin      | Read & Operations | Akses investigasi lintas project  |
-|                     |                   | via ProjectPolicy::before().       |
-|                     |                   | Wewenang eksekusi prune/cleanup.  |
+| Platform Admin      | Read-only         | Akses investigasi lintas project  |
+|                     | (Investigation)   | via ProjectPolicy::before().       |
 |                     |                   | Metrik agregasi tanpa raw logs.   |
++---------------------+-------------------+-----------------------------------+
+| Infrastructure /    | Operational       | Scheduler, Artisan prune, dan     |
+| DB Operator         |                   | SQL manual sesuai akses           |
+|                     |                   | operasional infrastrukturnya.     |
 +---------------------+-------------------+-----------------------------------+
 | Machine Agent       | Write-only        | Terbatas hanya pada command aktif |
 | (Runtime Node)      | (Append)          | yang di-claim (agent_node_id).    |
@@ -82,9 +85,13 @@ Batasan hak akses terhadap log dan event ditegakkan secara ketat pada layer Poli
 2. **Platform Admin**:
    - Memiliki otorisasi penuh membaca deployment logs seluruh pengguna untuk keperluan *incident response* dan *troubleshooting* operasional melalui bypass `ProjectPolicy::before()` (`$user->isAdmin()`).
    - Dapat mengakses endpoint metrik agregasi platform (`GET /api/v1/admin/metrics/pilot-validation`) yang menyajikan statistik kegagalan tanpa membocorkan payload log mentah.
-   - Memiliki wewenang untuk menjalankan proses pruning dan prosedur cleanup manual database.
 
-3. **Machine Agent (Sakala Agent)**:
+3. **Infrastructure / DB Operator**:
+   - Menjalankan scheduler runtime yang memicu `php artisan pilot:prune-logs` sesuai akses operasional infrastrukturnya.
+   - Dapat menjalankan Artisan prune secara manual dan prosedur SQL cleanup langsung pada database sesuai akses shell/database yang diberikan.
+   - Capability ini terpisah dari role `UserRole::Admin` dan tidak diberikan oleh `ProjectPolicy` atau endpoint admin aplikasi.
+
+4. **Machine Agent (Sakala Agent)**:
    - Menggunakan autentikasi Bearer token mesin (`Authorization: Bearer <agent-token>` dan header `X-Agent-Id`).
    - Hanya diizinkan melaporkan (*write/append*) log dan event baru pada endpoint `POST /api/agent/v1/commands/{command}/logs` dan `POST /api/agent/v1/commands/{command}/events`.
    - Hanya dapat melaporkan ke command yang berstatus `Claimed` atau `Running` serta tercatat sebagai pemilik klaim (`agent_node_id === $agent->id`).
@@ -100,7 +107,7 @@ Untuk menjaga stabilitas performa control plane, payload log dibatasi oleh konfi
 1. **Batas Panjang Baris (`max_line_length`)**: Maksimum **4.096 byte** (4 KB) per baris pesan log. Pesan yang melebihi batas ini ditolak dengan `422 Unprocessable Entity`.
 2. **Batas Ukuran Batch (`max_batch_lines`)**: Maksimum **500 baris** per HTTP request report.
 3. **Batas Request Body (`max_request_bytes`)**: Maksimum **1 MB** (1.048.576 byte) per payload HTTP request, ditegakkan oleh middleware `LimitAgentReportPayload`. Request yang melampaui batas ini ditolak dengan `413 Payload Too Large`.
-4. **Batas Anggaran Kumulatif (`max_total_bytes`)**: Budget akumulasi log maksimum sebesar **10 MB** (10.485.760 byte) per command/deployment. Penghitungan dilakukan secara atomic pada counter `reported_log_bytes` di tabel `agent_commands`. Jika budget habis, pelaporan log baru ditolak dengan `422 Unprocessable Entity`.
+4. **Batas Anggaran Kumulatif (`max_total_bytes`)**: Budget akumulasi log maksimum sebesar **10 MB** (10.485.760 byte) per command (`AgentCommand`), bukan per deployment. Penghitungan dilakukan secara atomic pada counter `reported_log_bytes` di tabel `agent_commands`; beberapa command dalam deployment yang sama memiliki budget masing-masing. Jika budget command habis, pelaporan log baru ditolak dengan `422 Unprocessable Entity`.
 
 ---
 
@@ -151,7 +158,7 @@ Pengguna dan operator harus memahami keterbatasan berikut:
 
 ## 8. Mekanisme Pembersihan (Cleanup Mechanisms)
 
-Pembersihan log dilakukan secara terukur menggunakan dua pendekatan: command yang dijalankan scheduler harian dan prosedur SQL manual untuk operator. Runtime wajib menjalankan `php artisan schedule:work` atau memanggil `php artisan schedule:run` secara berkala agar cleanup terjadwal benar-benar berjalan.
+Pembersihan log dilakukan secara terukur menggunakan dua pendekatan: command yang dijalankan scheduler harian dan prosedur SQL manual oleh Infrastructure / DB Operator. Runtime wajib menjalankan `php artisan schedule:work` atau memanggil `php artisan schedule:run` secara berkala agar cleanup terjadwal benar-benar berjalan.
 
 ### 8.1. Perintah Terjadwal: `php artisan pilot:prune-logs`
 
@@ -179,7 +186,7 @@ php artisan pilot:prune-logs --days=7 --batch=500
 - Cleanup aman untuk diulang. Jika proses terhenti setelah sebagian batch terhapus, proses berikutnya hanya menghapus record eligible yang tersisa.
 - Mengembalikan ringkasan data DTO `PruneDeploymentLogsResultData`.
 
-### 8.2. Prosedur SQL Manual untuk Operator Database
+### 8.2. Prosedur SQL Manual untuk Infrastructure / DB Operator
 
 Jika operator perlu melakukan audit kapasitas atau melakukan pembersihan langsung di PostgreSQL:
 

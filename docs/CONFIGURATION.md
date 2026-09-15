@@ -24,7 +24,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 
 - `DB_*`: koneksi PostgreSQL.
 - `REDIS_*`: cache dan scaling Reverb.
-- `CACHE_STORE` atau `SCHEDULE_CACHE_STORE`: cache store untuk mutex scheduler (`withoutOverlapping`/`onOneServer`). Gunakan store bersama pada deployment multi-instance.
+- `CACHE_STORE`: cache store default yang juga dipakai Laravel scheduler untuk mutex `withoutOverlapping`/`onOneServer`. Gunakan store yang mendukung lock dan dibagi bersama (Redis pada deployment multi-instance).
 - `QUEUE_CONNECTION`: queue driver; local default memakai database.
 - `MAIL_*`: Mailpit pada local runtime.
 
