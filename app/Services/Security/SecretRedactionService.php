@@ -50,6 +50,12 @@ final class SecretRedactionService
         ) ?? $value;
 
         $value = preg_replace(
+            '~(\\bhttps?://)[^/\\s@]+:[^/\\s@]*@~i',
+            '$1'.self::REDACTED.'@',
+            $value,
+        ) ?? $value;
+
+        $value = preg_replace(
             '/\\bBearer\\s+[^\\s,;"\']+/i',
             'Bearer '.self::REDACTED,
             $value,

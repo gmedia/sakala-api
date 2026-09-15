@@ -41,6 +41,7 @@ return [
             'start_timeout_seconds' => (int) env('SAKALA_START_TIMEOUT_SECONDS', 120),
             'command_timeout_seconds' => (int) env('SAKALA_COMMAND_TIMEOUT_SECONDS', 900),
         ],
+        'log_retention_days' => (int) env('SAKALA_LOG_RETENTION_DAYS', 7),
         'log_bounds' => [
             'max_line_length' => (int) env('SAKALA_LOG_MAX_LINE_LENGTH', 4096),
             'max_batch_lines' => (int) env('SAKALA_LOG_MAX_BATCH_LINES', 500),
