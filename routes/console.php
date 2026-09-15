@@ -3,12 +3,23 @@
 declare(strict_types=1);
 
 use App\Console\Commands\CollectUsageSignalsCommand;
+use App\Console\Commands\PruneDeploymentLogsCommand;
 use App\Console\Commands\PruneUsageSignalsCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command('pilot:prune-logs')
+Schedule::command(CollectUsageSignalsCommand::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(PruneUsageSignalsCommand::class)
+    ->daily()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(PruneDeploymentLogsCommand::class)
     ->daily()
     ->withoutOverlapping()
     ->onOneServer();
