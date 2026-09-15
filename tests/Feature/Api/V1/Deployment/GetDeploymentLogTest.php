@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\UserRole;
 use App\Models\Deployment;
 use App\Models\DeploymentLog;
 use App\Models\Project;
@@ -61,6 +62,36 @@ test('user cannot view logs of another users deployment', function (): void {
         );
 
     $response->assertForbidden();
+});
+
+test('admin can view deployment logs of another users deployment', function (): void {
+    $owner = User::factory()->create();
+    $admin = User::factory()->create([
+        'role' => UserRole::Admin,
+    ]);
+
+    $project = Project::factory()->create([
+        'user_id' => $owner->id,
+    ]);
+
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'sequence' => 1,
+    ]);
+
+    DeploymentLog::factory()->count(2)->create([
+        'deployment_id' => $deployment->id,
+    ]);
+
+    $response = $this
+        ->actingAs($admin)
+        ->getJson(
+            "/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}/logs"
+        );
+
+    $response
+        ->assertOk()
+        ->assertJsonCount(2, 'data');
 });
 
 test('deployment logs only belong to requested deployment', function (): void {

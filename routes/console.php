@@ -8,12 +8,7 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command(CollectUsageSignalsCommand::class)
-    ->hourly()
-    ->withoutOverlapping()
-    ->onOneServer();
-
-Schedule::command(PruneUsageSignalsCommand::class)
+Schedule::command('pilot:prune-logs')
     ->daily()
     ->withoutOverlapping()
     ->onOneServer();
