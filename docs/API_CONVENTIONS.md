@@ -188,3 +188,43 @@ Ketika avatar diganti:
 4. Jika database update gagal setelah avatar baru tersimpan, avatar baru dibersihkan.
 
 Update `name` atau `username` tanpa mengirim avatar tidak akan memengaruhi avatar yang sudah tersimpan.
+
+## Admin Signals Endpoint
+
+Endpoint admin menyediakan ringkasan sinyal operasional agregat untuk keperluan observabilitas pilot:
+
+### GET /api/v1/admin/signals
+
+Hanya dapat diakses oleh user dengan role `admin`. Endpoint menerima parameter query opsional `from` dan `to` (ISO 8601 date). Response berbentuk Resource dengan field `data.signals` yang berisi array record sinyal agregat per window waktu.
+
+Response structure:
+
+```json
+{
+  "data": {
+    "from": "2026-09-01T00:00:00+00:00",
+    "to": "2026-09-14T12:00:00+00:00",
+    "signals": [
+      {
+        "signal_type": "deployment_attempt",
+        "count": 42,
+        "scope": "global",
+        "scope_id": null,
+        "tags": {},
+        "collected_at": "2026-09-14T11:00:00+00:00"
+      }
+    ]
+  }
+}
+```
+
+Signal types yang tersedia:
+- `deployment_attempt`
+- `successful_deployment`
+- `active_projects`
+- `rejected_limits`
+- `agent_failure`
+- `repeated_build_failure`
+- `manual_intervention`
+
+Endpoint ini tidak mengekspos data pribadi (nama, email) maupun secret. Field `tags` hanya berisi metadata operasional seperti `failure_code` atau `limit_name`.
