@@ -46,6 +46,12 @@ kedaluwarsa, atau tidak cocok diarahkan ke URL yang sama dengan
 Response resend selalu berbentuk response generik sehingga tidak membedakan
 email yang tidak terdaftar, sudah terverifikasi, atau berhasil diproses.
 
+Email verifikasi dikirim melalui queue setelah transaksi registrasi selesai.
+Production wajib menggunakan queue asynchronous seperti `database` atau
+`redis`, menjalankan `php artisan queue:work` secara terus-menerus, dan
+mengonfigurasi `MAIL_*` ke mailer/provider yang benar. Jangan memakai
+`QUEUE_CONNECTION=sync` untuk flow ini.
+
 Flow session lokal:
 
 1. Console memanggil `GET /sanctum/csrf-cookie` dengan credentials.

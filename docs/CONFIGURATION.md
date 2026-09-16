@@ -33,6 +33,15 @@ dalam menit (default `60`).
 - `QUEUE_CONNECTION`: queue driver; local default memakai database.
 - `MAIL_*`: Mailpit pada local runtime.
 
+Flow registrasi dan pengiriman ulang email verifikasi menggunakan queue
+asynchronous setelah transaksi commit. Production wajib menggunakan
+`QUEUE_CONNECTION=database` atau `QUEUE_CONNECTION=redis`, menjalankan
+`php artisan queue:work` sebagai worker yang selalu aktif, dan mengisi
+`MAIL_MAILER`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`,
+`MAIL_FROM_ADDRESS`, serta `MAIL_FROM_NAME` sesuai mailer/provider yang
+digunakan. Jangan menggunakan `QUEUE_CONNECTION=sync` untuk flow email
+verifikasi.
+
 ## Browser Authentication
 
 - `SESSION_DOMAIN`: parent domain cookie, misalnya `.sakala.localhost`.

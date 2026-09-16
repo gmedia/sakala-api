@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Actions\Auth\RegisterAction;
+use App\Data\Auth\RegisterData;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Notifications\Auth\VerifyEmailNotification;
@@ -9,6 +11,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Notifications\SendQueuedNotifications;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Validation\ValidationException;
 
 uses(LazilyRefreshDatabase::class);
 
@@ -75,6 +78,25 @@ test('registration rejects a duplicate email case insensitively', function () {
     ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['email']);
+});
+
+test('a database email collision is mapped to a validation error', function () {
+    User::factory()->create(['email' => 'race@example.test']);
+
+    $exception = null;
+
+    try {
+        app(RegisterAction::class)->handle(new RegisterData(
+            name: 'Race User',
+            email: 'race@example.test',
+            password: 'password123',
+        ));
+    } catch (ValidationException $caught) {
+        $exception = $caught;
+    }
+
+    expect($exception)->toBeInstanceOf(ValidationException::class)
+        ->and($exception?->errors())->toHaveKey('email');
 });
 
 test('registration is rate limited by IP', function () {
