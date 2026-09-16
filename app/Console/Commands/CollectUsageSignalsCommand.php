@@ -16,16 +16,21 @@ final class CollectUsageSignalsCommand extends Command
     public function handle(
         CollectUsageSignalsAction $action,
     ): int {
+        // Use an aligned previous-hour window matching the scheduler cadence.
+        // The scheduler runs at :00 every hour; we collect the completed hour
+        // so each run covers [N-1:00, N:00) with no overlap against adjacent
+        // runs. collect_interval_hours config is intentionally removed —
+        // cadence is locked to hourly.
         $now = now()->toImmutable();
-        $intervalHours = (int) config('sakala.usage_signals.collect_interval_hours', 1);
-        $from = $now->subHours($intervalHours);
+        $from = $now->copy()->subHour()->startOfHour();
+        $to = $now->startOfHour();
 
-        $action->handle($from, $now);
+        $action->handle($from, $to);
 
         $this->info(sprintf(
             'Usage signals collected for window [%s → %s].',
             $from->toIso8601String(),
-            $now->toIso8601String(),
+            $to->toIso8601String(),
         ));
 
         return self::SUCCESS;

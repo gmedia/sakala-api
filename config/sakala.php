@@ -25,7 +25,6 @@ return [
     ],
 
     'usage_signals' => [
-        'collect_interval_hours' => (int) env('SAKALA_USAGE_SIGNALS_COLLECT_INTERVAL_HOURS', 1),
         'retention_days' => (int) env('SAKALA_USAGE_SIGNALS_RETENTION_DAYS', 30),
         'repeat_failure_threshold' => (int) env('SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD', 3),
     ],
