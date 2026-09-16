@@ -13,6 +13,16 @@ final class ConsoleAuthenticationRedirect
         return $this->url('/dashboard');
     }
 
+    public function emailVerificationSuccess(): string
+    {
+        return $this->url('/email-verified', ['status' => 'success']);
+    }
+
+    public function emailVerificationError(): string
+    {
+        return $this->url('/email-verified', ['status' => 'error']);
+    }
+
     public function loginError(BackedEnum $failure): string
     {
         return $this->url('/login', ['error' => (string) $failure->value]);

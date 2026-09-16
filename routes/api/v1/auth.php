@@ -5,6 +5,8 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
 use App\Http\Controllers\Api\V1\Auth\LoginController;
 use App\Http\Controllers\Api\V1\Auth\LogoutController;
+use App\Http\Controllers\Api\V1\Auth\RegisterController;
+use App\Http\Controllers\Api\V1\Auth\ResendVerificationNotificationController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -13,6 +15,14 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function (): void {
+    Route::post('register', RegisterController::class)
+        ->middleware('throttle:register')
+        ->name('api.v1.auth.register');
+
+    Route::post('email/verification-notification', ResendVerificationNotificationController::class)
+        ->middleware('throttle:email-verification')
+        ->name('api.v1.auth.email.verification-notification');
+
     Route::post('login', LoginController::class)
         ->middleware('throttle:login')
         ->name('api.v1.auth.login');

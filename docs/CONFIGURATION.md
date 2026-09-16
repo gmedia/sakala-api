@@ -8,9 +8,14 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_CONSOLE_URL`: URL console first-party.
 - `SAKALA_API_RATE_LIMIT`: request per menit untuk limiter API dasar.
 - `SAKALA_LOGIN_RATE_LIMIT`: percobaan login per menit berdasarkan email ternormalisasi dan IP.
+- `SAKALA_REGISTER_RATE_LIMIT`: percobaan registrasi per menit berdasarkan IP (default `5`).
 - `SAKALA_OAUTH_RATE_LIMIT`: request per menit per IP untuk browser OAuth route.
+- `SAKALA_EMAIL_VERIFICATION_RATE_LIMIT`: request pengiriman ulang email verifikasi per menit berdasarkan email ternormalisasi dan IP (default `5`).
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
+
+`AUTH_VERIFICATION_EXPIRE` menentukan masa berlaku signed URL verifikasi email
+dalam menit (default `60`).
 
 ## Agent Reporting dan Log Retention
 
