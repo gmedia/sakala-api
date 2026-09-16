@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Auth;
 
-use App\Data\Auth\LoginData;
+use App\Data\Auth\ResendVerificationNotificationData;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 
-final class LoginRequest extends FormRequest
+final class ResendVerificationNotificationRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -27,8 +27,7 @@ final class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
+            'email' => ['required', 'string', 'email', 'max:255'],
         ];
     }
 
@@ -39,17 +38,11 @@ final class LoginRequest extends FormRequest
         }
     }
 
-    public function toData(): LoginData
+    public function toData(): ResendVerificationNotificationData
     {
         /** @var string $email */
         $email = $this->validated('email');
 
-        /** @var string $password */
-        $password = $this->validated('password');
-
-        return new LoginData(
-            email: $email,
-            password: $password,
-        );
+        return new ResendVerificationNotificationData(email: $email);
     }
 }

@@ -74,6 +74,19 @@ test('a verified user can log in with email and password', function () {
         ->and($user->tokens()->count())->toBe(0);
 });
 
+test('login normalizes the email before authentication', function () {
+    $user = User::factory()->create(['email' => 'normalized@example.test']);
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => ' NORMALIZED@EXAMPLE.TEST ',
+            'password' => 'password',
+        ])
+        ->assertOk();
+
+    $this->assertAuthenticatedAs($user, 'web');
+});
+
 test('successful login sets an HttpOnly session cookie instead of a bearer token', function () {
     $user = User::factory()->create();
 

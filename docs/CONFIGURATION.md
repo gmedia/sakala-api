@@ -8,9 +8,14 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_CONSOLE_URL`: URL console first-party.
 - `SAKALA_API_RATE_LIMIT`: request per menit untuk limiter API dasar.
 - `SAKALA_LOGIN_RATE_LIMIT`: percobaan login per menit berdasarkan email ternormalisasi dan IP.
+- `SAKALA_REGISTER_RATE_LIMIT`: percobaan registrasi per menit berdasarkan IP (default `5`).
 - `SAKALA_OAUTH_RATE_LIMIT`: request per menit per IP untuk browser OAuth route.
+- `SAKALA_EMAIL_VERIFICATION_RATE_LIMIT`: request pengiriman ulang email verifikasi per menit berdasarkan email ternormalisasi dan IP (default `5`).
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
+
+`AUTH_VERIFICATION_EXPIRE` menentukan masa berlaku signed URL verifikasi email
+dalam menit (default `60`).
 
 ## Agent Reporting dan Log Retention
 
@@ -27,6 +32,15 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `CACHE_STORE`: cache store default yang juga dipakai Laravel scheduler untuk mutex `withoutOverlapping`/`onOneServer`. Gunakan store yang mendukung lock dan dibagi bersama (Redis pada deployment multi-instance).
 - `QUEUE_CONNECTION`: queue driver; local default memakai database.
 - `MAIL_*`: Mailpit pada local runtime.
+
+Flow registrasi dan pengiriman ulang email verifikasi menggunakan queue
+asynchronous setelah transaksi commit. Production wajib menggunakan
+`QUEUE_CONNECTION=database` atau `QUEUE_CONNECTION=redis`, menjalankan
+`php artisan queue:work` sebagai worker yang selalu aktif, dan mengisi
+`MAIL_MAILER`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`,
+`MAIL_FROM_ADDRESS`, serta `MAIL_FROM_NAME` sesuai mailer/provider yang
+digunakan. Jangan menggunakan `QUEUE_CONNECTION=sync` untuk flow email
+verifikasi.
 
 ## Browser Authentication
 

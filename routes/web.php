@@ -9,7 +9,12 @@ use App\Http\Controllers\Auth\GithubInstallationSetupController;
 use App\Http\Controllers\Auth\GithubRedirectController;
 use App\Http\Controllers\Auth\GoogleCallbackController;
 use App\Http\Controllers\Auth\GoogleRedirectController;
+use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
+
+Route::get('auth/email/verify/{user}/{hash}', VerifyEmailController::class)
+    ->whereNumber('user')
+    ->name('verification.verify');
 
 Route::prefix('auth')
     ->middleware('throttle:oauth')

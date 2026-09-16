@@ -22,6 +22,36 @@ Endpoint berikut tersedia untuk Console:
 | `GET /api/v1/auth/user` | Mengembalikan user dari session browser yang aktif. |
 | `POST /api/v1/auth/logout` | Mengakhiri session browser aktif. |
 
+### Registrasi dan Verifikasi Email
+
+Registrasi email/password tidak membuat session otomatis. Endpoint yang
+tersedia:
+
+| Endpoint | Kegunaan |
+| --- | --- |
+| `POST /api/v1/auth/register` | Membuat user baru berstatus belum terverifikasi dan mengantrekan email verifikasi. |
+| `POST /api/v1/auth/email/verification-notification` | Mengantrekan ulang email verifikasi dengan response generik. |
+| `GET /auth/email/verify/{user}/{hash}` | Memproses temporary signed URL dari email dan mengarahkan browser ke Console. |
+
+Request register menerima `name`, `email`, `password`, dan
+`password_confirmation`. Email dinormalisasi menjadi lowercase setelah
+trim. User baru mendapat role `user`, username unik yang dibuat dari nama,
+dan `email_verified_at` bernilai `null`.
+
+Setelah link verifikasi berhasil, API mengarahkan browser ke
+`SAKALA_CONSOLE_URL/email-verified?status=success`. Link yang tidak valid,
+kedaluwarsa, atau tidak cocok diarahkan ke URL yang sama dengan
+`status=error`. User yang belum terverifikasi tetap tidak dapat login.
+
+Response resend selalu berbentuk response generik sehingga tidak membedakan
+email yang tidak terdaftar, sudah terverifikasi, atau berhasil diproses.
+
+Email verifikasi dikirim melalui queue setelah transaksi registrasi selesai.
+Production wajib menggunakan queue asynchronous seperti `database` atau
+`redis`, menjalankan `php artisan queue:work` secara terus-menerus, dan
+mengonfigurasi `MAIL_*` ke mailer/provider yang benar. Jangan memakai
+`QUEUE_CONNECTION=sync` untuk flow ini.
+
 Flow session lokal:
 
 1. Console memanggil `GET /sanctum/csrf-cookie` dengan credentials.
