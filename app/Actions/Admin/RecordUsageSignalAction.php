@@ -14,6 +14,7 @@ final class RecordUsageSignalAction
 {
     /**
      * Keys allowed per signal type ( keyed by enum value string ).
+     * An empty list means NO tags are permitted for this signal type.
      *
      * @return array<string, list<string>>
      */
@@ -28,7 +29,7 @@ final class RecordUsageSignalAction
     ];
 
     /**
-     * Global denylist — keys that must never be persisted, regardless of signal type.
+     * Globally denied key names — never persisted regardless of signal type.
      *
      * @var list<string>
      */
@@ -52,6 +53,47 @@ final class RecordUsageSignalAction
     ];
 
     /**
+     * Canonical runtime build failure codes accepted for repeated_build_failure.
+     *
+     * @var list<string>
+     */
+    private const CANONICAL_BUILD_FAILURE_CODES = [
+        'runtime_build_failed',
+    ];
+
+    /**
+     * Known pilot limit names accepted for rejected_limits.
+     *
+     * @var list<string>
+     */
+    private const KNOWN_LIMIT_NAMES = [
+        'max_projects_per_user',
+        'max_active_deployments_per_user',
+        'max_active_deployments_per_project',
+        'default_memory_mb',
+        'max_memory_mb',
+        'default_cpu_millis',
+        'max_cpu_millis',
+        'default_pids_limit',
+        'max_pids_limit',
+        'build_timeout_seconds',
+        'start_timeout_seconds',
+        'command_timeout_seconds',
+    ];
+
+    /**
+     * Known manual intervention action codes.
+     *
+     * @var list<string>
+     */
+    private const KNOWN_ACTION_CODES = [
+        'manual_suspend',
+        'manual_stop',
+        'manual_force_deploy',
+        'manual_rollback',
+    ];
+
+    /**
      * @param  array<string, mixed>|null  $tags
      * @return array<string, mixed>
      */
@@ -66,22 +108,52 @@ final class RecordUsageSignalAction
         $allowed = self::ALLOWED_KEYS[$type->value];
         $denied = self::DENYLIST_KEYS;
 
+        // When an allowlist is defined (even if empty), only permit listed keys.
+        // Empty allowlist = strict no-tags policy for this signal type.
+        if ($allowed !== []) {
+            // Filter to only allowed keys first.
+            $candidate = [];
+            foreach ($tags as $key => $value) {
+                if (! in_array($key, $allowed, true)) {
+                    continue;
+                }
+
+                $candidate[$key] = $value;
+            }
+        } else {
+            // No keys allowed for this signal type at all.
+            return [];
+        }
+
+        // Apply global denylist as defense-in-depth: only keys present in
+        // ALLOWED_KEYS make it this far, but we keep the check as a safety net.
         $safe = [];
-        foreach ($tags as $key => $value) {
-            // Always deny known-sensitive keys (defense-in-depth).
-            if (in_array(strtolower($key), $denied, true)) {
+        foreach ($candidate as $key => $value) {
+            // Validate value shape per key; rejected values are silently dropped.
+            $validated = $this->validateValue($key, $value);
+            if ($validated === null) {
                 continue;
             }
 
-            // When an allowlist is defined for this signal type, only permit listed keys.
-            if ($allowed !== [] && ! in_array($key, $allowed, true)) {
-                continue;
-            }
-
-            $safe[$key] = $value;
+            $safe[$key] = $validated;
         }
 
         return $safe;
+    }
+
+    /**
+     * Validate a single tag value against its expected type/constraint.
+     * Returns null when the value should be dropped.
+     */
+    private function validateValue(string $key, mixed $value): mixed
+    {
+        return match ($key) {
+            'threshold' => is_int($value) && $value > 0 ? $value : null,
+            'failure_code' => in_array($value, self::CANONICAL_BUILD_FAILURE_CODES, true) ? $value : null,
+            'limit_name' => in_array($value, self::KNOWN_LIMIT_NAMES, true) ? $value : null,
+            'action_code' => in_array($value, self::KNOWN_ACTION_CODES, true) ? $value : null,
+            default => is_scalar($value) ? $value : null,
+        };
     }
 
     /**

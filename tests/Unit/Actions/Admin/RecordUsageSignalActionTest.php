@@ -36,13 +36,13 @@ test('record action creates audit event for rejected_limits signal', function ()
         count: 1,
         scope: 'user',
         scopeId: (string) Str::uuid(),
-        tags: ['limit_name' => 'max_projects'],
+        tags: ['limit_name' => 'max_projects_per_user'],
     );
 
     expect(AuditEvent::where('action', 'usage_signal.rejected_limits')->count())->toBe(1);
 
     $audit = AuditEvent::firstWhere('action', 'usage_signal.rejected_limits');
-    expect($audit->metadata['limit_name'])->toBe('max_projects');
+    expect($audit->metadata['limit_name'])->toBe('max_projects_per_user');
 });
 
 test('record action creates audit event for manual_intervention signal with allowed key', function (): void {
@@ -82,11 +82,11 @@ test('record action stores custom tags without PII', function (): void {
         count: 3,
         scope: 'project',
         scopeId: 'proj-123',
-        tags: ['failure_code' => 'build_error', 'threshold' => 3],
+        tags: ['failure_code' => 'runtime_build_failed', 'threshold' => 3],
     );
 
     expect($record->tags)->toHaveKey('failure_code');
-    expect($record->tags['failure_code'])->toBe('build_error');
+    expect($record->tags['failure_code'])->toBe('runtime_build_failed');
     expect($record->tags)->not->toHaveKey('email');
     expect($record->tags)->not->toHaveKey('password');
 });
@@ -114,6 +114,67 @@ test('record action filters disallowed tag keys per signal type allowlist', func
     expect($record->tags)->not->toHaveKey('free_text');
 });
 
+test('signal with empty allowlist drops all tags including non-sensitive values', function (): void {
+    $action = app(RecordUsageSignalAction::class);
+
+    // DeploymentAttempt has an empty allowlist — no tags should survive.
+    $record = $action->handle(
+        type: UsageSignalType::DeploymentAttempt,
+        count: 10,
+        tags: ['whatever' => 'secret_value', 'safe_key' => 'safe_value'],
+    );
+
+    expect($record->tags)->toBeEmpty();
+});
+
+test('allowed key with invalid value type is dropped', function (): void {
+    $action = app(RecordUsageSignalAction::class);
+
+    // threshold must be int > 0; string and zero/negative are rejected.
+    $record = $action->handle(
+        type: UsageSignalType::RepeatedBuildFailure,
+        count: 2,
+        tags: [
+            'threshold' => 'not_an_int',
+            'failure_code' => 'invalid_failure_code',
+        ],
+    );
+
+    expect($record->tags)->toBeEmpty();
+});
+
+test('rejected_limits drops unknown limit_name values', function (): void {
+    $action = app(RecordUsageSignalAction::class);
+
+    // Unknown limit name should be dropped even if key is allowed.
+    $record = $action->handle(
+        type: UsageSignalType::RejectedLimits,
+        count: 1,
+        tags: ['limit_name' => 'unknown_limit'],
+    );
+
+    expect($record->tags)->toBeEmpty();
+});
+
+test('manual_intervention accepts only known action codes', function (): void {
+    $action = app(RecordUsageSignalAction::class);
+
+    // Valid code passes; arbitrary free text is rejected.
+    $valid = $action->handle(
+        type: UsageSignalType::ManualIntervention,
+        count: 1,
+        tags: ['action_code' => 'manual_suspend'],
+    );
+    expect($valid->tags['action_code'])->toBe('manual_suspend');
+
+    $invalid = $action->handle(
+        type: UsageSignalType::ManualIntervention,
+        count: 1,
+        tags: ['action_code' => 'arbitrary_free_text'],
+    );
+    expect($invalid->tags)->toBeEmpty();
+});
+
 test('record action strips globally denied keys even when present in tags', function (): void {
     $action = app(RecordUsageSignalAction::class);
 
@@ -122,7 +183,7 @@ test('record action strips globally denied keys even when present in tags', func
         count: 1,
         scope: 'user',
         tags: [
-            'limit_name' => 'max_projects',
+            'limit_name' => 'max_projects_per_user',
             'email' => 'hacker@example.com',
             'password' => 'secret123',
             'token' => 'ghp_xxxxxxxxxxxx',
@@ -131,7 +192,7 @@ test('record action strips globally denied keys even when present in tags', func
         ],
     );
 
-    expect($record->tags['limit_name'])->toBe('max_projects');
+    expect($record->tags['limit_name'])->toBe('max_projects_per_user');
     expect($record->tags)->not->toHaveKey('email');
     expect($record->tags)->not->toHaveKey('password');
     expect($record->tags)->not->toHaveKey('token');
@@ -148,14 +209,14 @@ test('audit event metadata is also sanitized against the same allowlist and deny
         scope: 'user',
         scopeId: (string) Str::uuid(),
         tags: [
-            'limit_name' => 'max_projects',
+            'limit_name' => 'max_projects_per_user',
             'email' => 'admin@sakala.dev',
             'api_key' => 'sk-xxxxxx',
         ],
     );
 
     $audit = AuditEvent::firstWhere('action', 'usage_signal.rejected_limits');
-    expect($audit->metadata['limit_name'])->toBe('max_projects');
+    expect($audit->metadata['limit_name'])->toBe('max_projects_per_user');
     expect($audit->metadata)->not->toHaveKey('email');
     expect($audit->metadata)->not->toHaveKey('api_key');
 });
