@@ -82,7 +82,11 @@
         ],
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",
-            "@php artisan test --compact"
+            "@php artisan test --compact --exclude-group=concurrency"
+        ],
+        "test:concurrency": [
+            "@php artisan config:clear --ansi @no_additional_args",
+            "@php artisan test --compact --group=concurrency"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",

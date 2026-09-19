@@ -20,6 +20,10 @@ pest()->extend(TestCase::class)
  // ->use(RefreshDatabase::class)
     ->in('Feature', 'Unit');
 
+// Multi-session PostgreSQL tests: no RefreshDatabase, schema recreated per
+// test, excluded from the default run (see composer test / test:concurrency).
+pest()->group('concurrency')->in('Feature/Concurrency');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations
@@ -37,6 +41,7 @@ expect()->extend('toBeOne', function () {
 
 require_once __DIR__.'/Support/AgentHeartbeatPayload.php';
 require_once __DIR__.'/Support/AgentProtocolFixtures.php';
+require_once __DIR__.'/Support/PgsqlConcurrency.php';
 /*
 |--------------------------------------------------------------------------
 | Functions

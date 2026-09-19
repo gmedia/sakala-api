@@ -12,9 +12,7 @@ use App\Models\Project;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function (): void {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        return;
-    }
+    concurrencyRequiresPostgres();
 
     $this->artisan('migrate:fresh');
 });
@@ -65,7 +63,7 @@ test('concurrent report processes allocate unique deployment log sequences', fun
         'DB_USERNAME' => (string) ($connection['username'] ?? ''),
         'DB_PASSWORD' => (string) ($connection['password'] ?? ''),
         'DB_SSLMODE' => (string) ($connection['sslmode'] ?? 'prefer'),
-        'APP_BASE_PATH' => dirname(__DIR__, 5),
+        'APP_BASE_PATH' => dirname(__DIR__, 3),
         'HOME' => $base,
         'PULSE_ENABLED' => 'false',
         'TELESCOPE_ENABLED' => 'false',
@@ -135,7 +133,4 @@ test('concurrent report processes allocate unique deployment log sequences', fun
     expect(Deployment::query()->findOrFail($deployment->id)->logs()->orderBy('sequence')->pluck('sequence')->all())
         ->toBe([1, 2])
         ->and($command->fresh()->reported_log_bytes)->toBe(strlen('concurrent-log-0') + strlen('concurrent-log-1'));
-})->skip(
-    fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
-    'Requires PostgreSQL and separate database processes.',
-);
+});

@@ -7,8 +7,28 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 test('username migration backfills existing users with valid unique usernames', function (): void {
-    Schema::dropIfExists('users');
+    // Rebuild `users` in its pre-migration shape inside a transaction that is
+    // rolled back at the end, so the real schema (and the foreign keys other
+    // tables hold on `users`) is restored for the rest of the suite. DDL is
+    // transactional on both SQLite and PostgreSQL; PostgreSQL additionally
+    // needs CASCADE to drop the dependent constraints.
+    DB::beginTransaction();
 
+    try {
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS users CASCADE');
+        } else {
+            Schema::dropIfExists('users');
+        }
+
+        runUsernameBackfillAssertions();
+    } finally {
+        DB::rollBack();
+    }
+});
+
+function runUsernameBackfillAssertions(): void
+{
     Schema::create('users', function (Blueprint $table): void {
         $table->id();
         $table->string('name');
@@ -72,4 +92,4 @@ test('username migration backfills existing users with valid unique usernames', 
 
         expect(strlen($user->username))->toBeLessThanOrEqual(50);
     }
-});
+}
