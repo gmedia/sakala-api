@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Actions\Admin\ReconcileProjectAction;
 use App\Actions\Admin\StopProjectAction;
 use App\Actions\Admin\SuspendProjectAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\Admin\ReconcileProjectRequest;
 use App\Http\Requests\Api\V1\Admin\StopProjectRequest;
 use App\Http\Requests\Api\V1\Admin\SuspendProjectRequest;
 use App\Http\Resources\Api\V1\Admin\ProjectControlResource;
@@ -59,6 +61,33 @@ final class ProjectControlController extends Controller
         SuspendProjectRequest $request,
         Project $project,
         SuspendProjectAction $action,
+    ): JsonResponse {
+        $result = $action->handle(
+            project: $project,
+            user: $request->user(),
+            data: $request->toData(),
+        );
+
+        return (new ProjectControlResource($result))
+            ->response()
+            ->setStatusCode(202);
+    }
+
+    #[HeaderParameter(
+        'Idempotency-Key',
+        description: 'Unique key used to safely retry the reconciliation request.',
+        type: 'string',
+        example: '550e8400-e29b-41d4-a716-446655440000',
+    )]
+    /**
+     * Ask the serving node to reconcile the project's workload.
+     *
+     * @scramble-return \Illuminate\Http\Response
+     */
+    public function reconcile(
+        ReconcileProjectRequest $request,
+        Project $project,
+        ReconcileProjectAction $action,
     ): JsonResponse {
         $result = $action->handle(
             project: $project,

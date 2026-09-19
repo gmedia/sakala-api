@@ -9,6 +9,7 @@ use App\Data\Agent\AgentReportAcknowledgementData;
 use App\Data\Agent\DeploymentLogReportItemData;
 use App\Data\Agent\ReportDeploymentLogData;
 use App\Enums\AgentCommandStatus;
+use App\Enums\AgentCommandType;
 use App\Events\Deployment\DeploymentLogCreated;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Exceptions\Agent\ReportIdempotencyConflictException;
@@ -203,14 +204,28 @@ final class ReportDeploymentLogAction
         }
     }
 
+    /**
+     * Logs are accepted while the command runs and, for DeployProject only,
+     * after it succeeded: the agent keeps following the container's output
+     * (`docker logs --follow`) under the deploy command's identity, also
+     * after an agent restart. Failed, cancelled, and expired commands take
+     * no further logs. The cumulative byte budget still applies.
+     */
     private function assertActive(AgentCommand $command): void
     {
-        if (! in_array($command->status, [
+        if (in_array($command->status, [
             AgentCommandStatus::Claimed,
             AgentCommandStatus::Running,
         ], true)) {
-            throw new CommandConflictException($command);
+            return;
         }
+
+        if ($command->status === AgentCommandStatus::Succeeded
+            && $command->type === AgentCommandType::DeployProject) {
+            return;
+        }
+
+        throw new CommandConflictException($command);
     }
 
     private function assertWithinBounds(

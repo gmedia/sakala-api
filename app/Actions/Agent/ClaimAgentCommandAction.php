@@ -6,9 +6,11 @@ namespace App\Actions\Agent;
 
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\DeploymentStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Agent\AgentCommandEligibilityService;
@@ -47,7 +49,7 @@ final class ClaimAgentCommandAction
      */
     public function handle(AgentNode $agent, string $commandId): AgentCommand
     {
-        return DB::transaction(function () use ($agent, $commandId): AgentCommand {
+        $command = DB::transaction(function () use ($agent, $commandId): AgentCommand {
             // Re-read the node under lock: middleware loaded it at the
             // start of the request, and a heartbeat or an admin drain may
             // have changed its status, capabilities, or desired state since.
@@ -71,12 +73,20 @@ final class ClaimAgentCommandAction
 
             $this->assertClaimable($command, $node);
 
+            if ($command->type === AgentCommandType::ReconcileWorkload
+                && $deployment !== null
+                && $this->cancelSupersededReconcile($command, $deployment)) {
+                // Committed as Cancelled; the conflict is raised after commit.
+                return $command->fresh();
+            }
+
             $updated = AgentCommand::query()
                 ->whereKey($command->id)
                 ->where('status', AgentCommandStatus::Pending->value)
                 ->update([
                     'status' => AgentCommandStatus::Claimed->value,
                     'claimed_at' => now(),
+                    'lease_expires_at' => now()->addSeconds($this->leaseSeconds($command)),
                     'attempts' => $command->attempts + 1,
                     'agent_node_id' => $command->agent_node_id ?? $node->id,
                     'updated_at' => now(),
@@ -95,6 +105,76 @@ final class ClaimAgentCommandAction
 
             return $command->fresh();
         });
+
+        if ($command->status === AgentCommandStatus::Cancelled) {
+            throw new CommandConflictException($command);
+        }
+
+        return $command;
+    }
+
+    /**
+     * A reconciliation may mutate the project's route, which is shared by
+     * all of the project's deployments on the node. If a newer deployment
+     * became current after the command was created, executing it would point
+     * the route back at a superseded container. Cancel it instead of leaving
+     * it Pending forever; the caller raises the conflict once the
+     * cancellation is committed. Returns true when the command was cancelled.
+     */
+    private function cancelSupersededReconcile(AgentCommand $command, Deployment $deployment): bool
+    {
+        $currentId = Deployment::query()
+            ->where('project_id', $deployment->project_id)
+            ->where('status', DeploymentStatus::Succeeded)
+            ->whereNotNull('agent_node_id')
+            ->orderByDesc('sequence')
+            ->value('id');
+
+        $inFlight = Deployment::query()
+            ->where('project_id', $deployment->project_id)
+            ->active()
+            ->exists();
+
+        if ($currentId === $deployment->id && ! $inFlight) {
+            return false;
+        }
+
+        $command->update([
+            'status' => AgentCommandStatus::Cancelled,
+            'error_code' => 'reconcile_target_superseded',
+            'error_message' => 'The deployment targeted by this reconciliation is no longer current.',
+        ]);
+
+        AuditEvent::create([
+            'actor_type' => 'system',
+            'actor_id' => 'claim',
+            'action' => 'project.reconcile_cancelled',
+            'subject_type' => Project::class,
+            'subject_id' => $deployment->project_id,
+            'metadata' => [
+                'command_id' => $command->id,
+                'deployment_id' => $deployment->id,
+                'current_deployment_id' => $currentId,
+            ],
+        ]);
+
+        return true;
+    }
+
+    /**
+     * The lease is the agent's execution deadline for this command plus a
+     * grace window. Past it, the control plane treats the command as
+     * abandoned and recovers it (see ExpireAgentCommandsAction).
+     */
+    private function leaseSeconds(AgentCommand $command): int
+    {
+        $timeout = $command->payload['timeouts']['command_timeout_seconds'] ?? null;
+
+        if (! is_int($timeout) || $timeout <= 0) {
+            $timeout = (int) config('sakala.pilot_limits.timeouts.command_timeout_seconds', 900);
+        }
+
+        return $timeout + (int) config('sakala.agent.lease_grace_seconds', 60);
     }
 
     /**

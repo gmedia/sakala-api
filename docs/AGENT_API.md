@@ -209,6 +209,33 @@ yang boleh menulis hasil — completion command yang sudah disusul diabaikan.
 `detected_port` tidak diturunkan dari hasil karena `ProjectInspection` v4 tidak
 memuat port.
 
+### ReconcileWorkload dan CleanupRuntime
+
+Keduanya hanya dibuat atas permintaan admin; API tidak pernah menyimpulkan
+aksi mutatif dari state.
+
+- `POST /api/v1/admin/projects/{project}/reconcile` → `ReconcileWorkload`
+  pinned ke node yang menjalankan deployment `succeeded` terakhir, payload
+  persis seperti diminta: `{ "desired_state": "running|stopped|missing",
+  "actions": [restart_log_follower|cleanup_failed_candidate|restore_route] }`;
+  `actions` kosong berarti hanya melaporkan drift. Ditolak `409` untuk project
+  suspended (command akan ditahan poll), tanpa workload terlayani, bila
+  deployment lain masih berjalan, atau bila reconciliation lain masih
+  berjalan. Karena route Caddy bersifat per project, claim memeriksa ulang
+  bahwa deployment target masih yang terkini; bila sudah disusul, command
+  menjadi `Cancelled` (`reconcile_target_superseded`) dan claim dijawab `409`
+  supaya `restore_route` tidak pernah menunjuk container lama. Result completion (`desired_state`,
+  `actual_state`, `in_sync`, `drift_reason`, `actions_applied`) dicatat ke
+  audit `project.reconcile_completed`; tidak ada command lanjutan otomatis.
+- `POST /api/agent/v1/agents/{agent}/cleanup` → `CleanupRuntime` node-level
+  dengan payload `{ "approved": true, "targets": [stale_workspaces|
+  stale_images|stale_routes] }`. `approved` hanya ditulis control plane dan
+  ditolak (`422`) bila dikirim client. Node harus aktif dan eligible; satu
+  cleanup in-flight per node. Counter hasil (`cleaned_workspaces`,
+  `cleaned_routes`, `reclaimed_image_bytes`) dicatat ke audit.
+
+Keduanya menerima `Idempotency-Key` dengan semantik project/node control.
+
 ### Repository credential
 
 Dipanggil agent setelah claim dan sebelum checkout, hanya bila payload
@@ -246,8 +273,32 @@ dengan `repository_credential_unavailable`.
 
 Body `{}`. Claim adalah `UPDATE … WHERE status = 'Pending'` dalam transaction;
 hanya satu node yang menang. Eligibility node divalidasi ulang dengan node yang
-dibaca segar (protocol, auth, status, desired state, capability, scope).
-Sukses → `200` dengan resource command; gagal → `409` dengan bentuk di bawah.
+dibaca segar di bawah row lock (protocol, auth, status, desired state,
+capability, scope). Sukses → `200` dengan resource command; gagal → `409`
+dengan bentuk di bawah.
+
+Claim memberi **lease**: `lease_expires_at = now + command_timeout_seconds
+(dari payload, atau default config) + SAKALA_AGENT_LEASE_GRACE_SECONDS`.
+
+### Lease expiry dan recovery
+
+`agent:expire-commands` (tiap menit) menutup command yang ditinggalkan secara
+deterministik, dengan lock per command dan pengecekan ulang sebelum menulis:
+
+- `Pending` dengan `expires_at` lewat → `Expired`, `error_code =
+  command_expired` (deployment terkait → `failed`, kategori `scheduling`).
+  `DeployProject` dan `InspectProject` yang menunggu node dibuat tanpa
+  `expires_at` sehingga tidak pernah kedaluwarsa di antrean.
+- `Claimed`/`Running` dengan `lease_expires_at` lewat → `Expired`,
+  `error_code = command_lease_expired` (deployment aktif → `failed`, kategori
+  `timeout`; inspeksi → `failed`; `DrainNode`/`ResumeNode` hanya diaudit,
+  `desired_state` tidak diubah).
+- Deployment yang sudah terminal tidak pernah disentuh.
+
+Setelah expired, `complete`/`fail` dari agent dijawab `409 {status:
+"Expired"}` — agent memperlakukannya sebagai konflik terminal dan berhenti.
+Agent sendiri menegakkan `command_timeout_seconds`, jadi lease normalnya
+hanya kedaluwarsa bila node mati atau kehilangan koneksi.
 
 ### Claimed → Running
 
@@ -269,6 +320,13 @@ command tanpa deployment (`InspectProject`, `CleanupRuntime`, `DrainNode`,
 command dan acknowledgement yang sama, tanpa broadcast.
 
 Hanya node pemilik (`agent_node_id`) yang boleh melapor; node lain → `409`.
+
+Log (bukan event) tetap diterima untuk `DeployProject` yang sudah `Succeeded`:
+agent terus mengikuti output container (`docker logs --follow`) di bawah
+identitas command deploy, juga setelah agent restart. Budget kumulatif
+`max_total_bytes` tetap berlaku (`422` bila habis). Command `Failed`,
+`Cancelled`, atau `Expired`, dan command lain yang terminal, menolak log
+dengan `409`.
 
 ### Complete dan fail
 
@@ -323,7 +381,6 @@ Lihat README di folder tersebut.
 
 ## Belum tersedia pada API
 
-Bagian kontrak v4 berikut belum diimplementasikan dan akan menyusul pada
-milestone #55: alur `InspectProject` saat membuat project, lease
-expiry/recovery, admin cleanup/reconcile, serta log runtime setelah
-`complete`.
+Seluruh kontrak protocol v4 yang diperlukan #55 telah diimplementasikan. Belum
+tersedia: `desired_state = maintenance` (agent v0.1.0 hanya mencapainya lewat
+bootstrap), endpoint re-inspect project, dan migrasi workload lintas node.

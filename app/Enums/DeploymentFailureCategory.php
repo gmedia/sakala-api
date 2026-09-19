@@ -14,5 +14,6 @@ enum DeploymentFailureCategory: string
     case Timeout = 'timeout';
     case Resource = 'resource';
     case Node = 'node';
+    case Scheduling = 'scheduling';
     case Unknown = 'unknown';
 }

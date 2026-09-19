@@ -8,4 +8,5 @@ enum AgentNodeControlAction: string
 {
     case Drain = 'drain';
     case Resume = 'resume';
+    case Cleanup = 'cleanup';
 }

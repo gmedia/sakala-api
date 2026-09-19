@@ -66,6 +66,20 @@ final class DeploymentFailureClassifier
                 recoveryHint: 'Periksa proses deployment dan konfigurasi timeout aplikasi.',
             ),
 
+            'command_lease_expired' => new DeploymentFailureData(
+                code: $errorCode,
+                category: DeploymentFailureCategory::Timeout,
+                summary: 'Runtime node tidak menyelesaikan deployment tepat waktu.',
+                recoveryHint: 'Coba deploy ulang; bila berulang, periksa kondisi runtime node.',
+            ),
+
+            'command_expired' => new DeploymentFailureData(
+                code: $errorCode,
+                category: DeploymentFailureCategory::Scheduling,
+                summary: 'Tidak ada runtime node yang mengambil deployment sebelum batas waktu.',
+                recoveryHint: 'Coba deploy ulang setelah runtime node tersedia.',
+            ),
+
             'runtime_capacity_exceeded',
             'runtime_disk_pressure' => new DeploymentFailureData(
                 code: $errorCode,

@@ -9,7 +9,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
+ * @property string $project_id
  * @property ProjectControlAction $action
+ * @property string $idempotency_key
+ * @property string $actor_type
+ * @property int|string $actor_id
+ * @property string $reason
+ * @property string|null $agent_command_id
+ * @property array<string, mixed>|null $response_context
  */
 class ProjectControlRequest extends Model
 {

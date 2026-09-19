@@ -77,6 +77,26 @@ final class CompleteAgentCommandAction
                 $this->completeInspection($agent, $command, ProjectInspectionResultData::fromArray($result));
             }
 
+            if ($command->type === AgentCommandType::ReconcileWorkload && $command->project_id !== null) {
+                // Drift is reported to operators; nothing is repaired implicitly.
+                AuditEvent::create([
+                    'actor_type' => AgentNode::class,
+                    'actor_id' => $agent->id,
+                    'action' => 'project.reconcile_completed',
+                    'subject_type' => Project::class,
+                    'subject_id' => $command->project_id,
+                    'metadata' => [
+                        'command_id' => $command->id,
+                        'deployment_id' => $command->deployment_id,
+                        'desired_state' => $result['desired_state'] ?? null,
+                        'actual_state' => $result['actual_state'] ?? null,
+                        'in_sync' => $result['in_sync'] ?? null,
+                        'drift_reason' => $result['drift_reason'] ?? null,
+                        'actions_applied' => $result['actions_applied'] ?? [],
+                    ],
+                ]);
+            }
+
             if ($command->type->isNodeLevel()) {
                 // Result keys only: never echo command payload into the audit trail.
                 AuditEvent::create([
@@ -89,6 +109,12 @@ final class CompleteAgentCommandAction
                         'type' => $command->type->value,
                         'agent_node_id' => $command->agent_node_id,
                         'result_keys' => array_keys($result ?? []),
+                        // CleanupRuntime reports counters only; safe to keep.
+                        ...($command->type === AgentCommandType::CleanupRuntime ? [
+                            'cleaned_workspaces' => $result['cleaned_workspaces'] ?? null,
+                            'cleaned_routes' => $result['cleaned_routes'] ?? null,
+                            'reclaimed_image_bytes' => $result['reclaimed_image_bytes'] ?? null,
+                        ] : []),
                     ],
                 ]);
             }
