@@ -36,6 +36,7 @@ Lihat [Autentikasi](AUTHENTICATION.md) untuk provisioning, rotasi, dan revoke.
 | `GET` | `/node-state` | Desired lifecycle state yang harus dipulihkan agent saat bootstrap. |
 | `GET` | `/commands` | Polling command `Pending` yang eligible untuk node. |
 | `POST` | `/commands/{id}/claim` | Klaim atomik satu command. |
+| `POST` | `/commands/{id}/repository-credential` | Lease credential repository sekali pakai untuk command yang sudah diklaim. |
 | `POST` | `/commands/{id}/events` | Laporan event. |
 | `POST` | `/commands/{id}/logs` | Laporan log. |
 | `POST` | `/commands/{id}/complete` | Command selesai sukses. |
@@ -136,9 +137,8 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
 
 - `repository_access` adalah `public` untuk project dari URL publik dan
   `temporary_credential` untuk project yang terhubung lewat GitHub App
-  installation. Sampai endpoint `repository-credential` tersedia, API menolak
-  pembuatan deployment untuk project installation-backed dengan `409` supaya
-  tidak ada command yang pasti gagal di agent.
+  installation; untuk yang terakhir agent meminta credential lewat endpoint
+  `repository-credential` sebelum checkout.
 - `environment` dikirim **plaintext** hanya kepada node target. Di database
   nilainya tetap terenkripsi; node lain tidak pernah menerima payload ini.
   Map kosong diserialisasi sebagai `{}`.
@@ -166,6 +166,39 @@ deferred, API membuat `StopProject` idempoten untuk setiap deployment
 `succeeded` lama pada project dan node yang sama — tidak pernah untuk
 deployment baru. Completion pada deployment yang sudah ditutup control plane
 (mis. kedaluwarsa) tetap `204`, dicatat di audit, dan tidak mengubah status.
+
+### Repository credential
+
+Dipanggil agent setelah claim dan sebelum checkout, hanya bila payload
+`InspectProject`/`DeployProject` memakai `repository_access:
+"temporary_credential"`. Body `{}`. Response **tanpa** envelope `data`:
+
+```json
+{ "username": "x-access-token", "token": "ghs_…" }
+```
+
+Syarat, diperiksa di bawah row lock command **sebelum** token diminta ke
+GitHub dan **sekali lagi** setelah token diterima, sebelum dikembalikan (state
+bisa berubah selama I/O ke GitHub; token yang gagal revalidasi tidak pernah
+diserahkan dan kedaluwarsa sendiri):
+
+- node pemanggil adalah `agent_node_id` command; command `Claimed` atau
+  `Running` — selain itu `409` dengan bentuk konflik standar;
+- type `InspectProject`/`DeployProject` dan `repository_access =
+  temporary_credential` — selain itu `422`;
+- `payload.repository_url` sama dengan repository project (binding repository
+  command tidak boleh bergeser), project masih terikat ke GitHub App
+  installation yang `active` dengan repository yang sama, dan user pemilik
+  project masih terhubung ke installation tersebut — selain itu `409`
+  "GitHub App no longer has access…".
+
+Token adalah installation token GitHub App yang dibatasi ke **satu
+repository** (`repository_ids`) dengan permission **`contents:read`** saja,
+berumur ±1 jam (ditentukan GitHub), tidak di-cache, tidak disimpan pada
+command, dan tidak muncul di log maupun response lain. Setiap lease dicatat di
+`audit_events` (`agent.repository_credential_leased`) tanpa token. Kegagalan
+GitHub tidak menghasilkan credential parsial; agent menandai command gagal
+dengan `repository_credential_unavailable`.
 
 ### Claim
 
@@ -249,6 +282,6 @@ Lihat README di folder tersebut.
 ## Belum tersedia pada API
 
 Bagian kontrak v4 berikut belum diimplementasikan dan akan menyusul pada
-milestone #55: `POST /commands/{id}/repository-credential`, alur
-`InspectProject` saat membuat project, lease expiry/recovery, admin
-drain/resume/cleanup/reconcile, serta log runtime setelah `complete`.
+milestone #55: alur `InspectProject` saat membuat project, lease
+expiry/recovery, admin drain/resume/cleanup/reconcile, serta log runtime
+setelah `complete`.

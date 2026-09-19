@@ -16,6 +16,8 @@ use App\Models\GithubInstallation;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -237,7 +239,7 @@ test('public projects deploy with repository_access public', function (): void {
     expect($payload['repository_access'])->toBe('public');
 });
 
-test('installation-backed projects are refused until the agent can lease a repository credential', function (): void {
+test('installation-backed projects deploy with repository_access temporary_credential', function (): void {
     deployNode();
     $user = User::factory()->create();
     $installation = GithubInstallation::factory()->create();
@@ -248,16 +250,17 @@ test('installation-backed projects are refused until the agent can lease a repos
         'github_repository_id' => 4242,
     ]);
 
-    $this->actingAs($user, 'web')
-        ->postJson("/api/v1/app/projects/{$private->id}/deployments", ['branch' => 'main'])
-        ->assertStatus(409)
-        ->assertJsonPath('message', 'Deployments for repositories connected through a GitHub App installation are not available yet.');
+    // The branch head is resolved with the (cached) installation token.
+    Cache::put(
+        'github-app-installation-token:'.$installation->id,
+        Crypt::encryptString('ghs_test_installation_token'),
+        now()->addHour(),
+    );
 
-    // Nothing is enqueued that a stock agent could not complete, and GitHub
-    // is never contacted for the branch head.
-    expect(Deployment::query()->where('project_id', $private->id)->exists())->toBeFalse()
-        ->and(AgentCommand::query()->where('project_id', $private->id)->exists())->toBeFalse();
-    Http::assertNothingSent();
+    $deployment = createDeployment($user, $private);
+    $payload = AgentCommand::query()->where('deployment_id', $deployment->id)->sole()->payload;
+
+    expect($payload['repository_access'])->toBe('temporary_credential');
 });
 
 test('the simulated lifecycle is not dispatched unless explicitly enabled', function (): void {

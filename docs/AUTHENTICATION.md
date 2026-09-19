@@ -94,6 +94,19 @@ installation maupun repository pengguna. Token installation hanya dipakai API
 untuk operasi layanan setelah project terikat, tidak disimpan di database, dan
 hanya dicache terenkripsi sebelum kedaluwarsa.
 
+### Credential repository untuk agent
+
+Repository private tidak pernah diakses agent dengan user token. Saat command
+`InspectProject`/`DeployProject` memakai `repository_access =
+temporary_credential`, agent yang memiliki command meminta
+`POST /api/agent/v1/commands/{command}/repository-credential` dan menerima
+installation token GitHub App yang dibatasi ke satu repository dengan
+`contents:read`. API memverifikasi kepemilikan command, status command,
+installation yang masih aktif, dan bahwa pemilik project masih terhubung ke
+installation sebelum mencetak token. Token ini tidak di-cache, tidak disimpan,
+dan hanya dicatat sebagai audit event tanpa nilai tokennya. Lihat
+[Agent API](AGENT_API.md#repository-credential).
+
 ### GitHub installation
 
 Repository publik dapat divalidasi dengan URL tanpa credential. Repository

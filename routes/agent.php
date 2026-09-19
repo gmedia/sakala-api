@@ -35,6 +35,7 @@ Route::prefix('agent/v1')->group(function (): void {
         // Command lifecycle endpoints.
         Route::get('commands', [AgentController::class, 'pollCommands']);
         Route::post('commands/{command:uuid}/claim', [AgentController::class, 'claimCommand']);
+        Route::post('commands/{command:uuid}/repository-credential', [AgentController::class, 'leaseRepositoryCredential']);
         Route::post('commands/{command:uuid}/events', [AgentController::class, 'reportEvents'])
             ->middleware(LimitAgentReportPayload::class);
         Route::post('commands/{command:uuid}/logs', [AgentController::class, 'reportLogs'])
