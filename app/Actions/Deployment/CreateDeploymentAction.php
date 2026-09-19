@@ -216,9 +216,11 @@ final class CreateDeploymentAction
                     'payload' => $commandPayload,
                     'idempotency_key' => (string) Str::uuid(),
                     'available_at' => now(),
-                    'expires_at' => now()->addSeconds(
-                        $effectiveLimits->timeouts->command_timeout_seconds,
-                    ),
+                    // `command_timeout_seconds` is the execution deadline the
+                    // agent applies after claim, not a queue TTL. A deploy
+                    // that is waiting for a node must not silently expire;
+                    // deterministic expiry/recovery arrives with lease handling.
+                    'expires_at' => null,
                 ]);
 
                 return $deployment;

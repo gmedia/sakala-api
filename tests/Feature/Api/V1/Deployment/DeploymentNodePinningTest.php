@@ -162,6 +162,73 @@ test('redeploys stick to the node that already serves the project', function ():
         ->and($deployment->agent_node_id)->not->toBe($busy->id);
 });
 
+test('a project already served by a node waits for that node instead of moving elsewhere', function (): void {
+    $serving = deployNode([
+        'last_seen_at' => now()->subMinutes(5),
+        'token_hash' => hash_hmac('sha256', 'serving-token', (string) config('app.key')),
+    ]);
+    $spare = deployNode();
+    ['user' => $user, 'project' => $project] = deployContext();
+    Deployment::factory()->for($project)->create([
+        'sequence' => 1,
+        'status' => DeploymentStatus::Succeeded,
+        'agent_node_id' => $serving->id,
+    ]);
+
+    $deployment = createDeployment($user, $project);
+    $command = AgentCommand::query()->where('deployment_id', $deployment->id)->sole();
+
+    // Never implicitly migrate: the old workload on the serving node could
+    // not be cleaned up from another node.
+    expect($deployment->agent_node_id)->toBeNull()
+        ->and($command->agent_node_id)->toBeNull()
+        ->and($spare->id)->not->toBe($serving->id);
+
+    $this->artisan('agent:assign-commands')->expectsOutputToContain('Assigned 0 agent command(s).');
+    expect($command->fresh()->agent_node_id)->toBeNull();
+
+    // When the serving node comes back it picks the deployment up itself.
+    $this->withHeaders(['Authorization' => 'Bearer serving-token', 'X-Agent-Id' => $serving->agent_id])
+        ->postJson('/api/agent/v1/heartbeat', heartbeatPayload([
+            'capabilities' => ['docker-runtime', 'dockerfile-build', 'railpack-build'],
+        ]))
+        ->assertOk();
+
+    expect($command->fresh()->agent_node_id)->toBe($serving->id)
+        ->and($deployment->fresh()->agent_node_id)->toBe($serving->id);
+});
+
+test('a waiting deploy command never expires on its own', function (): void {
+    ['user' => $user, 'project' => $project] = deployContext();
+
+    $deployment = createDeployment($user, $project);
+    $command = AgentCommand::query()->where('deployment_id', $deployment->id)->sole();
+
+    expect($command->expires_at)->toBeNull()
+        ->and($command->available_at)->not->toBeNull();
+
+    $this->travel(2)->hours();
+
+    deployNode();
+    $this->artisan('agent:assign-commands')->expectsOutputToContain('Assigned 1 agent command(s).');
+
+    expect($command->fresh()->agent_node_id)->not->toBeNull();
+});
+
+test('assigned but unclaimed commands count as node load', function (): void {
+    $loaded = deployNode();
+    $idle = deployNode();
+    AgentCommand::factory()->count(2)->create([
+        'agent_node_id' => $loaded->id,
+        'status' => AgentCommandStatus::Pending,
+    ]);
+    ['user' => $user, 'project' => $project] = deployContext();
+
+    $deployment = createDeployment($user, $project);
+
+    expect($deployment->agent_node_id)->toBe($idle->id);
+});
+
 test('repository_access is derived from how the project was connected', function (): void {
     deployNode();
     ['user' => $user, 'project' => $public] = deployContext();

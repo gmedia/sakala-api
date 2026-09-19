@@ -141,9 +141,10 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   nilainya tetap terenkripsi; node lain tidak pernah menerima payload ini.
   Map kosong diserialisasi sebagai `{}`.
 - Node target dipilih control plane saat deployment dibuat (lihat
-  [Database](DATABASE.md#penjadwalan-node-dan-secret)). Tanpa node eligible,
-  command menunggu tanpa target dan ditetapkan oleh sweep `agent:assign-commands`
-  atau heartbeat berikutnya.
+  [Database](DATABASE.md#penjadwalan-node-dan-secret)). Project yang sudah
+  berjalan di suatu node hanya akan dideploy ulang ke node itu. Tanpa node
+  eligible, command menunggu tanpa target dan tanpa `expires_at`, lalu
+  ditetapkan oleh sweep `agent:assign-commands` atau heartbeat berikutnya.
 
 Event fase dari agent menggerakkan status deployment (maju saja, retry aman):
 

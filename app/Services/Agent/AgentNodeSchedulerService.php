@@ -35,13 +35,12 @@ final class AgentNodeSchedulerService
     {
         $candidates = $this->eligibleNodes($type);
 
-        if ($candidates->isEmpty()) {
-            return null;
-        }
-
-        // Routes, images, and containers are node-local: keep a project on the
-        // node that currently serves it so stop/finalization commands can
-        // reach the running workload.
+        // Routes, images, and containers are node-local: a project that is
+        // already served by a node must stay there so stop/finalization
+        // commands can reach the running workload. If that node cannot take
+        // work right now the command waits for it; moving to another node
+        // would leave the old workload running unreachable, so cross-node
+        // migration is deliberately not implicit.
         if ($project !== null) {
             $currentNodeId = Deployment::query()
                 ->where('project_id', $project->id)
@@ -50,16 +49,18 @@ final class AgentNodeSchedulerService
                 ->orderByDesc('sequence')
                 ->value('agent_node_id');
 
-            $sticky = $currentNodeId === null ? null : $candidates->firstWhere('id', $currentNodeId);
-
-            if ($sticky !== null) {
-                return $sticky;
+            if ($currentNodeId !== null) {
+                return $candidates->firstWhere('id', $currentNodeId);
             }
+        }
+
+        if ($candidates->isEmpty()) {
+            return null;
         }
 
         return $candidates
             ->sortBy([
-                ['in_flight_commands_count', 'asc'],
+                ['reserved_commands_count', 'asc'],
                 ['last_seen_at', 'desc'],
             ])
             ->first();
@@ -83,8 +84,12 @@ final class AgentNodeSchedulerService
             ->whereIn('protocol_version', $this->eligibility->supportedProtocolVersions())
             ->where('last_seen_at', '>=', now()->subSeconds($offlineAfter))
             ->withCount([
-                'commands as in_flight_commands_count' => function ($query): void {
+                // Assigned-but-unclaimed commands are reservations too;
+                // counting only claimed work would let one node absorb a
+                // whole assignment batch.
+                'commands as reserved_commands_count' => function ($query): void {
                     $query->whereIn('status', [
+                        AgentCommandStatus::Pending,
                         AgentCommandStatus::Claimed,
                         AgentCommandStatus::Running,
                     ]);
