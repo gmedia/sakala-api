@@ -42,7 +42,14 @@ Lihat [Autentikasi](AUTHENTICATION.md) untuk provisioning, rotasi, dan revoke.
 | `POST` | `/commands/{id}/complete` | Command selesai sukses. |
 | `POST` | `/commands/{id}/fail` | Command gagal. |
 
-`{id}` adalah UUID `agent_commands.id`.
+`{id}` adalah UUID `agent_commands.id`. Urutan yang dijalankan agent v0.1.0:
+`node-state` (sekali, bootstrap) → `heartbeat` (berkala) → `commands` (poll)
+→ `claim` → [`repository-credential`] → `events`/`logs` → `complete` |
+`fail`.
+
+Endpoint admin yang mengendalikan sisi control plane (provisioning, rotate,
+revoke, drain, resume, cleanup, stop, suspend, reconcile) dijelaskan di
+[Konvensi API](API_CONVENTIONS.md) dan [Autentikasi](AUTHENTICATION.md).
 
 ### Heartbeat
 
@@ -367,8 +374,32 @@ Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
   `drained`, `maintenance`; `offline` hanya diturunkan control plane.
 - `AgentNodeDesiredState`: `active`, `draining`, `drained`, `maintenance`.
 - `RepositoryAccess`: `public`, `temporary_credential`.
+- `DesiredWorkloadState`: `running`, `stopped`, `missing`;
+  `ReconcileWorkloadAction`: `restart_log_follower`,
+  `cleanup_failed_candidate`, `restore_route`; `RuntimeCleanupTarget`:
+  `stale_workspaces`, `stale_images`, `stale_routes`;
+  `FinalizationDeferredReason`: `grace_elapsed`, `runtime_error`.
 - `DeploymentEventLevel`: `info`, `warning`, `error`; `LogStream`: `stdout`,
   `stderr`, `system`.
+
+## Error code dan klasifikasi
+
+`error_code` dari `fail` disanitasi (`[A-Za-z0-9._-]`, ≤ 64) lalu, untuk
+`DeployProject`, dipetakan `DeploymentFailureClassifier` ke kategori yang
+dilihat console (`failure.category`):
+
+| Kategori | Error code |
+| --- | --- |
+| `checkout` | `repository_checkout_failed`, `repository_not_found`, `repository_access_denied`, `repository_auth_failed`, `repository_credential_expired`, `repository_credential_unavailable`, `repository_commit_not_found`, `runtime_repository_failed` |
+| `build` | `runtime_build_failed` |
+| `start` | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed` |
+| `health` | `runtime_health_check_failed` |
+| `route` | `runtime_routing_failed` |
+| `timeout` | `runtime_timeout`, `command_lease_expired` (control plane) |
+| `resource` | `runtime_capacity_exceeded`, `runtime_disk_pressure` |
+| `node` | `runtime_preflight_failed`, `runtime_dependency_failed`, `invalid_runtime_configuration`, `invalid_runtime_command`, `unsupported_runtime_command` |
+| `scheduling` | `command_expired` (control plane) |
+| `unknown` | lainnya, termasuk `runtime_cancelled` |
 
 ## Fixture
 
@@ -384,3 +415,81 @@ Lihat README di folder tersebut.
 Seluruh kontrak protocol v4 yang diperlukan #55 telah diimplementasikan. Belum
 tersedia: `desired_state = maintenance` (agent v0.1.0 hanya mencapainya lewat
 bootstrap), endpoint re-inspect project, dan migrasi workload lintas node.
+
+## Catatan sinkronisasi untuk sakala-agent
+
+Bagian ini mencatat di mana API sudah lebih maju dari agent v0.1.0, atau di
+mana dokumentasi agent perlu dikoreksi, supaya rilis agent berikutnya dapat
+menyesuaikan. Tidak ada yang memblokir kompatibilitas v0.1.0.
+
+Sudah dikerjakan agent di `main`, tinggal rilis tag:
+
+1. `metadata.detail_counts` pada heartbeat (agent commit `320b6a6`, #48,
+   mengikuti batas 256 KiB API). API menerimanya sebagai opsional dan
+   memvalidasi lengkap bila ada. `CHANGELOG.md` `[Unreleased]` agent belum
+   mencatat #48; `docs/AGENT_API.md` agent perlu memuat shape-nya bila
+   dianggap bagian kontrak.
+
+Kemampuan API yang belum dipakai agent (opsional, disarankan diadopsi):
+
+2. Batch report `{ "events": [...] }` / `{ "logs": [...] }` dengan header
+   `Idempotency-Key` per request (HMAC per item), acknowledgement
+   `{ "data": { "accepted_count", "duplicate_count", "first_sequence",
+   "last_sequence" } }`, dan retry aman. Agent mengirim satu objek per
+   request tanpa retry; `support/retry.rs` (`exponential_delay`) sudah ada
+   tetapi tidak dipakai client. Retry dengan key yang sama aman terhadap
+   command yang sudah terminal (duplikat tetap di-ack).
+3. Response `claim` membawa resource command penuh (termasuk payload yang
+   sudah dimaterialisasi). Agent mengabaikan body; kelak dapat dipakai untuk
+   materialisasi secret tanpa pinning di sisi poll.
+4. Body `409` membawa `terminal_at` (ISO-8601) selain `status`.
+
+Semantik control plane yang perlu diketahui agent:
+
+5. `Claimed -> Running` dilakukan API pada report pertama dari node pemilik;
+   agent tidak perlu memanggil apa pun.
+6. Lease: `lease_expires_at = claimed_at + command_timeout_seconds +
+   SAKALA_AGENT_LEASE_GRACE_SECONDS` (60). Setelah lewat, command menjadi
+   `Expired`; `complete`/`fail` berikutnya dijawab `409 {"status":"Expired"}`
+   dan harus diperlakukan sebagai konflik terminal (agent v0.1.0 sudah
+   melakukannya untuk status selain `Succeeded`/`Failed`).
+7. Node diturunkan `offline` bila tidak heartbeat selama
+   `SAKALA_AGENT_OFFLINE_AFTER_SECONDS` (60) dan tidak ditawari command apa
+   pun sampai heartbeat berikutnya. Interval heartbeat agent (10 s) aman.
+8. `DeployProject`/`InspectProject` dipin ke satu node saat dibuat dan
+   dimaterialisasi (environment plaintext) hanya untuk node itu; command
+   tanpa target tidak terlihat oleh node mana pun. Project yang sudah
+   berjalan di sebuah node hanya dideploy ulang ke node itu.
+9. Log runtime setelah `complete` diterima hanya untuk `DeployProject`
+   (follower `docker logs --follow`), tetap dibatasi `max_total_bytes`
+   (`422` bila habis); event setelah terminal dijawab `409`. Follower yang
+   menerima `422` sebaiknya berhenti tanpa retry, seperti pada `409`.
+10. `error_code` disanitasi ke `[A-Za-z0-9._-]` (≤ 64) dan `error_message`
+    dibersihkan dari control/bidi/zero-width character (≤ 1000). Body report
+    lebih besar dari `SAKALA_LOG_MAX_REQUEST_BYTES` (1 MiB) dijawab `413`.
+11. `payload` command lifecycle selalu `{}` (object), `environment` kosong
+    selalu `{}`, dan `repository_access` selalu dikirim eksplisit.
+12. `ReconcileWorkload` diblokir untuk project suspended (fail-closed);
+    `CleanupRuntime` hanya dibuat atas persetujuan admin dengan
+    `approved: true` yang ditulis API.
+
+Koreksi untuk dokumentasi agent (tag v0.1.0):
+
+13. `docs/AGENT_API.md:185` — heading `## Polling and Claim Semantics` kosong;
+    isinya berada di bawah "Desired versus actual workload state" (`:249-289`).
+14. `docs/AGENT_API.md:205-223` — shape laporan reconciliation
+    (`{project_id, deployment_id, actual_state, reason}`, `actual_state`
+    termasuk `unhealthy`) tidak sama dengan yang dikembalikan kode
+    (`executor/docker.rs:883-948`: `{desired_state, actual_state, in_sync,
+    drift_reason, container_id, actions_applied}`, `actual_state` hanya
+    `running|stopped|missing`). API mengikuti kode.
+15. `docs/AGENT_API.md:338` — `NodeStatus::busy` tidak pernah dikirim builder
+    heartbeat (`heartbeat/worker.rs:77-94`); API tetap menerimanya.
+16. Item `stale_routes` pada heartbeat tidak memuat `deployment_id` walau
+    `RuntimeStaleRoute` memilikinya (`ports/runtime.rs:74-78` vs
+    `worker.rs:160-163`).
+17. Perilaku follower log setelah `complete` hanya ada di `docs/LOGGING.md`
+    dan `docs/RUNTIME_HARDENING.md`; `docs/AGENT_API.md` tidak menyebut bahwa
+    `/logs` dipanggil untuk command yang sudah `Succeeded`.
+18. Contoh heartbeat di `docs/AGENT_API.md:339-404` tidak memuat
+    `startup_reconciliation.compatibility_issues` yang selalu dikirim builder.

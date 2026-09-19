@@ -16,14 +16,12 @@ Frontend berada di `sakala-console`. Eksekusi runtime berada di `sakala-agent`. 
 
 ## API-first
 
-Semua kontrak baru memakai JSON dan versi mayor di URL (`/api/v1`). Route dikelompokkan berdasarkan audience:
+Semua kontrak baru memakai JSON dan versi mayor di URL. Route dikelompokkan berdasarkan audience:
 
-- App API untuk console first-party.
-- Agent API untuk polling, claim, heartbeat, logs, dan completion.
-- Admin API untuk operasi internal yang diautorisasi.
-- Webhook endpoint untuk provider seperti GitHub.
-
-Fondasi saat ini baru mengekspos service status. Domain route ditambahkan setelah kontrak MVP disetujui.
+- App API (`/api/v1/app/*`, `/api/v1/auth/*`, `/api/v1/onboarding/*`) untuk console first-party.
+- Machine protocol agent (`/api/agent/v1/*`) untuk heartbeat, node-state, polling, claim, credential lease, events/logs, dan completion — diversikan terpisah dari app API karena mengikuti protocol revision `sakala-agent`; kontraknya ada di [Agent API](docs/AGENT_API.md).
+- Admin API (`/api/v1/admin/*` untuk project control, `/api/agent/v1/agents/*` untuk provisioning dan lifecycle node) untuk operasi internal yang diautorisasi.
+- Webhook endpoint (`/api/v1/webhooks/*`) untuk provider seperti GitHub.
 
 ## Persistence
 
@@ -361,21 +359,26 @@ Route dibagi berdasarkan audience agar tidak semua endpoint menumpuk di satu fil
 
 ```text
 routes/api/v1/auth.php
+routes/api/v1/onboarding.php
 routes/api/v1/app.php
-routes/api/v1/agent.php
 routes/api/v1/admin.php
 routes/api/v1/system.php
 routes/api/v1/webhooks.php
+routes/agent.php            # /api/agent/v1/*, di luar prefix /api/v1
+routes/web.php              # browser OAuth (/auth/github/*, /auth/google/*)
+routes/console.php          # scheduler: agent:assign-commands, agent:expire-commands, agent:mark-offline-nodes, prune, usage signals
 ```
 
 Pembagian mentalnya:
 
-- `auth.php` untuk login, logout, current user, dan GitHub OAuth;
+- `auth.php` untuk login, registrasi, current user, dan JSON auth Console;
 - `app.php` untuk endpoint yang dipakai `sakala-console`;
-- `agent.php` untuk heartbeat, polling, claim, logs, complete, fail;
-- `admin.php` untuk operasi internal yang diautorisasi;
+- `agent.php` untuk machine protocol (`AgentController`) dan administrasi node (`AgentNodeControlController`: drain, resume, cleanup);
+- `admin.php` untuk project control (stop, suspend, reconcile) dan metrik internal;
 - `system.php` untuk status/health API;
 - `webhooks.php` untuk event dari provider eksternal seperti GitHub.
+
+Pekerjaan berkala (penugasan command yang menunggu node, lease expiry, derivasi offline) hidup di `app/Console/Commands` dan dijadwalkan di `routes/console.php`; jalankan `php artisan schedule:work` di lokal.
 
 ### Contoh Alur: Membuat Project
 
@@ -430,61 +433,70 @@ API tidak menjalankan build. API hanya menyimpan state dan command. Runtime dija
 
 ### Contoh Alur: Agent Claim dan Report
 
-Agent mengambil command secara outbound:
+Saat bootstrap agent memulihkan intent lifecycle-nya, lalu mengambil command secara outbound:
 
 ```text
 sakala-agent
--> GET /api/v1/agent/commands
--> AgentCommandController@index
--> PollAgentCommandsAction
--> AgentCommandResource collection
+-> GET /api/agent/v1/node-state        (desired_state: active|draining|drained|maintenance)
+-> GET /api/agent/v1/commands
+-> EnsureAgentToken
+-> AgentController@pollCommands
+-> PollAgentCommandsAction             (AgentCommandEligibilityService: auth, protocol, status, desired state, capability, node scope, project policy)
+-> AgentCommandResource collection     (payload dimaterialisasi hanya untuk node target)
 ```
 
 Setelah mendapat command, agent harus claim:
 
 ```text
 sakala-agent
--> POST /api/v1/agent/commands/{command}/claim
--> agent auth middleware
+-> POST /api/agent/v1/commands/{command}/claim
 -> ClaimAgentCommandAction
--> update status Pending -> Claimed secara atomik
+-> lock node, validasi ulang eligibility
+-> UPDATE ... WHERE status = Pending (atomik, satu pemenang)
+-> lease_expires_at = command_timeout + grace
 -> return command payload
 ```
 
-Claim harus atomik agar dua agent tidak menjalankan command yang sama.
+Claim harus atomik agar dua agent tidak menjalankan command yang sama. Agent tidak memanggil endpoint untuk `Running`; report pertama dari node pemilik (event `command.claimed`) yang menggeser `Claimed -> Running`.
 
-Agent melaporkan logs:
+Agent melaporkan events dan logs:
 
 ```text
 sakala-agent
--> POST /api/v1/agent/commands/{command}/logs
--> StoreAgentCommandLogRequest
--> ReportDeploymentLogAction
--> simpan DeploymentLog
--> optional broadcast event
--> response 204
+-> POST /api/agent/v1/commands/{command}/events | /logs
+-> ReportDeploymentEventRequest / ReportDeploymentLogRequest
+-> ReportDeploymentEventAction / ReportDeploymentLogAction
+-> lock command (+ deployment), dedupe Idempotency-Key, redaction, bounds
+-> deployment_events / deployment_logs (atau agent_command_reports bila tanpa deployment)
+-> event fase menggerakkan DeploymentStatus maju
+-> broadcast, acknowledgement 200
 ```
 
 Agent menyelesaikan command:
 
 ```text
-POST /api/v1/agent/commands/{command}/complete
+POST /api/agent/v1/commands/{command}/complete
 -> CompleteAgentCommandAction
 -> command status Succeeded
--> deployment status Succeeded / Running
--> project runtime_status Running
--> simpan event
+-> DeployProject: applied_resources, deployment Succeeded, project Running, StopProject bila finalization_deferred
+-> InspectProject: hasil inspeksi ke project (hanya command terbaru)
+-> Stop/Sleep: runtime_status Stopped bila menargetkan workload aktif
+-> audit
 ```
 
 Jika gagal:
 
 ```text
-POST /api/v1/agent/commands/{command}/fail
+POST /api/agent/v1/commands/{command}/fail
 -> FailAgentCommandAction
 -> command status Failed
--> deployment status Failed
--> simpan error summary
+-> DeployProject: deployment Failed + klasifikasi error_code
+-> InspectProject: preview failed
+-> ResumeNode: desired_state kembali drained
+-> audit
 ```
+
+Command yang tidak pernah selesai ditutup `agent:expire-commands` (`Expired`), dan node yang berhenti heartbeat diturunkan `offline` oleh `agent:mark-offline-nodes`.
 
 ### Rule Praktis untuk Contributor
 
