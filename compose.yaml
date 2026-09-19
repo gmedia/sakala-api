@@ -24,9 +24,9 @@ services:
             - sail
         depends_on:
             - pgsql
-            - redis
             - mailpit
             - rustfs
+            - valkey
     pgsql:
         image: 'postgres:18-alpine'
         ports:
@@ -52,21 +52,6 @@ services:
                 - '${DB_USERNAME}'
             retries: 3
             timeout: 5s
-    redis:
-        image: 'redis:alpine'
-        ports:
-            - '${FORWARD_REDIS_PORT:-6379}:6379'
-        volumes:
-            - 'sail-redis:/data'
-        networks:
-            - sail
-        healthcheck:
-            test:
-                - CMD
-                - redis-cli
-                - ping
-            retries: 3
-            timeout: 5s
     mailpit:
         image: 'axllent/mailpit:latest'
         ports:
@@ -74,7 +59,6 @@ services:
             - '${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025'
         networks:
             - sail
-
     rustfs:
         image: 'rustfs/rustfs:latest'
         ports:
@@ -88,8 +72,8 @@ services:
             RUSTFS_EXTERNAL_ADDRESS: ':9000'
             RUSTFS_CORS_ALLOWED_ORIGINS: '*'
             RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS: '*'
-            RUSTFS_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
-            RUSTFS_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+            RUSTFS_ACCESS_KEY: '${AWS_ACCESS_KEY_ID}'
+            RUSTFS_SECRET_KEY: '${AWS_SECRET_ACCESS_KEY}'
             RUSTFS_LOG_LEVEL: info
         volumes:
             - 'sail-rustfs:/data'
@@ -105,13 +89,28 @@ services:
             timeout: 10s
             retries: 3
             start_period: 40s
+    valkey:
+        image: 'valkey/valkey:alpine'
+        ports:
+            - '${FORWARD_VALKEY_PORT:-6379}:6379'
+        volumes:
+            - 'sail-valkey:/data'
+        networks:
+            - sail
+        healthcheck:
+            test:
+                - CMD
+                - valkey-cli
+                - ping
+            retries: 3
+            timeout: 5s
 networks:
     sail:
         driver: bridge
 volumes:
     sail-pgsql:
         driver: local
-    sail-redis:
-        driver: local
     sail-rustfs:
+        driver: local
+    sail-valkey:
         driver: local

@@ -10,7 +10,7 @@ php artisan key:generate
 ./vendor/bin/sail artisan migrate
 ```
 
-Services: API `:8000`, PostgreSQL `:5432`, Redis `:6379`, Mailpit UI `:8025`, dan port Reverb `:8081`. Jalankan worker/Reverb pada terminal terpisah saat dibutuhkan.
+Services: API `:8000`, PostgreSQL `:5432`, Valkey `:6379` (diakses lewat client Redis Laravel, `REDIS_HOST=valkey`), Mailpit UI `:8025`, dan port Reverb `:8081`. Jalankan worker/Reverb pada terminal terpisah saat dibutuhkan.
 
 ## Scheduler
 
@@ -18,7 +18,7 @@ Beberapa proses control plane berjalan lewat scheduler Laravel (`agent:assign-co
 
 ## Tanpa Docker
 
-Sesuaikan host PostgreSQL/Redis/Mail di `.env`, lalu jalankan `composer dev`. PHP extension yang dibutuhkan harus tersedia pada host.
+Sesuaikan host PostgreSQL/Valkey (atau Redis)/Mail di `.env`, lalu jalankan `composer dev`. PHP extension yang dibutuhkan harus tersedia pada host.
 
 ## Quality
 

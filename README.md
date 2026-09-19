@@ -15,7 +15,7 @@ API tidak merender UI dan tidak bergantung pada Inertia atau Fortify. Browser fi
 ## Stack
 
 - PHP 8.5 dan Laravel 13
-- PostgreSQL, Redis, queue database
+- PostgreSQL, Valkey (kompatibel Redis) untuk cache dan Reverb scaling, queue database
 - Laravel Sanctum, GitHub App, dan Reverb
 - Scramble untuk dokumentasi OpenAPI 3.1
 - Pest, Pint, Larastan, dan Laravel Boost
@@ -55,7 +55,7 @@ docker build --target app -t sakala-api:local .
 docker build --target web -t sakala-api-web:local .
 ```
 
-Image tidak memuat `.env`, secret, database, Redis, migrasi otomatis, queue worker, atau Reverb. Repository deployment nantinya menyediakan environment runtime, jaringan internal, proses migrasi satu-kali, serta service tambahan hanya ketika memang dibutuhkan oleh fitur yang berjalan.
+Image tidak memuat `.env`, secret, database, Valkey/Redis, migrasi otomatis, queue worker, atau Reverb. Repository deployment nantinya menyediakan environment runtime, jaringan internal, proses migrasi satu-kali, serta service tambahan hanya ketika memang dibutuhkan oleh fitur yang berjalan.
 
 ## Perintah
 
