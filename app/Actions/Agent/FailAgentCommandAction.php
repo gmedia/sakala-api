@@ -95,6 +95,22 @@ final class FailAgentCommandAction
                 );
             }
 
+            if ($command->type->isNodeLevel()) {
+                AuditEvent::create([
+                    'actor_type' => AgentNode::class,
+                    'actor_id' => $agent->id,
+                    'action' => 'agent.command.failed',
+                    'subject_type' => AgentCommand::class,
+                    'subject_id' => $command->id,
+                    'metadata' => [
+                        'type' => $command->type->value,
+                        'agent_node_id' => $command->agent_node_id,
+                        'error_code' => $errorCode,
+                        'error_message' => $errorMessage,
+                    ],
+                ]);
+            }
+
             if (in_array($command->type, [
                 AgentCommandType::StopProject,
                 AgentCommandType::SleepProject,

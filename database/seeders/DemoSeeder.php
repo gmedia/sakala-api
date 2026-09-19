@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
 use App\Enums\DeploymentEventLevel;
 use App\Enums\DeploymentStatus;
@@ -66,8 +67,23 @@ class DemoSeeder extends Seeder
                     'status' => AgentNodeStatus::Ready,
                     'hostname' => 'sakala-runtime.localhost',
                     'runtime_network' => 'sakala-runtime',
-                    'capabilities' => ['docker', 'caddy', 'health-check'],
-                    'metadata' => ['agent_version' => '0.1.0', 'environment' => 'local'],
+                    'protocol_version' => 4,
+                    'desired_state' => AgentNodeDesiredState::Active,
+                    'capabilities' => [
+                        'docker-runtime',
+                        'project-inspection',
+                        'dockerfile-build',
+                        'railpack-info',
+                        'railpack-build',
+                        'caddy-file-routing',
+                    ],
+                    'metadata' => [
+                        'version' => '0.1.0',
+                        'protocol_version' => 4,
+                        'lifecycle_state' => 'active',
+                        'runtime_driver' => 'docker',
+                        'environment' => 'local',
+                    ],
                     'registered_at' => now()->subDay(),
                     'last_seen_at' => now(),
                 ],

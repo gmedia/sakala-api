@@ -1,0 +1,11 @@
+{
+  "id": "b3c8cb55-3bc8-4725-a004-e69d9917d40b",
+  "type": "ReconcileWorkload",
+  "status": "Pending",
+  "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+  "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+  "payload": {
+    "desired_state": "running",
+    "actions": ["restart_log_follower", "restore_route"]
+  }
+}

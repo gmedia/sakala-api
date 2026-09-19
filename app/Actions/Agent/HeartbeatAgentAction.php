@@ -26,6 +26,7 @@ final class HeartbeatAgentAction
                 'capabilities' => $data->capabilities,
                 'metadata' => $data->metadata,
                 'status' => $data->status,
+                'protocol_version' => $data->protocolVersion,
                 'last_seen_at' => now(),
             ]);
 

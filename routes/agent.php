@@ -29,6 +29,9 @@ Route::prefix('agent/v1')->group(function (): void {
         Route::post('heartbeat', [AgentController::class, 'heartbeat'])
             ->middleware(LimitAgentHeartbeatPayload::class);
 
+        // Desired lifecycle state restored by the agent before polling.
+        Route::get('node-state', [AgentController::class, 'nodeState']);
+
         // Command lifecycle endpoints.
         Route::get('commands', [AgentController::class, 'pollCommands']);
         Route::post('commands/{command:uuid}/claim', [AgentController::class, 'claimCommand']);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Factories;
 
 use App\Enums\AgentAuthStatus;
+use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -26,6 +27,8 @@ class AgentNodeFactory extends Factory
             'token_prefix' => $this->faker->regexify('[A-Za-z0-9]{10}'),
             'auth_status' => AgentAuthStatus::Active,
             'status' => AgentNodeStatus::Ready,
+            'protocol_version' => 4,
+            'desired_state' => AgentNodeDesiredState::Active,
             'description' => $this->faker->optional()->sentence(),
             'registered_at' => now(),
         ];

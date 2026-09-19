@@ -16,6 +16,8 @@ use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\DeploymentLog;
+use App\Services\Agent\AgentCommandProgressService;
+use App\Services\Agent\AgentCommandReportRecorder;
 use App\Services\Agent\AgentReportBoundsService;
 use App\Services\Agent\AgentReportIdempotencyService;
 use App\Services\Security\SecretRedactionService;
@@ -29,6 +31,8 @@ final class ReportDeploymentLogAction
         private readonly AgentReportIdempotencyService $idempotency,
         private readonly SecretRedactionService $redaction,
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateRealtimeSequence,
+        private readonly AgentCommandProgressService $progress,
+        private readonly AgentCommandReportRecorder $commandReports,
     ) {}
 
     public function handle(
@@ -43,6 +47,12 @@ final class ReportDeploymentLogAction
                 ->firstOrFail();
 
             $this->assertOwnership($agent, $command);
+
+            if ($command->deployment_id === null) {
+                // Node-level and inspection commands report against the
+                // command itself; there is no deployment timeline to append to.
+                return $this->commandReports->recordLogs($command, $data);
+            }
 
             /** @var Deployment $deployment */
             $deployment = Deployment::query()
@@ -129,6 +139,8 @@ final class ReportDeploymentLogAction
                 ]);
             }
 
+            $this->progress->markRunning($command);
+
             $nextSequence = (int) $deployment->logs()->max('sequence') + 1;
 
             foreach ($newReports as [$item, $payload, $key, $payloadHash]) {
@@ -186,7 +198,7 @@ final class ReportDeploymentLogAction
 
     private function assertOwnership(AgentNode $agent, AgentCommand $command): void
     {
-        if ($command->agent_node_id !== $agent->id || $command->deployment_id === null) {
+        if ($command->agent_node_id !== $agent->id) {
             throw new CommandConflictException($command);
         }
     }

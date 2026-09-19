@@ -19,6 +19,7 @@ final readonly class AgentHeartbeatData
         public array $capabilities,
         public array $metadata,
         public AgentNodeStatus $status,
+        public int $protocolVersion,
         public CarbonImmutable $sentAt,
     ) {}
 }

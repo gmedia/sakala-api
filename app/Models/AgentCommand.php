@@ -91,6 +91,12 @@ class AgentCommand extends Model
         return $this->hasMany(DeploymentLog::class);
     }
 
+    /** @return HasMany<AgentCommandReport, $this> */
+    public function reports(): HasMany
+    {
+        return $this->hasMany(AgentCommandReport::class);
+    }
+
     /** @return HasOne<ProjectControlRequest, $this> */
     public function controlRequests(): HasOne
     {

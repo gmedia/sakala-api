@@ -1,0 +1,11 @@
+{
+  "id": "b3c8cb55-3bc8-4725-a004-e69d9917d40b",
+  "type": "InspectProject",
+  "status": "Pending",
+  "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+  "deployment_id": null,
+  "payload": {
+    "repository_url": "https://github.com/gmedia/example-app.git",
+    "commit_sha": "0123456789abcdef0123456789abcdef01234567"
+  }
+}

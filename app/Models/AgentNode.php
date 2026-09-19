@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\AgentAuthStatus;
+use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
 use Database\Factories\AgentNodeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -17,6 +18,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property AgentAuthStatus $auth_status
  * @property AgentNodeStatus $status
+ * @property AgentNodeDesiredState $desired_state
+ * @property int|null $protocol_version
  * @property array<int, string>|null $capabilities
  */
 #[Fillable([
@@ -26,6 +29,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'token_prefix',
     'status',
     'auth_status',
+    'protocol_version',
+    'desired_state',
     'description',
     'hostname',
     'runtime_network',
@@ -67,6 +72,8 @@ class AgentNode extends Model
         return [
             'status' => AgentNodeStatus::class,
             'auth_status' => AgentAuthStatus::class,
+            'protocol_version' => 'integer',
+            'desired_state' => AgentNodeDesiredState::class,
             'capabilities' => 'array',
             'metadata' => 'array',
             'registered_at' => 'immutable_datetime',

@@ -112,7 +112,7 @@ final class ClaimAgentCommandAction
             throw new CommandConflictException($command);
         }
 
-        if ($command->agent_node_id !== null && $command->agent_node_id !== $node->id) {
+        if (! $this->eligibility->commandIsScopedToNode($command, $node)) {
             throw new CommandConflictException($command);
         }
 

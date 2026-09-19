@@ -20,8 +20,9 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `projects` | Metadata repository, generated domain, dan status runtime. |
 | `environment_variables` | Key dan value terenkripsi per project. |
 | `deployments` | Satu attempt deployment dan snapshot source yang dijalankan. |
-| `agent_nodes` | Identitas runtime node, token hash, capability, dan heartbeat terakhir. |
+| `agent_nodes` | Identitas runtime node, token hash, capability, protocol revision, desired lifecycle state, dan heartbeat terakhir. |
 | `agent_commands` | Durable command queue antara API dan agent. |
+| `agent_command_reports` | Event/log append-only untuk command tanpa deployment (InspectProject, CleanupRuntime, DrainNode, ResumeNode). |
 | `deployment_events` | Timeline state yang dilaporkan agent. |
 | `deployment_logs` | Output redacted dari build/runtime. |
 | `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. |
@@ -47,7 +48,8 @@ Index dibuat dari query path yang sudah diketahui:
 - polling command: `(status, available_at, created_at)`;
 - polling node tertentu: `(agent_node_id, status, available_at)`;
 - timeline/log: `(deployment_id, occurred_at|recorded_at)`;
-- report retry: unique `(agent_command_id, idempotency_key)` pada event dan log;
+- report retry: unique `(agent_command_id, idempotency_key)` pada event, log, dan command report;
+- timeline command tanpa deployment: unique `(agent_command_id, sequence)` dan `(agent_command_id, occurred_at)` pada `agent_command_reports`;
 - audit actor/subject: `(type, id, created_at)`.
 
 ### Pilot validation metrics
@@ -69,6 +71,15 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 - Policy eligibility command (node status, capability, ownership) didefinisikan satu kali di `AgentCommandEligibilityService` dan dipakai bersama oleh poll dan claim agar aturan keduanya tidak drift.
 - Sequence event/log unik per deployment. Action penerima report mengunci command dan deployment dalam transaction, lalu mengalokasikan sequence secara atomic. Setiap item dengan `Idempotency-Key` menyimpan HMAC `payload_hash` dari payload logical sebelum redaction; unique `(agent_command_id, idempotency_key)` membuat retry memakai sequence yang sama dan mencegah baris ganda. Request tanpa key sengaja tidak menyimpan idempotency key sehingga tetap append-only. `agent_commands.reported_log_bytes` menyimpan counter budget log kumulatif dan hanya ditambah di transaction setelah command di-lock.
 - Status transition tidak boleh dilakukan langsung dari controller; gunakan Action yang memvalidasi state saat ini.
+- Transisi `Claimed -> Running` dilakukan API pada report pertama yang diterima dari node pemilik (agent mengirim event `command.claimed` segera setelah claim dan tidak memanggil endpoint lain). `started_at` diisi sekali di transaction report yang sama.
+
+## Node Lifecycle dan Protocol
+
+`agent_nodes.status` adalah state yang dilaporkan agent lewat heartbeat; `agent_nodes.desired_state` adalah intent control plane (`active`, `draining`, `drained`, `maintenance`) yang dibaca agent melalui `GET /api/agent/v1/node-state` saat bootstrap. Keduanya sengaja dipisah: perubahan desired state harus tersimpan atomik sebelum command `DrainNode`/`ResumeNode` dibuat, sedangkan status hanya ditulis oleh heartbeat.
+
+`agent_nodes.protocol_version` diambil dari `metadata.protocol_version` heartbeat dan dibandingkan dengan `sakala.agent.supported_protocol_versions`. Node dengan revisi yang tidak didukung (atau belum pernah heartbeat) tetap bisa online tetapi tidak eligible menerima command. Tidak ada index tambahan untuk kedua kolom ini: jumlah node pada pilot kecil dan pemilihan node sudah memakai index `(status, last_seen_at)`.
+
+Command dengan tipe *pinned* (`InspectProject`, `CleanupRuntime`, `DrainNode`, `ResumeNode`) hanya ditawarkan ke node yang tercatat pada `agent_node_id`; command pinned tanpa target tidak terlihat oleh node mana pun sampai control plane menetapkannya.
 
 ## Secret dan Retention
 

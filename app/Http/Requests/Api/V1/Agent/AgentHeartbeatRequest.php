@@ -102,6 +102,7 @@ final class AgentHeartbeatRequest extends FormRequest
             capabilities: $this->validated('capabilities'),
             metadata: $this->validated('metadata'),
             status: AgentNodeStatus::from($this->validated('status')),
+            protocolVersion: (int) $this->validated('metadata.protocol_version'),
             sentAt: CarbonImmutable::parse($this->validated('sent_at')),
         );
     }

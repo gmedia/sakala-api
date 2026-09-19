@@ -24,6 +24,12 @@ return [
 
     'agent' => [
         'command_batch_size' => (int) env('SAKALA_AGENT_COMMAND_BATCH_SIZE', 10),
+        // Protocol revisions this control plane can schedule workload for.
+        // Nodes reporting another revision may heartbeat but receive no commands.
+        'supported_protocol_versions' => array_values(array_filter(array_map(
+            static fn (string $value): int => (int) trim($value),
+            explode(',', (string) env('SAKALA_AGENT_SUPPORTED_PROTOCOL_VERSIONS', '4')),
+        ))),
     ],
 
     'usage_signals' => [
