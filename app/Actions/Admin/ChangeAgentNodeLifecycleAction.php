@@ -78,6 +78,8 @@ final class ChangeAgentNodeLifecycleAction
                 abort(409, "Agent node desired state is already {$desired->value}.");
             }
 
+            $previousDesiredState = $locked->desired_state->value;
+
             $locked->update(['desired_state' => $desired]);
 
             $command = AgentCommand::create([
@@ -93,7 +95,7 @@ final class ChangeAgentNodeLifecycleAction
                     'actor_id' => (string) $user->id,
                 ],
                 'response_context' => [
-                    'previous_desired_state' => $node->desired_state->value,
+                    'previous_desired_state' => $previousDesiredState,
                 ],
                 'idempotency_key' => $data->idempotencyKey ?? Str::uuid()->toString(),
                 'available_at' => now(),
