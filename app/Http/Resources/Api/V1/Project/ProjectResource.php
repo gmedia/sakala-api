@@ -37,12 +37,13 @@ final class ProjectResource extends JsonResource
             'github_repository_id' => $this->resource->github_repository_id,
             'branch' => $this->resource->branch,
             'default_domain' => $this->resource->default_domain,
-            'status' => $this->resource->status->value,
+            'status' => $this->resource->status,
             'runtime_status' => $this->resource->runtime_status,
             'detected_port' => $this->resource->detected_port,
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()
-                : null,            'created_at' => $this->resource->created_at?->toAtomString(),
+                : null,
+            'created_at' => $this->resource->created_at?->toAtomString(),
             'updated_at' => $this->resource->updated_at?->toAtomString(),
         ];
     }
