@@ -219,8 +219,12 @@ aksi mutatif dari state.
   persis seperti diminta: `{ "desired_state": "running|stopped|missing",
   "actions": [restart_log_follower|cleanup_failed_candidate|restore_route] }`;
   `actions` kosong berarti hanya melaporkan drift. Ditolak `409` untuk project
-  suspended (command akan ditahan poll), tanpa workload terlayani, atau bila
-  reconciliation lain masih berjalan. Result completion (`desired_state`,
+  suspended (command akan ditahan poll), tanpa workload terlayani, bila
+  deployment lain masih berjalan, atau bila reconciliation lain masih
+  berjalan. Karena route Caddy bersifat per project, claim memeriksa ulang
+  bahwa deployment target masih yang terkini; bila sudah disusul, command
+  menjadi `Cancelled` (`reconcile_target_superseded`) dan claim dijawab `409`
+  supaya `restore_route` tidak pernah menunjuk container lama. Result completion (`desired_state`,
   `actual_state`, `in_sync`, `drift_reason`, `actions_applied`) dicatat ke
   audit `project.reconcile_completed`; tidak ada command lanjutan otomatis.
 - `POST /api/agent/v1/agents/{agent}/cleanup` → `CleanupRuntime` node-level
@@ -377,7 +381,6 @@ Lihat README di folder tersebut.
 
 ## Belum tersedia pada API
 
-Bagian kontrak v4 berikut belum diimplementasikan dan akan menyusul pada
-milestone #55: alur `InspectProject` saat membuat project, lease
-expiry/recovery, admin cleanup/reconcile, serta log runtime setelah
-`complete`.
+Seluruh kontrak protocol v4 yang diperlukan #55 telah diimplementasikan. Belum
+tersedia: `desired_state = maintenance` (agent v0.1.0 hanya mencapainya lewat
+bootstrap), endpoint re-inspect project, dan migrasi workload lintas node.

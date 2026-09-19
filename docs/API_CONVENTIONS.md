@@ -162,7 +162,9 @@ Header `Idempotency-Key` opsional dengan semantik yang sama dengan project contr
 
 ## Project Reconciliation
 
-`POST /api/v1/admin/projects/{project}/reconcile` (admin) membuat `ReconcileWorkload` untuk node yang melayani deployment `succeeded` terakhir. Body `reason`, `desired_state` (`running`|`stopped`|`missing`), dan `actions[]` (boleh kosong; nilai `restart_log_follower`, `cleanup_failed_candidate`, `restore_route`). Payload dikirim apa adanya — API tidak menyimpulkan aksi mutatif. Response `202` `ProjectControlResource`; `ProjectControlRequest` dengan action `reconcile` menjadi record idempotency (identitas = project + actor + reason + desired_state + actions). `409` untuk project suspended, tanpa workload terlayani, atau reconciliation yang masih berjalan.
+`POST /api/v1/admin/projects/{project}/reconcile` (admin) membuat `ReconcileWorkload` untuk node yang melayani deployment `succeeded` terakhir. Body `reason`, `desired_state` (`running`|`stopped`|`missing`), dan `actions[]` (boleh kosong; nilai `restart_log_follower`, `cleanup_failed_candidate`, `restore_route`). Payload dikirim apa adanya — API tidak menyimpulkan aksi mutatif. Response `202` `ProjectControlResource`; `ProjectControlRequest` dengan action `reconcile` menjadi record idempotency (identitas = project + actor + reason + desired_state + actions). `409` untuk project suspended, tanpa workload terlayani, deployment yang masih berjalan, atau reconciliation yang masih berjalan. Bila deployment baru menjadi current sebelum agent mengklaim, command dibatalkan (`Cancelled`, `reconcile_target_superseded`) alih-alih dieksekusi terhadap workload lama.
+
+Header `Idempotency-Key` pada semua operasi control (stop, suspend, reconcile, drain, resume, cleanup) ditolak `409` bila sudah dipakai command mana pun, bukan hanya oleh record control yang sama.
 
 ## Profile Contract
 

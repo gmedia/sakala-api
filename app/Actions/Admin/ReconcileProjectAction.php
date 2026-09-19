@@ -73,6 +73,15 @@ final class ReconcileProjectAction
                 abort(409, 'A reconciliation is already in progress for this project.');
             }
 
+            // Routes are per project: a mutating action such as restore_route
+            // against a deployment that a newer one is about to supersede
+            // would point the project back at the old container. Refuse
+            // while any deployment is still in flight; the claim re-checks
+            // that the target is still current.
+            if (Deployment::query()->where('project_id', $locked->id)->active()->exists()) {
+                abort(409, 'A deployment is in progress; reconcile after it finishes.');
+            }
+
             $deployment = Deployment::query()
                 ->where('project_id', $locked->id)
                 ->where('status', DeploymentStatus::Succeeded)

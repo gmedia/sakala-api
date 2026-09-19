@@ -294,3 +294,121 @@ test('reconciliation is refused without a served workload, on suspended projects
 
     expect(AgentCommand::query()->where('type', AgentCommandType::ReconcileWorkload)->count())->toBe(1);
 });
+
+// ─── Stale reconciliation ────────────────────────────────────────────────────
+
+test('reconciliation is refused while a newer deployment is in flight', function (): void {
+    $node = controlNode();
+    ['project' => $project] = servedProject($node);
+    Deployment::factory()->for($project)->create([
+        'sequence' => 2, 'status' => DeploymentStatus::Building, 'agent_node_id' => $node->id,
+    ]);
+
+    $this->actingAs(controlAdmin(), 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/reconcile", [
+            'reason' => 'route check', 'desired_state' => 'running', 'actions' => ['restore_route'],
+        ])
+        ->assertStatus(409)
+        ->assertJsonPath('message', 'A deployment is in progress; reconcile after it finishes.');
+
+    expect(AgentCommand::query()->where('type', AgentCommandType::ReconcileWorkload)->exists())->toBeFalse();
+});
+
+test('a reconciliation whose target was superseded is cancelled at claim instead of restoring an old route', function (): void {
+    $node = controlNode();
+    ['project' => $project, 'deployment' => $old] = servedProject($node);
+
+    $commandId = $this->actingAs(controlAdmin(), 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/reconcile", [
+            'reason' => 'route check', 'desired_state' => 'running', 'actions' => ['restore_route'],
+        ])
+        ->assertStatus(202)
+        ->json('data.command.id');
+
+    // A redeploy finishes before the agent gets to the reconciliation.
+    $new = Deployment::factory()->for($project)->create([
+        'sequence' => 2, 'status' => DeploymentStatus::Succeeded, 'agent_node_id' => $node->id,
+    ]);
+
+    $this->withHeaders(controlHeaders($node))
+        ->postJson("/api/agent/v1/commands/{$commandId}/claim", [])
+        ->assertStatus(409)
+        ->assertJsonPath('status', 'Cancelled');
+
+    $command = AgentCommand::query()->findOrFail($commandId);
+    expect($command->status)->toBe(AgentCommandStatus::Cancelled)
+        ->and($command->error_code)->toBe('reconcile_target_superseded')
+        ->and($command->deployment_id)->toBe($old->id)
+        ->and($command->claimed_at)->toBeNull();
+
+    $audit = AuditEvent::query()->where('action', 'project.reconcile_cancelled')->sole();
+    expect($audit->metadata['current_deployment_id'])->toBe($new->id);
+
+    // Cancelled is terminal: it is no longer offered, and reporting is refused.
+    $this->withHeaders(controlHeaders($node))->getJson('/api/agent/v1/commands')->assertOk()->assertExactJson(['data' => []]);
+    $this->withHeaders(controlHeaders($node))
+        ->postJson("/api/agent/v1/commands/{$commandId}/complete", ['result' => null])
+        ->assertStatus(409);
+
+    // A fresh request now targets the current deployment.
+    $freshId = $this->actingAs(controlAdmin(), 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/reconcile", [
+            'reason' => 'route check again', 'desired_state' => 'running', 'actions' => ['restore_route'],
+        ])
+        ->assertStatus(202)
+        ->json('data.command.id');
+
+    expect(AgentCommand::query()->findOrFail($freshId)->deployment_id)->toBe($new->id);
+    $this->withHeaders(controlHeaders($node))->postJson("/api/agent/v1/commands/{$freshId}/claim", [])->assertOk();
+});
+
+test('a reconciliation created before a redeploy started is cancelled once that redeploy is in flight', function (): void {
+    $node = controlNode();
+    ['project' => $project] = servedProject($node);
+
+    $commandId = $this->actingAs(controlAdmin(), 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/reconcile", [
+            'reason' => 'x', 'desired_state' => 'running', 'actions' => ['restore_route'],
+        ])
+        ->assertStatus(202)
+        ->json('data.command.id');
+
+    Deployment::factory()->for($project)->create([
+        'sequence' => 2, 'status' => DeploymentStatus::Building, 'agent_node_id' => $node->id,
+    ]);
+
+    $this->withHeaders(controlHeaders($node))
+        ->postJson("/api/agent/v1/commands/{$commandId}/claim", [])
+        ->assertStatus(409)
+        ->assertJsonPath('status', 'Cancelled');
+});
+
+// ─── Idempotency-key collisions ──────────────────────────────────────────────
+
+test('an idempotency key already owned by another command is refused deterministically', function (): void {
+    $node = controlNode();
+    $admin = controlAdmin();
+    ['project' => $project, 'deployment' => $deployment] = servedProject($node);
+    AgentCommand::factory()->create([
+        'type' => AgentCommandType::DeployProject, 'status' => AgentCommandStatus::Succeeded,
+        'project_id' => $project->id, 'deployment_id' => $deployment->id, 'agent_node_id' => $node->id,
+        'payload' => [], 'idempotency_key' => 'shared-key',
+    ]);
+
+    $this->actingAs($admin, 'sanctum')->withHeaders(['Idempotency-Key' => 'shared-key'])
+        ->postJson("/api/agent/v1/agents/{$node->id}/cleanup", ['reason' => 'x', 'targets' => ['stale_images']])
+        ->assertStatus(409)
+        ->assertJsonPath('message', 'Idempotency key has already been used for a different request.');
+
+    $this->actingAs($admin, 'sanctum')->withHeaders(['Idempotency-Key' => 'shared-key'])
+        ->postJson("/api/agent/v1/agents/{$node->id}/drain", ['reason' => 'x'])
+        ->assertStatus(409)
+        ->assertJsonPath('message', 'Idempotency key has already been used for a different request.');
+
+    $this->actingAs($admin, 'web')->withHeaders(['Idempotency-Key' => 'shared-key'])
+        ->postJson("/api/v1/admin/projects/{$project->id}/reconcile", ['reason' => 'x', 'desired_state' => 'running', 'actions' => []])
+        ->assertStatus(409);
+
+    expect(AgentCommand::query()->count())->toBe(1)
+        ->and($node->fresh()->desired_state)->toBe(AgentNodeDesiredState::Active);
+});

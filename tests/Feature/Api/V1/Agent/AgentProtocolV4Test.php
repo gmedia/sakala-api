@@ -8,6 +8,7 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
+use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Models\AgentCommand;
 use App\Models\AgentCommandReport;
@@ -276,7 +277,12 @@ test('an unassigned pinned command is offered to nobody until the control plane 
 test('reconcile workload is withheld from and unclaimable on a suspended project', function (): void {
     $agent = v4Agent('suspend-token');
     $project = Project::factory()->create(['status' => ProjectStatus::Suspended]);
-    $deployment = Deployment::factory()->for($project)->create(['sequence' => 1]);
+    // Reconcile only ever targets the current succeeded deployment.
+    $deployment = Deployment::factory()->for($project)->create([
+        'sequence' => 1,
+        'status' => DeploymentStatus::Succeeded,
+        'agent_node_id' => $agent->id,
+    ]);
     $reconcile = AgentCommand::factory()->create([
         'type' => AgentCommandType::ReconcileWorkload,
         'status' => AgentCommandStatus::Pending,

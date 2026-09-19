@@ -61,6 +61,13 @@ final class ChangeAgentNodeLifecycleAction
                 return new AgentNodeControlResultData(node: $locked, command: $command);
             }
 
+            // The key may already belong to a command created through another
+            // flow; refuse deterministically instead of hitting the unique index.
+            if ($data->idempotencyKey !== null
+                && AgentCommand::query()->where('idempotency_key', $data->idempotencyKey)->exists()) {
+                abort(409, 'Idempotency key has already been used for a different request.');
+            }
+
             if ($locked->auth_status !== AgentAuthStatus::Active) {
                 abort(409, 'Agent node is not active.');
             }
