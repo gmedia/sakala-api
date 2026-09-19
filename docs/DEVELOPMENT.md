@@ -32,4 +32,13 @@ composer audit --locked
 
 Dokumentasi API lokal tersedia di `/docs/api`. Jalankan `composer docs:export` untuk menghasilkan `api.json`; file export bersifat generated dan tidak di-commit.
 
-Test memakai SQLite in-memory agar cepat dan terisolasi. Tambahkan PostgreSQL-specific integration test jika mulai memakai fitur database yang tidak kompatibel dengan SQLite.
+Test memakai SQLite in-memory agar cepat dan terisolasi (`composer test`). CI juga menjalankan suite yang sama di PostgreSQL (job `quality-pgsql`), jadi test tidak boleh bergantung pada kelonggaran SQLite (mis. presisi detik pada timestamp, `DROP TABLE` tanpa memperhatikan foreign key).
+
+Test concurrency multi-sesi (`FOR UPDATE`, `lock_timeout`, proses paralel) berada di `tests/Feature/Concurrency`, group Pest `concurrency`. Mereka tidak memakai `RefreshDatabase` — baris harus ter-commit agar terlihat sesi kedua — sehingga skema dibuat ulang (`migrate:fresh`) sebelum tiap test dan group ini **dikecualikan** dari `composer test`. Jalankan terpisah di PostgreSQL:
+
+```bash
+DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_DATABASE=sakala_test DB_USERNAME=sail DB_PASSWORD=password \
+  composer test:concurrency
+```
+
+Di luar PostgreSQL group ini otomatis `skipped`. Dengan Sail: `sail artisan test --group=concurrency` setelah membuat database kosong khusus test (jangan arahkan ke database development, karena `migrate:fresh` menghapus isinya).

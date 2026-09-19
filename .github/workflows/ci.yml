@@ -49,3 +49,59 @@ jobs:
 
       - name: Run tests
         run: composer test
+
+  quality-pgsql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      pgsql:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: sakala_test
+          POSTGRES_USER: sakala
+          POSTGRES_PASSWORD: secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sakala -d sakala_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: sakala_test
+      DB_USERNAME: sakala
+      DB_PASSWORD: secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+          extensions: mbstring, pdo_pgsql, pgsql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      # The same suite as the SQLite job, on the database the control plane
+      # actually runs on.
+      - name: Run tests on PostgreSQL
+        run: composer test
+
+      # Multi-session row-lock tests: committed rows, a second PostgreSQL
+      # session, and lock_timeout. Skipped everywhere else by design.
+      - name: Run concurrency tests on PostgreSQL
+        run: composer test:concurrency

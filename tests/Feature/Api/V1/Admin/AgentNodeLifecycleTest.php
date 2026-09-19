@@ -2,22 +2,18 @@
 
 declare(strict_types=1);
 
-use App\Actions\Agent\ClaimAgentCommandAction;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
 use App\Enums\UserRole;
-use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\AgentNodeControlRequest;
 use App\Models\AuditEvent;
 use App\Models\User;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -274,101 +270,4 @@ test('a failed resume leaves the node drained so bootstrap stays truthful', func
         ->getJson('/api/agent/v1/node-state')
         ->assertOk()
         ->assertJsonPath('data.desired_state', 'drained');
-});
-
-// ─── Concurrency ─────────────────────────────────────────────────────────────
-
-test('a workload claim cannot slip past a drain that holds the node row', function (): void {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped(
-            'Requires PostgreSQL row-level locking; ignore SQLite which does not support FOR UPDATE.',
-        );
-    }
-
-    $node = lifecycleNode('race-token');
-    $workload = AgentCommand::factory()->create([
-        'type' => AgentCommandType::HealthCheck,
-        'status' => AgentCommandStatus::Pending,
-        'agent_node_id' => $node->id,
-        'available_at' => now()->subMinute(),
-    ]);
-
-    $secondary = 'pgsql_secondary';
-
-    config([
-        "database.connections.{$secondary}" => config(
-            'database.connections.'.DB::getDefaultConnection(),
-        ),
-    ]);
-
-    DB::purge($secondary);
-
-    $defaultConnection = DB::getDefaultConnection();
-
-    DB::beginTransaction();
-
-    try {
-        /*
-         * Transaction A is the admin drain: it takes the node row lock that
-         * ChangeAgentNodeLifecycleAction uses, moves the intent to draining,
-         * and keeps the transaction open.
-         */
-        $lockedNode = AgentNode::query()
-            ->whereKey($node->id)
-            ->lockForUpdate()
-            ->firstOrFail();
-
-        $lockedNode->update(['desired_state' => AgentNodeDesiredState::Draining]);
-
-        /*
-         * Session B is the agent's claim. It must wait on the same node row
-         * instead of reading the stale active intent; a short lock timeout
-         * makes the wait observable instead of a hang.
-         */
-        $secondaryConnection = DB::connection($secondary);
-        $secondaryConnection->statement('SET lock_timeout = 250');
-
-        $claimException = null;
-
-        try {
-            DB::setDefaultConnection($secondary);
-
-            app(ClaimAgentCommandAction::class)->handle(
-                agent: $node,
-                commandId: $workload->id,
-            );
-        } catch (QueryException $e) {
-            // SQLSTATE 55P03 = lock_not_available: the claim was blocked by the drain.
-            expect($e->getCode())->toBe('55P03');
-
-            $claimException = $e;
-        } finally {
-            DB::setDefaultConnection($defaultConnection);
-        }
-
-        expect($claimException)
-            ->toBeInstanceOf(QueryException::class)
-            ->and(DB::connection($secondary)->transactionLevel())
-            ->toBe(0);
-
-        DB::commit();
-    } catch (Throwable $e) {
-        if (DB::transactionLevel() > 0) {
-            DB::rollBack();
-        }
-
-        throw $e;
-    } finally {
-        DB::purge($secondary);
-    }
-
-    // Once the drain has committed, the claim observes draining and conflicts;
-    // the workload stays Pending for whoever the node hands off to later.
-    expect(fn () => app(ClaimAgentCommandAction::class)->handle(
-        agent: $node,
-        commandId: $workload->id,
-    ))->toThrow(CommandConflictException::class);
-
-    expect($workload->fresh()->status)->toBe(AgentCommandStatus::Pending)
-        ->and($workload->fresh()->claimed_at)->toBeNull();
 });

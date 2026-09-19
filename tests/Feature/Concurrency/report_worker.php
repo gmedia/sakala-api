@@ -7,7 +7,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
 
-$root = dirname(__DIR__, 5);
+$root = dirname(__DIR__, 3);
 require $root.'/vendor/autoload.php';
 
 $mode = $_SERVER['argv'][1] ?? '';

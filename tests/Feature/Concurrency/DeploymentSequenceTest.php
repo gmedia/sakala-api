@@ -21,15 +21,10 @@ beforeEach(function () {
     // driven by the agent and never dispatch the job.
     config(['sakala.deployments.simulate' => true]);
 
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        return;
-    }
+    concurrencyRequiresPostgres();
 
-    // Fresh schema before each run. This deliberately bypasses RefreshDatabase /
-    // DatabaseTruncation traits so the shared RefreshDatabaseState static is not
-    // touched: those traits are incompatible with row-lock tests that need
-    // committed, cross-connection-visible rows, and DatabaseTruncation would
-    // otherwise poison later in-memory SQLite tests in the same process.
+    // Fresh schema before each run: this suite runs without RefreshDatabase
+    // because row-lock tests need committed, cross-session-visible rows.
     $this->artisan('migrate:fresh');
 
     Http::fake([
@@ -161,7 +156,7 @@ test('concurrent deployments for the same user across projects are serialized by
         ->and(Deployment::where('project_id', $projectB->id)->count())->toBe(0);
 
     Queue::assertPushed(SimulatedDeploymentJob::class, 1);
-})->skip(fn (): bool => DB::connection()->getDriverName() !== 'pgsql', 'Requires PostgreSQL row-level locking; ignore SQLite which does not support FOR UPDATE.');
+});
 
 test('concurrent deployments for the same project are serialized by the project row lock', function () {
     Queue::fake();
@@ -260,7 +255,4 @@ test('concurrent deployments for the same project are serialized by the project 
     )->toBe([1, 2]);
 
     Queue::assertPushed(SimulatedDeploymentJob::class, 2);
-})->skip(
-    fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
-    'Requires PostgreSQL row-level locking; ignore SQLite which does not support FOR UPDATE.',
-);
+});
