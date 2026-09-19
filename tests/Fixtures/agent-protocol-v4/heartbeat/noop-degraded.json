@@ -1,0 +1,55 @@
+{
+  "status": "degraded",
+  "hostname": "unknown-host",
+  "runtime_network": "sakala-runtime",
+  "capabilities": ["noop-runtime"],
+  "metadata": {
+    "version": "0.1.0",
+    "protocol_version": 4,
+    "lifecycle_state": "active",
+    "runtime_driver": "noop",
+    "uptime_seconds": null,
+    "resources": {
+      "cpu_total": null,
+      "cpu_load_1m": null,
+      "memory_total_bytes": null,
+      "memory_available_bytes": null,
+      "disk_total_bytes": null,
+      "disk_available_bytes": null,
+      "workspace_used_bytes": null
+    },
+    "disk_pressure": {
+      "state": "unknown",
+      "minimum_workspace_free_bytes": 2147483648,
+      "available_workspace_bytes": null
+    },
+    "workloads": {
+      "active": null,
+      "starting": null,
+      "unhealthy": null,
+      "stopped": null,
+      "unhealthy_details": []
+    },
+    "execution": {
+      "active_commands": 0,
+      "queued_local_commands": 0,
+      "capacity_waiting_commands": 0,
+      "active_builds": null,
+      "maximum_concurrent_builds": null
+    },
+    "startup_reconciliation": {
+      "captured_at": "2026-06-23T07:59:58Z",
+      "inspected_containers": 0,
+      "cleaned_workspaces": 0,
+      "reattached_log_followers": 0,
+      "recovered_execution_records": 0,
+      "recovered_workloads": [],
+      "orphans": [],
+      "stale_routes": [],
+      "stale_images": [],
+      "compatibility_issues": []
+    },
+    "runtime_dependencies": null
+  },
+  "sent_at": "2026-06-23T08:00:00Z"
+}

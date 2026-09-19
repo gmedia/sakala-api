@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Agent;
 use App\Actions\Agent\ClaimAgentCommandAction;
 use App\Actions\Agent\CompleteAgentCommandAction;
 use App\Actions\Agent\FailAgentCommandAction;
+use App\Actions\Agent\GetAgentNodeStateAction;
 use App\Actions\Agent\HeartbeatAgentAction;
 use App\Actions\Agent\PollAgentCommandsAction;
 use App\Actions\Agent\ProvisionAgentAction;
@@ -29,6 +30,7 @@ use App\Http\Requests\Api\V1\Agent\RotateAgentTokenRequest;
 use App\Http\Requests\Api\V1\Agent\StoreAgentRequest;
 use App\Http\Resources\Api\V1\Agent\AgentCommandResource;
 use App\Http\Resources\Api\V1\Agent\AgentHeartbeatResource;
+use App\Http\Resources\Api\V1\Agent\AgentNodeStateResource;
 use App\Http\Resources\Api\V1\Agent\AgentReportAcknowledgementResource;
 use App\Http\Resources\Api\V1\Agent\AgentResource;
 use App\Models\AgentCommand;
@@ -131,6 +133,20 @@ final class AgentController extends Controller
         );
 
         return AgentHeartbeatResource::make($agent);
+    }
+
+    /**
+     * Return the desired lifecycle state the agent must restore at bootstrap.
+     *
+     * @scramble-return AgentNodeStateResource
+     */
+    public function nodeState(
+        GetAgentNodeStateAction $getAgentNodeState
+    ): AgentNodeStateResource {
+        /** @var AgentNode $agent */
+        $agent = request()->input('agent');
+
+        return AgentNodeStateResource::make($getAgentNodeState->handle($agent));
     }
 
     /**

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Agent;
 
-use App\Enums\AgentCommandType;
 use App\Models\AgentCommand;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -28,27 +27,22 @@ final class AgentCommandResource extends JsonResource
     }
 
     /**
-     * Build the contract-compliant payload shaped by command type.
+     * Build the contract-compliant payload shaped by command type. Commands
+     * that carry no payload always serialise as an empty JSON object, never
+     * `[]` or `null`, so the wire matches the agent protocol fixtures.
      *
-     * @return array<string, mixed>
+     * @return array<string, mixed>|object
      */
-    private function buildPayload(): array
+    private function buildPayload(): array|object
     {
-        /** @var array<string, mixed> $default */
-        $default = [];
-
-        return match ($this->type) {
-            // DeployProject carries full deployment context.
-            AgentCommandType::DeployProject => $this->payload ?? $default,
-
-            // Lifecycle commands carry only identity; API must not leak
+        if (! $this->type->carriesPayload()) {
+            // Lifecycle commands carry only identity; the API must not leak
             // Docker names, shell commands, or credentials here.
-            AgentCommandType::RestartProject,
-            AgentCommandType::StopProject,
-            AgentCommandType::SleepProject,
-            AgentCommandType::WakeProject,
-            AgentCommandType::HealthCheck,
-            AgentCommandType::RefreshRoute => $default,
-        };
+            return (object) [];
+        }
+
+        $payload = $this->payload ?? [];
+
+        return $payload === [] ? (object) [] : $payload;
     }
 }

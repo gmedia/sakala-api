@@ -82,6 +82,7 @@ Padanan Sail tersedia melalui `make up`, `make test`, dan target lain di `Makefi
 - [Database](docs/DATABASE.md)
 - [Dokumentasi OpenAPI](docs/OPENAPI.md)
 - [Autentikasi](docs/AUTHENTICATION.md)
+- [Agent API](docs/AGENT_API.md)
 - [Development](docs/DEVELOPMENT.md)
 - [Kebijakan Retensi Log](docs/LOG_RETENTION.md)
 - [Security](SECURITY.md)

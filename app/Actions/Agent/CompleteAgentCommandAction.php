@@ -57,6 +57,22 @@ final class CompleteAgentCommandAction
                 'result' => $result,
             ]);
 
+            if ($command->type->isNodeLevel()) {
+                // Result keys only: never echo command payload into the audit trail.
+                AuditEvent::create([
+                    'actor_type' => AgentNode::class,
+                    'actor_id' => $agent->id,
+                    'action' => 'agent.command.completed',
+                    'subject_type' => AgentCommand::class,
+                    'subject_id' => $command->id,
+                    'metadata' => [
+                        'type' => $command->type->value,
+                        'agent_node_id' => $command->agent_node_id,
+                        'result_keys' => array_keys($result ?? []),
+                    ],
+                ]);
+            }
+
             if (in_array($command->type, [
                 AgentCommandType::StopProject,
                 AgentCommandType::SleepProject,

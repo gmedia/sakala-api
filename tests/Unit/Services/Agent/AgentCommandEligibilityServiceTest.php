@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
+use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Services\Agent\AgentCommandEligibilityService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13,10 +16,12 @@ uses(RefreshDatabase::class);
 function makeNode(
     AgentNodeStatus $status,
     array $capabilities,
+    array $overrides = [],
 ): AgentNode {
     return AgentNode::factory()->create([
         'status' => $status,
         'capabilities' => $capabilities,
+        ...$overrides,
     ]);
 }
 
@@ -63,5 +68,68 @@ test('eligible type values return only types covered by node capabilities', func
         ->and($values)->not->toContain('DeployProject')
         ->and($values)->not->toContain('RefreshRoute');
 
-    expect($service->eligibleTypeValues(makeNode(AgentNodeStatus::Ready, [])))->toBe([]);
+    // Node lifecycle commands need no capability, so a capability-less node
+    // still sees exactly those.
+    expect($service->eligibleTypeValues(makeNode(AgentNodeStatus::Ready, [])))
+        ->toBe(['DrainNode', 'ResumeNode']);
+});
+
+test('command types without capability requirements are always allowed', function (): void {
+    $service = new AgentCommandEligibilityService;
+    $node = makeNode(AgentNodeStatus::Ready, []);
+
+    expect($service->nodeHasCapabilityFor($node, AgentCommandType::DrainNode))->toBeTrue()
+        ->and($service->nodeHasCapabilityFor($node, AgentCommandType::ResumeNode))->toBeTrue()
+        ->and($service->nodeHasCapabilityFor($node, AgentCommandType::InspectProject))->toBeFalse();
+});
+
+test('revoked nodes and unsupported protocol revisions are never eligible', function (): void {
+    $service = new AgentCommandEligibilityService;
+
+    $revoked = makeNode(AgentNodeStatus::Ready, ['docker-runtime'], ['auth_status' => AgentAuthStatus::Revoked]);
+    $legacy = makeNode(AgentNodeStatus::Ready, ['docker-runtime'], ['protocol_version' => 3]);
+    $unseen = makeNode(AgentNodeStatus::Ready, ['docker-runtime'], ['protocol_version' => null]);
+
+    expect($service->nodeIsCommandEligible($revoked))->toBeFalse()
+        ->and($service->nodeIsCommandEligible($legacy))->toBeFalse()
+        ->and($service->nodeIsCommandEligible($unseen))->toBeFalse()
+        ->and($service->eligibleTypeValues($legacy))->toBe([])
+        ->and($service->eligibleTypeValues($unseen))->toBe([]);
+});
+
+test('nodes whose desired state is not active only receive lifecycle commands', function (): void {
+    $service = new AgentCommandEligibilityService;
+
+    foreach ([AgentNodeDesiredState::Draining, AgentNodeDesiredState::Drained, AgentNodeDesiredState::Maintenance] as $desired) {
+        $node = makeNode(AgentNodeStatus::Ready, ['docker-runtime', 'dockerfile-build'], ['desired_state' => $desired]);
+
+        expect($service->nodeAcceptsWorkload($node))->toBeFalse()
+            ->and($service->eligibleTypeValues($node))->toBe(['DrainNode', 'ResumeNode'])
+            ->and($service->nodeIsEligibleFor($node, AgentCommandType::HealthCheck))->toBeFalse()
+            ->and($service->nodeIsEligibleFor($node, AgentCommandType::DrainNode))->toBeTrue();
+    }
+});
+
+test('pinned command types are only scoped to their assigned node', function (): void {
+    $service = new AgentCommandEligibilityService;
+    $node = makeNode(AgentNodeStatus::Ready, ['project-inspection']);
+    $other = makeNode(AgentNodeStatus::Ready, ['project-inspection']);
+
+    $unassignedInspect = AgentCommand::factory()->create([
+        'type' => AgentCommandType::InspectProject,
+        'agent_node_id' => null,
+    ]);
+    $assignedInspect = AgentCommand::factory()->create([
+        'type' => AgentCommandType::InspectProject,
+        'agent_node_id' => $node->id,
+    ]);
+    $unassignedHealth = AgentCommand::factory()->create([
+        'type' => AgentCommandType::HealthCheck,
+        'agent_node_id' => null,
+    ]);
+
+    expect($service->commandIsScopedToNode($unassignedInspect, $node))->toBeFalse()
+        ->and($service->commandIsScopedToNode($assignedInspect, $node))->toBeTrue()
+        ->and($service->commandIsScopedToNode($assignedInspect, $other))->toBeFalse()
+        ->and($service->commandIsScopedToNode($unassignedHealth, $node))->toBeTrue();
 });

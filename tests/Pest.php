@@ -36,6 +36,7 @@ expect()->extend('toBeOne', function () {
 });
 
 require_once __DIR__.'/Support/AgentHeartbeatPayload.php';
+require_once __DIR__.'/Support/AgentProtocolFixtures.php';
 /*
 |--------------------------------------------------------------------------
 | Functions

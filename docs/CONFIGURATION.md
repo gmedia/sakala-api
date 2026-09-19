@@ -17,6 +17,11 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 `AUTH_VERIFICATION_EXPIRE` menentukan masa berlaku signed URL verifikasi email
 dalam menit (default `60`).
 
+## Agent
+
+- `SAKALA_AGENT_COMMAND_BATCH_SIZE`: jumlah maksimum command per response polling.
+- `SAKALA_AGENT_SUPPORTED_PROTOCOL_VERSIONS`: daftar protocol revision (dipisah koma) yang boleh menerima command; default `4`. Node dengan revisi lain tetap dapat heartbeat tetapi tidak dijadwalkan.
+
 ## Agent Reporting dan Log Retention
 
 - `SAKALA_LOG_MAX_LINE_LENGTH`: batas panjang satu message dalam byte.

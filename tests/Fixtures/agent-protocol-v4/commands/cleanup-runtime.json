@@ -1,0 +1,11 @@
+{
+  "id": "d07cb7e8-2b5a-4dc2-bc3e-11a88dd858e1",
+  "type": "CleanupRuntime",
+  "status": "Pending",
+  "project_id": null,
+  "deployment_id": null,
+  "payload": {
+    "approved": true,
+    "targets": ["stale_workspaces", "stale_images", "stale_routes"]
+  }
+}

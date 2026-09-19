@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services\Agent;
 
+use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
+use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Single source of truth for agent command eligibility policy.
@@ -31,35 +35,89 @@ final class AgentCommandEligibilityService
     }
 
     /**
-     * Whether the node is in an operational state that may receive workload
-     * commands. Draining, drained, maintenance, and offline nodes are not.
+     * Protocol revisions this control plane can schedule commands for.
+     *
+     * @return list<int>
+     */
+    public function supportedProtocolVersions(): array
+    {
+        /** @var array<int, mixed> $configured */
+        $configured = config('sakala.agent.supported_protocol_versions', [4]);
+
+        return array_values(array_map(
+            static fn (mixed $value): int => (int) $value,
+            $configured,
+        ));
+    }
+
+    /**
+     * Whether the node reported a protocol revision the API can talk to. A
+     * node that has never heartbeated has no revision and is not eligible.
+     */
+    public function nodeSpeaksSupportedProtocol(AgentNode $node): bool
+    {
+        return $node->protocol_version !== null
+            && in_array($node->protocol_version, $this->supportedProtocolVersions(), true);
+    }
+
+    /**
+     * Whether the node may receive any command at all: authorised, on a
+     * supported protocol revision, and in an operational reported state.
+     * Offline nodes are not.
      */
     public function nodeIsCommandEligible(AgentNode $node): bool
     {
-        return in_array($node->status, $this->activeNodeStatuses(), true);
+        return $node->auth_status === AgentAuthStatus::Active
+            && $this->nodeSpeaksSupportedProtocol($node)
+            && in_array($node->status, $this->activeNodeStatuses(), true);
+    }
+
+    /**
+     * Whether the node may receive workload (project) commands. Nodes whose
+     * desired state is draining, drained, or maintenance only receive node
+     * lifecycle commands, matching what the agent processes locally.
+     */
+    public function nodeAcceptsWorkload(AgentNode $node): bool
+    {
+        return $this->nodeIsCommandEligible($node)
+            && $node->desired_state === AgentNodeDesiredState::Active;
     }
 
     /**
      * Whether the node holds at least one capability required by the command
-     * type.
+     * type. Command types without capability requirements are always allowed.
      */
     public function nodeHasCapabilityFor(AgentNode $node, AgentCommandType $type): bool
     {
+        $required = $type->requiredCapabilities();
+
+        if ($required === []) {
+            return true;
+        }
+
         $nodeCaps = $node->capabilities ?? [];
 
-        return collect($type->requiredCapabilities())
+        return collect($required)
             ->intersect($nodeCaps)
             ->isNotEmpty();
     }
 
     /**
-     * Command type values the node can execute, based on its capability set.
+     * Command type values the node can execute right now, combining protocol,
+     * authorisation, reported status, desired lifecycle state, and capability.
      *
      * @return list<string>
      */
     public function eligibleTypeValues(AgentNode $node): array
     {
+        if (! $this->nodeIsCommandEligible($node)) {
+            return [];
+        }
+
+        $acceptsWorkload = $this->nodeAcceptsWorkload($node);
+
         $values = collect(AgentCommandType::cases())
+            ->filter(fn (AgentCommandType $type): bool => $acceptsWorkload || $type->isNodeLifecycle())
             ->filter(fn (AgentCommandType $type): bool => $this->nodeHasCapabilityFor($node, $type))
             ->map(fn (AgentCommandType $type): string => $type->value)
             ->all();
@@ -68,11 +126,48 @@ final class AgentCommandEligibilityService
     }
 
     /**
-     * Full node-side eligibility check: operational state plus capability
-     * for the given command type. Used by poll and by claim re-validation.
+     * Whether a command's target binding allows this node to see or claim it.
+     * Pinned and node-level commands must already be assigned to the node;
+     * other commands may be unassigned or assigned to the node.
+     */
+    public function commandIsScopedToNode(AgentCommand $command, AgentNode $node): bool
+    {
+        if ($command->agent_node_id === $node->id) {
+            return true;
+        }
+
+        return $command->agent_node_id === null && ! $command->type->isPinnedAtCreation();
+    }
+
+    /**
+     * SQL form of {@see commandIsScopedToNode()} for polling.
+     *
+     * @param  Builder<AgentCommand>  $query
+     * @return Builder<AgentCommand>
+     */
+    public function applyNodeScopeToQuery(Builder $query, AgentNode $node): Builder
+    {
+        $pinnedTypes = collect(AgentCommandType::cases())
+            ->filter(fn (AgentCommandType $type): bool => $type->isPinnedAtCreation())
+            ->map(fn (AgentCommandType $type): string => $type->value)
+            ->values()
+            ->all();
+
+        return $query->where(function (Builder $query) use ($node, $pinnedTypes): void {
+            $query->where('agent_node_id', $node->id)
+                ->orWhere(function (Builder $query) use ($pinnedTypes): void {
+                    $query->whereNull('agent_node_id')
+                        ->whereNotIn('type', $pinnedTypes);
+                });
+        });
+    }
+
+    /**
+     * Full node-side eligibility check for one command type. Used by poll and
+     * by claim re-validation.
      */
     public function nodeIsEligibleFor(AgentNode $node, AgentCommandType $type): bool
     {
-        return $this->nodeIsCommandEligible($node) && $this->nodeHasCapabilityFor($node, $type);
+        return in_array($type->value, $this->eligibleTypeValues($node), true);
     }
 }
