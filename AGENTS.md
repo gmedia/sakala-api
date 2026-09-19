@@ -13,7 +13,7 @@ Panduan ini berlaku untuk AI agent dan Codex yang bekerja di `sakala-api`.
 
 ## Architecture
 
-- Semua endpoint aplikasi berada di `/api/v1` dan dikelompokkan per domain.
+- Semua endpoint aplikasi berada di `/api/v1` dan dikelompokkan per domain. Satu-satunya pengecualian adalah route family `/api/agent/v1` (`routes/agent.php`), yang diversikan terpisah dari app API: bagian machine (bearer agent + `X-Agent-Id`) saat ini melayani `sakala-agent` protocol revision 4 — `v1` pada URL bukan protocol revision, admission revisi digate lewat `metadata.protocol_version` heartbeat — dan family yang sama juga memuat endpoint admin node `/api/agent/v1/agents/*` (Sanctum). Kontrak wire bagian machine normatif di `docs/AGENT_API.md` dan tidak boleh ditambah endpoint, command type, atau field secara sepihak tanpa perubahan protocol agent.
 - Controller harus tipis; validasi endpoint yang menerima input wajib memakai Form Request di `Http/Requests/Api/V1/<Domain>`.
 - Orkestrasi satu use case memakai Action. Gunakan Service hanya untuk integrasi atau workflow lintas Action, bukan sebagai penampung logic generik.
 - Gunakan DTO immutable di `Data` untuk payload antar-layer dan Policy untuk authorization berbasis resource.
@@ -38,7 +38,7 @@ Panduan ini berlaku untuk AI agent dan Codex yang bekerja di `sakala-api`.
 - Gunakan explicit return type, constructor property promotion, dan kurung kurawal untuk control structure.
 - Gunakan Eloquent relationship dan eager loading; hindari raw query jika API framework cukup.
 - Baca config melalui `config()`, bukan `env()` di luar file konfigurasi.
-- Background work yang lambat harus menggunakan queue.
+- Background work yang lambat harus menggunakan queue. Pekerjaan berkala control plane (penugasan command, lease expiry, derivasi offline) berupa Artisan command di `app/Console/Commands` yang dijadwalkan di `routes/console.php`.
 
 ## Quality Gate
 
