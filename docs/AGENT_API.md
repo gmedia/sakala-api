@@ -188,6 +188,27 @@ deferred, API membuat `StopProject` idempoten untuk setiap deployment
 deployment baru. Completion pada deployment yang sudah ditutup control plane
 (mis. kedaluwarsa) tetap `204`, dicatat di audit, dan tidak mengubah status.
 
+### InspectProject
+
+Dibuat saat project dibuat (`RequestProjectInspectionAction`) untuk preview
+stack di console; pinned ke node ber-capability `project-inspection`,
+`deployment_id` null, tanpa `expires_at`, idempoten per commit
+(`inspect:{project}:{sha}`). Payload mengikuti `InspectProjectPayload`:
+
+```json
+{ "repository_url": "https://github.com/example/app.git", "commit_sha": "…", "repository_access": "public" }
+```
+
+Event `project.inspection.started`/`completed` dan log-nya disimpan sebagai
+command report. Result `complete` dibaca sebagai `ProjectInspection`
+(`repository_url`, `commit_sha`, `dockerfile_found`, `env_example_found`,
+`compose_found`, `manifests[]`, `package_manager`, `railpack`) dan disimpan ke
+`projects.inspection`; `fail` menyimpan `error_code` sebagai
+`inspection_error_code`. Hanya command inspeksi terbaru untuk sebuah project
+yang boleh menulis hasil — completion command yang sudah disusul diabaikan.
+`detected_port` tidak diturunkan dari hasil karena `ProjectInspection` v4 tidak
+memuat port.
+
 ### Repository credential
 
 Dipanggil agent setelah claim dan sebelum checkout, hanya bila payload

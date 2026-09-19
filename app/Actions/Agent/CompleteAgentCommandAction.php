@@ -7,9 +7,11 @@ namespace App\Actions\Agent;
 use App\Actions\Admin\CreateStopProjectCommandAction;
 use App\Actions\Deployment\TransitionDeploymentAction;
 use App\Data\Agent\DeployProjectResultData;
+use App\Data\Agent\ProjectInspectionResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
+use App\Enums\ProjectInspectionStatus;
 use App\Enums\RuntimeStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
@@ -68,6 +70,10 @@ final class CompleteAgentCommandAction
 
             if ($command->type === AgentCommandType::DeployProject && $command->deployment_id !== null) {
                 $this->completeDeployment($agent, $command, DeployProjectResultData::fromArray($result));
+            }
+
+            if ($command->type === AgentCommandType::InspectProject && $command->project_id !== null) {
+                $this->completeInspection($agent, $command, ProjectInspectionResultData::fromArray($result));
             }
 
             if ($command->type->isNodeLevel()) {
@@ -131,6 +137,53 @@ final class CompleteAgentCommandAction
 
         // Reached here only if not already Succeeded (idempotent path returns early)
         return true;
+    }
+
+    /**
+     * Store the inspection on the project, unless a newer inspection has
+     * been requested since — a stale command must not overwrite it.
+     */
+    private function completeInspection(AgentNode $agent, AgentCommand $command, ProjectInspectionResultData $result): void
+    {
+        /** @var Project $project */
+        $project = Project::query()
+            ->whereKey($command->project_id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if ($this->isStaleInspection($project, $command)) {
+            return;
+        }
+
+        $project->update([
+            'inspection' => $result->toArray(),
+            'inspection_status' => ProjectInspectionStatus::Succeeded,
+            'inspection_error_code' => null,
+            'inspected_at' => now(),
+        ]);
+
+        AuditEvent::create([
+            'actor_type' => AgentNode::class,
+            'actor_id' => $agent->id,
+            'action' => 'project.inspection_completed',
+            'subject_type' => Project::class,
+            'subject_id' => $project->id,
+            'metadata' => [
+                'command_id' => $command->id,
+                'commit_sha' => $result->commitSha,
+                'dockerfile_found' => $result->dockerfileFound,
+                'package_manager' => $result->packageManager,
+            ],
+        ]);
+    }
+
+    private function isStaleInspection(Project $project, AgentCommand $command): bool
+    {
+        return AgentCommand::query()
+            ->where('project_id', $project->id)
+            ->where('type', AgentCommandType::InspectProject)
+            ->where('created_at', '>', $command->created_at)
+            ->exists();
     }
 
     /**

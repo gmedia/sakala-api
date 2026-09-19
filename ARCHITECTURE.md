@@ -393,14 +393,20 @@ sakala-console
 -> JSON response ke console
 ```
 
-Jika preview stack sudah aktif, Action dapat membuat command `InspectProject` setelah project tersimpan:
+Setelah project tersimpan, `CreateProjectAction` meminta preview stack di luar transaction pembuatan (GitHub I/O tidak boleh menahan lock user dan tidak boleh menggagalkan pembuatan):
 
 ```text
 CreateProjectAction
--> create Project
--> create AgentCommand InspectProject
+-> create Project (transaction)
+-> RequestProjectInspectionAction
+   -> resolve branch head di GitHub
+   -> pilih node (AgentNodeSchedulerService)
+   -> create AgentCommand InspectProject (pinned, idempotent per commit)
+   -> project.inspection_status = pending
 -> return project dengan preview_status pending
 ```
+
+Bila branch head tidak dapat di-resolve, project tetap dibuat dengan `preview_status = unavailable` dan `inspection_error_code`. Hasil inspeksi agent disimpan pada project saat command selesai dan diekspos sebagai `inspection` (field stabil saja; output `railpack` mentah tetap server-side).
 
 ### Contoh Alur: Deploy Project
 

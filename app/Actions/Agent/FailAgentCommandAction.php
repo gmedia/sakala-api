@@ -9,6 +9,7 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\DeploymentStatus;
+use App\Enums\ProjectInspectionStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
@@ -98,6 +99,23 @@ final class FailAgentCommandAction
                         nextStatus: DeploymentStatus::Failed,
                         failureData: $this->failureClassifier->classify($errorCode),
                     );
+                }
+            }
+
+            if ($command->type === AgentCommandType::InspectProject && $command->project_id !== null) {
+                // A newer inspection supersedes this one; only the latest
+                // command may write the project's preview state.
+                $isStale = AgentCommand::query()
+                    ->where('project_id', $command->project_id)
+                    ->where('type', AgentCommandType::InspectProject)
+                    ->where('created_at', '>', $command->created_at)
+                    ->exists();
+
+                if (! $isStale) {
+                    Project::query()->whereKey($command->project_id)->update([
+                        'inspection_status' => ProjectInspectionStatus::Failed->value,
+                        'inspection_error_code' => $errorCode,
+                    ]);
                 }
             }
 

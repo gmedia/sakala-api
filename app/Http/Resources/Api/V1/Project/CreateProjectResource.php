@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Project;
 
 use App\Models\Project;
+use App\Support\Project\ProjectPreviewPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -33,6 +34,9 @@ final class CreateProjectResource extends JsonResource
             'github_repository_id' => $this->resource->github_repository_id,
             'branch' => $this->resource->branch,
             'runtime_status' => $this->resource->runtime_status,
+            'preview_status' => ProjectPreviewPresenter::status($this->resource),
+            'inspection' => ProjectPreviewPresenter::inspection($this->resource),
+            'inspection_error_code' => $this->resource->inspection_error_code,
             'created_at' => $this->resource->created_at->toAtomString(),
         ];
     }
