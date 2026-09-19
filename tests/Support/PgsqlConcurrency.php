@@ -27,8 +27,11 @@ function concurrencyRequiresPostgres(): void
  * is still open. $contend must block on a row A holds: this asserts it
  * fails with SQLSTATE 55P03 (lock_not_available). Transaction A is then
  * committed so the caller can verify what the contender observes afterwards.
+ *
+ * Returns the contender's QueryException: its message carries the SQL that
+ * timed out, which identifies the first row the contender tried to lock.
  */
-function whileTransactionHoldsLocks(Closure $holdLocks, Closure $contend): void
+function whileTransactionHoldsLocks(Closure $holdLocks, Closure $contend): QueryException
 {
     $secondary = 'pgsql_secondary';
 
@@ -79,4 +82,16 @@ function whileTransactionHoldsLocks(Closure $holdLocks, Closure $contend): void
     } finally {
         DB::purge($secondary);
     }
+
+    /** @var QueryException $blocked */
+    return $blocked;
+}
+
+/**
+ * The table named in the SELECT ... FOR UPDATE that hit lock_timeout — i.e.
+ * the first lock the contender attempted while transaction A held its rows.
+ */
+function lockTimeoutTable(QueryException $exception): ?string
+{
+    return preg_match('/from "([a-z_]+)"/', $exception->getMessage(), $m) === 1 ? $m[1] : null;
 }

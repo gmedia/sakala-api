@@ -77,16 +77,33 @@ test('claim waits on deployment lock before project lock during deployment trans
         'available_at' => now()->subMinute(),
     ]);
 
-    // Transaction A is TransitionDeploymentAction: Deployment first, then
-    // Project. A deadlock (40P01) instead of lock_not_available would mean
-    // the claim takes those locks in the opposite order.
-    whileTransactionHoldsLocks(
+    // Transaction A is TransitionDeploymentAction and holds both rows in its
+    // order: Deployment, then Project. Whichever row the claim tries first is
+    // the one its lock_timeout fires on, so the timed-out statement proves
+    // the claim's order. A claim that locked Project first would time out on
+    // "projects" instead — and, against a live transition that already holds
+    // Deployment while waiting for Project, would deadlock.
+    $blocked = whileTransactionHoldsLocks(
         holdLocks: function () use ($deployment, $project): void {
             Deployment::query()->whereKey($deployment->id)->lockForUpdate()->firstOrFail();
             Project::query()->whereKey($project->id)->lockForUpdate()->firstOrFail();
         },
         contend: fn () => app(ClaimAgentCommandAction::class)->handle(agent: $agent, commandId: $command->id),
     );
+
+    expect(lockTimeoutTable($blocked))->toBe('deployments');
+
+    // With only the Project row held, the claim gets past Deployment and
+    // times out on Project: the second lock in the same order.
+    $blocked = whileTransactionHoldsLocks(
+        holdLocks: function () use ($project): void {
+            Project::query()->whereKey($project->id)->lockForUpdate()->firstOrFail();
+        },
+        contend: fn () => app(ClaimAgentCommandAction::class)->handle(agent: $agent, commandId: $command->id),
+    );
+
+    expect(lockTimeoutTable($blocked))->toBe('projects')
+        ->and($command->fresh()->status)->toBe(AgentCommandStatus::Pending);
 
     app(ClaimAgentCommandAction::class)->handle(agent: $agent, commandId: $command->id);
 

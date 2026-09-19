@@ -41,4 +41,11 @@ DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_DATABASE=sakala_test DB_USERNAME=sail D
   composer test:concurrency
 ```
 
-Di luar PostgreSQL group ini otomatis `skipped`. Dengan Sail: `sail artisan test --group=concurrency` setelah membuat database kosong khusus test (jangan arahkan ke database development, karena `migrate:fresh` menghapus isinya).
+Di luar PostgreSQL group ini otomatis `skipped` — dan `phpunit.xml` memaksa SQLite in-memory, sehingga perintah `sail artisan test` biasa **tidak** menjalankannya. Dengan Sail, override koneksi secara eksplisit ke database `testing` yang dibuat Sail (jangan arahkan ke database development, karena `migrate:fresh` menghapus isinya):
+
+```bash
+sail exec -e DB_CONNECTION=pgsql -e DB_HOST=pgsql -e DB_DATABASE=testing \
+  -e DB_USERNAME=sail -e DB_PASSWORD=password laravel.test composer test:concurrency
+```
+
+Output yang benar menampilkan 8 test `passed`; `8 skipped` berarti koneksi PostgreSQL belum terpasang.
