@@ -177,14 +177,19 @@ Dipanggil agent setelah claim dan sebelum checkout, hanya bila payload
 { "username": "x-access-token", "token": "ghs_…" }
 ```
 
-Syarat, diperiksa di bawah row lock command:
+Syarat, diperiksa di bawah row lock command **sebelum** token diminta ke
+GitHub dan **sekali lagi** setelah token diterima, sebelum dikembalikan (state
+bisa berubah selama I/O ke GitHub; token yang gagal revalidasi tidak pernah
+diserahkan dan kedaluwarsa sendiri):
 
 - node pemanggil adalah `agent_node_id` command; command `Claimed` atau
   `Running` — selain itu `409` dengan bentuk konflik standar;
 - type `InspectProject`/`DeployProject` dan `repository_access =
   temporary_credential` — selain itu `422`;
-- project masih terikat ke GitHub App installation yang `active`, dan user
-  pemilik project masih terhubung ke installation tersebut — selain itu `409`
+- `payload.repository_url` sama dengan repository project (binding repository
+  command tidak boleh bergeser), project masih terikat ke GitHub App
+  installation yang `active` dengan repository yang sama, dan user pemilik
+  project masih terhubung ke installation tersebut — selain itu `409`
   "GitHub App no longer has access…".
 
 Token adalah installation token GitHub App yang dibatasi ke **satu

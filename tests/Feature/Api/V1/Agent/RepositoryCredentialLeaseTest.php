@@ -49,15 +49,25 @@ beforeEach(function (): void {
     config()->set('services.github_app.app_id', '12345');
 });
 
-function fakeInstallationTokenMint(int $status = 201): void
+/**
+ * @param  (callable(): void)|null  $whileMinting  runs while GitHub is "answering", i.e. after
+ *                                                 the first authorisation transaction committed
+ */
+function fakeInstallationTokenMint(int $status = 201, ?callable $whileMinting = null): void
 {
     Http::fake([
-        'api.github.com/app/installations/*/access_tokens' => $status === 201
-            ? Http::response([
-                'token' => LEASED_TOKEN,
-                'expires_at' => now()->addHour()->toIso8601String(),
-            ], 201)
-            : Http::response(['message' => 'Bad credentials'], $status),
+        'api.github.com/app/installations/*/access_tokens' => function () use ($status, $whileMinting) {
+            if ($whileMinting !== null) {
+                $whileMinting();
+            }
+
+            return $status === 201
+                ? Http::response([
+                    'token' => LEASED_TOKEN,
+                    'expires_at' => now()->addHour()->toIso8601String(),
+                ], 201)
+                : Http::response(['message' => 'Bad credentials'], $status);
+        },
     ]);
 }
 
@@ -122,7 +132,7 @@ function leaseContext(
         'deployment_id' => $deployment?->id,
         'agent_node_id' => $agent->id,
         'payload' => [
-            'repository_url' => 'https://github.com/example/private-app.git',
+            'repository_url' => $project->repository_url,
             'commit_sha' => '0123456789abcdef0123456789abcdef01234567',
             'repository_access' => $repositoryAccess,
         ],
@@ -242,6 +252,62 @@ test('a lease is refused when repository access has been withdrawn', function ()
         ->assertStatus(409);
 
     Http::assertNothingSent();
+});
+
+test('a command whose payload names a different repository than the project is refused', function (): void {
+    ['agent' => $agent, 'command' => $command] = leaseContext('drift-token');
+    $command->update(['payload' => [...$command->payload, 'repository_url' => 'https://github.com/example/other-repo.git']]);
+
+    $this->withHeaders(leaseHeaders($agent, 'drift-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertStatus(409);
+
+    Http::assertNothingSent();
+});
+
+test('a credential minted while the command finished is never handed out', function (): void {
+    ['agent' => $agent, 'command' => $command] = leaseContext('race-command-token');
+    fakeInstallationTokenMint(whileMinting: function () use ($command): void {
+        // The control plane closes the command while GitHub is answering.
+        $command->update(['status' => AgentCommandStatus::Failed, 'failed_at' => now()]);
+    });
+
+    $response = $this->withHeaders(leaseHeaders($agent, 'race-command-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertStatus(409)
+        ->assertJsonPath('status', 'Failed');
+
+    Http::assertSentCount(1);
+    expect($response->getContent())->not->toContain(LEASED_TOKEN)
+        ->and(AuditEvent::query()->where('action', 'agent.repository_credential_leased')->exists())->toBeFalse();
+});
+
+test('a credential minted while the installation was suspended is never handed out', function (): void {
+    ['agent' => $agent, 'command' => $command, 'installation' => $installation] = leaseContext('race-install-token');
+    fakeInstallationTokenMint(whileMinting: function () use ($installation): void {
+        $installation->update(['status' => GithubInstallationStatus::Suspended, 'suspended_at' => now()]);
+    });
+
+    $response = $this->withHeaders(leaseHeaders($agent, 'race-install-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertStatus(409);
+
+    expect($response->getContent())->not->toContain(LEASED_TOKEN)
+        ->and(AuditEvent::query()->where('action', 'agent.repository_credential_leased')->exists())->toBeFalse();
+});
+
+test('a credential minted while the project was detached or re-bound is never handed out', function (): void {
+    ['agent' => $agent, 'command' => $command, 'project' => $project] = leaseContext('race-project-token');
+    fakeInstallationTokenMint(whileMinting: function () use ($project): void {
+        $project->update(['github_repository_id' => 9999]);
+    });
+
+    $response = $this->withHeaders(leaseHeaders($agent, 'race-project-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertStatus(409);
+
+    expect($response->getContent())->not->toContain(LEASED_TOKEN)
+        ->and(AuditEvent::query()->where('action', 'agent.repository_credential_leased')->exists())->toBeFalse();
 });
 
 test('the leased token never lands in storage, cache, or logs', function (): void {

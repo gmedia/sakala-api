@@ -7,6 +7,7 @@ namespace App\Actions\Agent;
 use App\Data\Agent\RepositoryCredentialData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\GithubInstallationStatus;
 use App\Enums\RepositoryAccess;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
@@ -34,75 +35,113 @@ final class LeaseRepositoryCredentialAction
      * credential. The token is never stored on the command, never logged,
      * and never returned anywhere else.
      *
+     * Authorisation is checked twice: under the command row lock before the
+     * outbound GitHub call (so no lock is held over network I/O), and again
+     * under the lock after the token is minted. State can move while GitHub
+     * is answering — the command may finish or expire, the project may be
+     * detached, the installation may be suspended — and a credential must
+     * never leave for a command that is no longer authorised. A token minted
+     * for a lease that fails revalidation is simply never handed out.
+     *
      * @throws CommandConflictException when the caller does not own the
      *                                  command or the command is not in flight
      */
     public function handle(AgentNode $agent, string $commandId): RepositoryCredentialData
     {
-        // Authorisation is decided under the row lock; the outbound GitHub
-        // call happens after the transaction so no lock is held over I/O.
-        [$command, $project, $installation] = DB::transaction(function () use ($agent, $commandId): array {
-            $command = AgentCommand::query()
-                ->whereKey($commandId)
-                ->lockForUpdate()
-                ->firstOrFail();
+        $binding = DB::transaction(fn (): array => $this->authorise($agent, $commandId));
 
-            if ($command->agent_node_id !== $agent->id) {
-                throw new CommandConflictException($command);
-            }
+        $lease = $this->installationTokens->forRepository($binding['installation'], $binding['repository_id']);
 
-            if (! in_array($command->status, [AgentCommandStatus::Claimed, AgentCommandStatus::Running], true)) {
-                throw new CommandConflictException($command);
-            }
+        DB::transaction(function () use ($agent, $commandId, $binding, $lease): void {
+            $current = $this->authorise($agent, $commandId);
 
-            $this->assertRequiresCredential($command);
-
-            $project = $command->project_id === null
-                ? null
-                : Project::query()->whereKey($command->project_id)->first();
-
-            if ($project === null || $project->github_installation_id === null || $project->github_repository_id === null) {
+            if ($current['installation']->id !== $binding['installation']->id
+                || $current['repository_id'] !== $binding['repository_id']) {
+                // The project was re-bound while GitHub was answering; the
+                // token was minted for a repository the command no longer
+                // references.
                 $this->throwRepositoryAccessRemoved();
             }
 
-            $installation = GithubInstallation::query()
-                ->whereKey($project->github_installation_id)
-                ->first();
-
-            if ($installation === null) {
-                $this->throwRepositoryAccessRemoved();
-            }
-
-            // The user who connected the repository must still be linked to
-            // the installation; a removed link revokes the lease.
-            if (! $installation->users()->whereKey($project->user_id)->exists()) {
-                $this->throwRepositoryAccessRemoved();
-            }
-
-            return [$command, $project, $installation];
+            AuditEvent::create([
+                'actor_type' => AgentNode::class,
+                'actor_id' => $agent->id,
+                'action' => 'agent.repository_credential_leased',
+                'subject_type' => AgentCommand::class,
+                'subject_id' => $current['command']->id,
+                'metadata' => [
+                    'project_id' => $current['project']->id,
+                    'github_installation_id' => $current['installation']->id,
+                    'github_repository_id' => $current['repository_id'],
+                    'expires_at' => $lease->expiresAt->toAtomString(),
+                ],
+            ]);
         });
-
-        $lease = $this->installationTokens->forRepository($installation, $project->github_repository_id);
-
-        AuditEvent::create([
-            'actor_type' => AgentNode::class,
-            'actor_id' => $agent->id,
-            'action' => 'agent.repository_credential_leased',
-            'subject_type' => AgentCommand::class,
-            'subject_id' => $command->id,
-            'metadata' => [
-                'project_id' => $project->id,
-                'github_installation_id' => $installation->id,
-                'github_repository_id' => $project->github_repository_id,
-                'expires_at' => $lease->expiresAt->toAtomString(),
-            ],
-        ]);
 
         return new RepositoryCredentialData(
             username: self::GITHUB_TOKEN_USERNAME,
             token: $lease->token,
             expiresAt: $lease->expiresAt,
         );
+    }
+
+    /**
+     * Lock the command and verify everything the lease depends on. Must run
+     * inside a transaction.
+     *
+     * @return array{command: AgentCommand, project: Project, installation: GithubInstallation, repository_id: int}
+     */
+    private function authorise(AgentNode $agent, string $commandId): array
+    {
+        $command = AgentCommand::query()
+            ->whereKey($commandId)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if ($command->agent_node_id !== $agent->id) {
+            throw new CommandConflictException($command);
+        }
+
+        if (! in_array($command->status, [AgentCommandStatus::Claimed, AgentCommandStatus::Running], true)) {
+            throw new CommandConflictException($command);
+        }
+
+        $this->assertRequiresCredential($command);
+
+        $project = $command->project_id === null
+            ? null
+            : Project::query()->whereKey($command->project_id)->first();
+
+        if ($project === null || $project->github_installation_id === null || $project->github_repository_id === null) {
+            $this->throwRepositoryAccessRemoved();
+        }
+
+        // The credential is for the repository the command was created for;
+        // the project binding must not have drifted from the command payload.
+        if (($command->payload['repository_url'] ?? null) !== $project->repository_url) {
+            $this->throwRepositoryAccessRemoved();
+        }
+
+        $installation = GithubInstallation::query()
+            ->whereKey($project->github_installation_id)
+            ->first();
+
+        if ($installation === null || $installation->status !== GithubInstallationStatus::Active) {
+            $this->throwRepositoryAccessRemoved();
+        }
+
+        // The user who connected the repository must still be linked to
+        // the installation; a removed link revokes the lease.
+        if (! $installation->users()->whereKey($project->user_id)->exists()) {
+            $this->throwRepositoryAccessRemoved();
+        }
+
+        return [
+            'command' => $command,
+            'project' => $project,
+            'installation' => $installation,
+            'repository_id' => $project->github_repository_id,
+        ];
     }
 
     private function assertRequiresCredential(AgentCommand $command): void
