@@ -99,6 +99,15 @@ final class CreateDeploymentAction
             return $existing;
         }
 
+        // Installation-backed repositories require the agent to lease a
+        // repository credential before checkout. Until the machine API offers
+        // POST /commands/{id}/repository-credential, a stock agent would fail
+        // every such deployment with repository_credential_unavailable, so
+        // refuse up front instead of enqueueing a command that cannot succeed.
+        if ($project->github_installation_id !== null) {
+            abort(409, 'Deployments for repositories connected through a GitHub App installation are not available yet.');
+        }
+
         $commit = $this->githubBranchService->getBranchCommit(
             project: $project,
             branch: $data->branch,

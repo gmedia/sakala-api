@@ -16,8 +16,6 @@ use App\Models\GithubInstallation;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -229,18 +227,20 @@ test('assigned but unclaimed commands count as node load', function (): void {
     expect($deployment->agent_node_id)->toBe($idle->id);
 });
 
-test('repository_access is derived from how the project was connected', function (): void {
+test('public projects deploy with repository_access public', function (): void {
     deployNode();
     ['user' => $user, 'project' => $public] = deployContext();
-    $installation = GithubInstallation::factory()->create();
 
-    // Installation-backed projects resolve the branch head with an App token;
-    // seed the cached token so no GitHub App key is needed.
-    Cache::put(
-        'github-app-installation-token:'.$installation->id,
-        Crypt::encryptString('ghs_test_installation_token'),
-        now()->addHour(),
-    );
+    $deployment = createDeployment($user, $public);
+    $payload = AgentCommand::query()->where('deployment_id', $deployment->id)->sole()->payload;
+
+    expect($payload['repository_access'])->toBe('public');
+});
+
+test('installation-backed projects are refused until the agent can lease a repository credential', function (): void {
+    deployNode();
+    $user = User::factory()->create();
+    $installation = GithubInstallation::factory()->create();
     $private = Project::factory()->create([
         'user_id' => $user->id,
         'branch' => 'main',
@@ -248,14 +248,16 @@ test('repository_access is derived from how the project was connected', function
         'github_repository_id' => 4242,
     ]);
 
-    $publicDeployment = createDeployment($user, $public);
-    $privateDeployment = createDeployment($user, $private);
+    $this->actingAs($user, 'web')
+        ->postJson("/api/v1/app/projects/{$private->id}/deployments", ['branch' => 'main'])
+        ->assertStatus(409)
+        ->assertJsonPath('message', 'Deployments for repositories connected through a GitHub App installation are not available yet.');
 
-    $publicPayload = AgentCommand::query()->where('deployment_id', $publicDeployment->id)->sole()->payload;
-    $privatePayload = AgentCommand::query()->where('deployment_id', $privateDeployment->id)->sole()->payload;
-
-    expect($publicPayload['repository_access'])->toBe('public')
-        ->and($privatePayload['repository_access'])->toBe('temporary_credential');
+    // Nothing is enqueued that a stock agent could not complete, and GitHub
+    // is never contacted for the branch head.
+    expect(Deployment::query()->where('project_id', $private->id)->exists())->toBeFalse()
+        ->and(AgentCommand::query()->where('project_id', $private->id)->exists())->toBeFalse();
+    Http::assertNothingSent();
 });
 
 test('the simulated lifecycle is not dispatched unless explicitly enabled', function (): void {

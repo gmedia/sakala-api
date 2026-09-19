@@ -136,7 +136,9 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
 
 - `repository_access` adalah `public` untuk project dari URL publik dan
   `temporary_credential` untuk project yang terhubung lewat GitHub App
-  installation.
+  installation. Sampai endpoint `repository-credential` tersedia, API menolak
+  pembuatan deployment untuk project installation-backed dengan `409` supaya
+  tidak ada command yang pasti gagal di agent.
 - `environment` dikirim **plaintext** hanya kepada node target. Di database
   nilainya tetap terenkripsi; node lain tidak pernah menerima payload ini.
   Map kosong diserialisasi sebagai `{}`.
