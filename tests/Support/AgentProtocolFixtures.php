@@ -14,3 +14,16 @@ function agentCommandFixture(string $name): array
 
     return json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
 }
+
+/**
+ * Load a heartbeat payload captured from sakala-agent v0.1.0 (see
+ * tests/Fixtures/agent-protocol-v4/README.md).
+ *
+ * @return array<string, mixed>
+ */
+function agentHeartbeatFixture(string $name): array
+{
+    $path = base_path("tests/Fixtures/agent-protocol-v4/heartbeat/{$name}.json");
+
+    return json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+}

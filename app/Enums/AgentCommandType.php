@@ -47,6 +47,13 @@ enum AgentCommandType: string
         };
     }
 
+    /**
+     * Commands that could start or expose a workload again while the project
+     * is suspended. ReconcileWorkload is blocked because its payload may
+     * request `desired_state = running` or `restore_route`; a payload-aware
+     * policy can relax this later. Stop, sleep, health checks, and node-level
+     * commands never bring a workload back.
+     */
     public function isBlockedForSuspendedProject(): bool
     {
         return match ($this) {
@@ -54,12 +61,12 @@ enum AgentCommandType: string
             self::DeployProject,
             self::RestartProject,
             self::WakeProject,
-            self::RefreshRoute => true,
+            self::RefreshRoute,
+            self::ReconcileWorkload => true,
 
             self::StopProject,
             self::SleepProject,
             self::HealthCheck,
-            self::ReconcileWorkload,
             self::CleanupRuntime,
             self::DrainNode,
             self::ResumeNode => false,

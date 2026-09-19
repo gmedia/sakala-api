@@ -8,6 +8,7 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
+use App\Enums\ProjectStatus;
 use App\Models\AgentCommand;
 use App\Models\AgentCommandReport;
 use App\Models\AgentNode;
@@ -102,6 +103,41 @@ test('poll serialises every v0.1.0 command fixture exactly as the agent expects'
         expect($response->getContent())->toContain('"payload":{}');
     }
 })->with(['cleanup-runtime', 'deploy-project', 'inspect-project', 'reconcile-workload', 'restart-project', 'stop-project']);
+
+test('heartbeat accepts the v0.1.0 wire payload verbatim', function (string $name): void {
+    $agent = v4Agent('hb-fixture-token', ['protocol_version' => null, 'capabilities' => []]);
+    $fixture = agentHeartbeatFixture($name);
+
+    $this->withHeaders(v4Headers($agent, 'hb-fixture-token'))
+        ->postJson('/api/agent/v1/heartbeat', $fixture)
+        ->assertOk();
+
+    $agent->refresh();
+    expect($agent->protocol_version)->toBe(4)
+        ->and($agent->status->value)->toBe($fixture['status'])
+        ->and($agent->capabilities)->toBe($fixture['capabilities'])
+        ->and($agent->hostname)->toBe($fixture['hostname'])
+        ->and($agent->last_seen_at)->not->toBeNull();
+})->with(['docker-ready', 'noop-degraded']);
+
+test('heartbeat detail counts are optional but must be complete when sent', function (): void {
+    $agent = v4Agent('hb-counts-token');
+
+    $withoutCounts = agentHeartbeatFixture('docker-ready');
+    expect($withoutCounts['metadata'])->not->toHaveKey('detail_counts');
+
+    $this->withHeaders(v4Headers($agent, 'hb-counts-token'))
+        ->postJson('/api/agent/v1/heartbeat', $withoutCounts)
+        ->assertOk();
+
+    $partial = $withoutCounts;
+    $partial['metadata']['detail_counts'] = ['orphans' => 1];
+
+    $this->withHeaders(v4Headers($agent, 'hb-counts-token'))
+        ->postJson('/api/agent/v1/heartbeat', $partial)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['metadata.detail_counts.unhealthy_details']);
+});
 
 // ─── Protocol revision gate ──────────────────────────────────────────────────
 
@@ -223,6 +259,48 @@ test('an unassigned pinned command is offered to nobody until the control plane 
         ->getJson('/api/agent/v1/commands')
         ->assertOk()
         ->assertExactJson(['data' => []]);
+});
+
+test('reconcile workload is withheld from and unclaimable on a suspended project', function (): void {
+    $agent = v4Agent('suspend-token');
+    $project = Project::factory()->create(['status' => ProjectStatus::Suspended]);
+    $deployment = Deployment::factory()->for($project)->create(['sequence' => 1]);
+    $reconcile = AgentCommand::factory()->create([
+        'type' => AgentCommandType::ReconcileWorkload,
+        'status' => AgentCommandStatus::Pending,
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+        'payload' => ['desired_state' => 'running', 'actions' => ['restore_route']],
+    ]);
+    $stop = AgentCommand::factory()->create([
+        'type' => AgentCommandType::StopProject,
+        'status' => AgentCommandStatus::Pending,
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $agent->id,
+    ]);
+
+    $this->withHeaders(v4Headers($agent, 'suspend-token'))
+        ->getJson('/api/agent/v1/commands')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $stop->id);
+
+    $this->withHeaders(v4Headers($agent, 'suspend-token'))
+        ->postJson("/api/agent/v1/commands/{$reconcile->id}/claim", [])
+        ->assertStatus(409)
+        ->assertJsonPath('status', 'Pending');
+
+    expect($reconcile->fresh()->status)->toBe(AgentCommandStatus::Pending)
+        ->and($reconcile->fresh()->claimed_at)->toBeNull();
+
+    // Lifting the suspension makes the same command claimable again.
+    $project->update(['status' => ProjectStatus::Active]);
+
+    $this->withHeaders(v4Headers($agent, 'suspend-token'))
+        ->postJson("/api/agent/v1/commands/{$reconcile->id}/claim", [])
+        ->assertOk();
 });
 
 // ─── Claimed -> Running ──────────────────────────────────────────────────────

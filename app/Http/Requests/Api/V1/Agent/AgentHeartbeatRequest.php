@@ -36,13 +36,16 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.lifecycle_state' => ['required', 'string', 'max:50'],
             'metadata.uptime_seconds' => ['present', 'nullable', 'integer', 'min:0'],
 
-            'metadata.detail_counts' => ['required', 'array'],
-            'metadata.detail_counts.unhealthy_details' => ['required', 'integer', 'min:0'],
-            'metadata.detail_counts.recovered_workloads' => ['required', 'integer', 'min:0'],
-            'metadata.detail_counts.orphans' => ['required', 'integer', 'min:0'],
-            'metadata.detail_counts.stale_routes' => ['required', 'integer', 'min:0'],
-            'metadata.detail_counts.stale_images' => ['required', 'integer', 'min:0'],
-            'metadata.detail_counts.compatibility_issues' => ['required', 'integer', 'min:0'],
+            // Not part of the v0.1.0 wire payload; newer agents add it so the
+            // API can tell when detail arrays were truncated. Optional, but
+            // complete when present.
+            'metadata.detail_counts' => ['sometimes', 'array'],
+            'metadata.detail_counts.unhealthy_details' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
+            'metadata.detail_counts.recovered_workloads' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
+            'metadata.detail_counts.orphans' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
+            'metadata.detail_counts.stale_routes' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
+            'metadata.detail_counts.stale_images' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
+            'metadata.detail_counts.compatibility_issues' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
 
             'metadata.resources' => ['required', 'array'],
             'metadata.resources.cpu_total' => ['present', 'nullable', 'integer', 'min:1'],
@@ -88,7 +91,9 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.startup_reconciliation.orphans' => ['present', 'array', 'max:50'],
             'metadata.startup_reconciliation.stale_routes' => ['present', 'array', 'max:50'],
             'metadata.startup_reconciliation.stale_images' => ['present', 'array', 'max:50'],
-            'metadata.startup_reconciliation.compatibility_issues' => ['present', 'array', 'max:50'],
+            // The v0.1.0 documented payload omits this list even though the
+            // binary sends it; accept both.
+            'metadata.startup_reconciliation.compatibility_issues' => ['sometimes', 'array', 'max:50'],
 
             'sent_at' => ['required', 'date'],
         ];

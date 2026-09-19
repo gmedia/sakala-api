@@ -45,9 +45,13 @@ Lihat [Autentikasi](AUTHENTICATION.md) untuk provisioning, rotasi, dan revoke.
 
 ### Heartbeat
 
-Body divalidasi penuh sesuai schema protocol v4 (`status`, `hostname`,
-`runtime_network`, `capabilities`, `metadata.*`, `sent_at`). Batas body
-256 KiB → `413`. Response `AgentHeartbeatResource`; agent tidak membaca body.
+Body divalidasi sesuai payload yang dikirim binary v0.1.0 (`status`,
+`hostname`, `runtime_network`, `capabilities`, `metadata.*`, `sent_at`);
+`metadata.detail_counts` (ditambahkan agent setelah v0.1.0) dan
+`startup_reconciliation.compatibility_issues` bersifat opsional tetapi
+divalidasi bila ada. Batas body 256 KiB → `413`. Response
+`AgentHeartbeatResource`; agent tidak membaca body. Payload v0.1.0 direplay
+apa adanya oleh test dari `tests/Fixtures/agent-protocol-v4/heartbeat/`.
 
 API menyimpan `metadata.protocol_version` ke kolom `agent_nodes.protocol_version`
 dan membandingkannya dengan `sakala.agent.supported_protocol_versions`. Node
@@ -92,9 +96,11 @@ Polling **tidak** memberi kepemilikan. Sebuah command ditawarkan ke node bila:
   tipenya bukan *pinned* (`InspectProject`, `CleanupRuntime`, `DrainNode`,
   `ResumeNode` selalu pinned; command pinned tanpa target tidak terlihat);
 - node memiliki capability yang dibutuhkan tipe command (lihat tabel);
-- project tidak `suspended`, kecuali tipe yang tetap boleh berjalan
-  (`StopProject`, `SleepProject`, `HealthCheck`, `ReconcileWorkload`,
-  `CleanupRuntime`, `DrainNode`, `ResumeNode`).
+- project tidak `suspended`, kecuali tipe yang tidak pernah menghidupkan atau
+  mengekspos workload (`StopProject`, `SleepProject`, `HealthCheck`,
+  `CleanupRuntime`, `DrainNode`, `ResumeNode`). `ReconcileWorkload` ikut
+  diblokir karena payload-nya dapat meminta `desired_state = running` atau
+  `restore_route`.
 
 Command tanpa payload selalu diserialisasi sebagai `{}`. Hanya
 `InspectProject`, `DeployProject`, `ReconcileWorkload`, dan `CleanupRuntime`
@@ -180,9 +186,12 @@ Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
 
 ## Fixture
 
-`tests/Fixtures/agent-protocol-v4/commands/*.json` disalin apa adanya dari
-`sakala-agent` v0.1.0 `examples/commands/` dan dipakai test untuk memastikan
-poll menyajikan bentuk yang sama tanpa Agent atau Docker sungguhan.
+`tests/Fixtures/agent-protocol-v4/` berisi payload wire dari `sakala-agent`
+v0.1.0: `commands/*.json` disalin dari `examples/commands/`, sedangkan
+`heartbeat/*.json` diambil dari contoh dokumentasi dan output builder heartbeat
+pada tag tersebut. Test mereplay payload ini apa adanya (poll harus menyajikan
+bentuk yang sama; heartbeat harus diterima) tanpa Agent atau Docker sungguhan.
+Lihat README di folder tersebut.
 
 ## Belum tersedia pada API
 
