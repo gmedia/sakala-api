@@ -9,6 +9,7 @@ use App\Actions\Agent\CompleteAgentCommandAction;
 use App\Actions\Agent\FailAgentCommandAction;
 use App\Actions\Agent\GetAgentNodeStateAction;
 use App\Actions\Agent\HeartbeatAgentAction;
+use App\Actions\Agent\LeaseRepositoryCredentialAction;
 use App\Actions\Agent\PollAgentCommandsAction;
 use App\Actions\Agent\ProvisionAgentAction;
 use App\Actions\Agent\ReportDeploymentEventAction;
@@ -23,6 +24,7 @@ use App\Http\Requests\Api\V1\Agent\AgentHeartbeatRequest;
 use App\Http\Requests\Api\V1\Agent\ClaimAgentCommandRequest;
 use App\Http\Requests\Api\V1\Agent\CompleteAgentCommandRequest;
 use App\Http\Requests\Api\V1\Agent\FailAgentCommandRequest;
+use App\Http\Requests\Api\V1\Agent\LeaseRepositoryCredentialRequest;
 use App\Http\Requests\Api\V1\Agent\ReportDeploymentEventRequest;
 use App\Http\Requests\Api\V1\Agent\ReportDeploymentLogRequest;
 use App\Http\Requests\Api\V1\Agent\RevokeAgentRequest;
@@ -33,6 +35,7 @@ use App\Http\Resources\Api\V1\Agent\AgentHeartbeatResource;
 use App\Http\Resources\Api\V1\Agent\AgentNodeStateResource;
 use App\Http\Resources\Api\V1\Agent\AgentReportAcknowledgementResource;
 use App\Http\Resources\Api\V1\Agent\AgentResource;
+use App\Http\Resources\Api\V1\Agent\RepositoryCredentialResource;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use Dedoc\Scramble\Attributes\HeaderParameter;
@@ -187,6 +190,29 @@ final class AgentController extends Controller
         return (new AgentCommandResource($claimed))
             ->response()
             ->setStatusCode(200);
+    }
+
+    /**
+     * Lease a short-lived, read-only repository credential to the agent that
+     * owns a claimed command with `repository_access = temporary_credential`.
+     *
+     * @scramble-return RepositoryCredentialResource
+     */
+    public function leaseRepositoryCredential(
+        LeaseRepositoryCredentialRequest $request,
+        LeaseRepositoryCredentialAction $leaseRepositoryCredential,
+        string $command,
+    ): RepositoryCredentialResource|JsonResponse {
+        /** @var AgentNode $agent */
+        $agent = $request->input('agent');
+
+        try {
+            $credential = $leaseRepositoryCredential->handle($agent, $command);
+        } catch (CommandConflictException $e) {
+            return $this->commandConflict($e->command());
+        }
+
+        return RepositoryCredentialResource::make($credential);
     }
 
     /**

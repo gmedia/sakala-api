@@ -6,7 +6,7 @@ Endpoint publik aplikasi dimulai dari `/api/v1`. Breaking change memakai versi m
 
 ## Representation
 
-Response sukses wajib dibentuk melalui Laravel API Resource dan memakai object `data`. Collection memakai `Resource::collection()` sehingga dapat menambahkan `links` dan `meta`. Controller tidak boleh membangun payload domain dengan `response()->json()`.
+Response sukses wajib dibentuk melalui Laravel API Resource dan memakai object `data`. Collection memakai `Resource::collection()` sehingga dapat menambahkan `links` dan `meta`. Controller tidak boleh membangun payload domain dengan `response()->json()`. Satu-satunya pengecualian envelope adalah `POST /api/agent/v1/commands/{command}/repository-credential`, yang oleh kontrak agent mengembalikan object `{ "username", "token" }` langsung (Resource dengan `$wrap = null`); lihat [Agent API](AGENT_API.md#repository-credential).
 
 Endpoint yang menerima body, query, atau input kompleks wajib menggunakan Form Request. Letakkan class di `app/Http/Requests/Api/V1/<Domain>`; jangan memanggil `$request->validate()` atau `Validator` langsung dari controller. Authorization berbasis resource tetap menggunakan Policy.
 
