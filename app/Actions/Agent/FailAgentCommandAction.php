@@ -16,6 +16,7 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Deployment\DeploymentFailureClassifier;
+use App\Services\Project\ProjectInspectionOutcomeService;
 use Illuminate\Support\Facades\DB;
 
 final class FailAgentCommandAction
@@ -27,6 +28,7 @@ final class FailAgentCommandAction
     public function __construct(
         private readonly DeploymentFailureClassifier $failureClassifier,
         private readonly TransitionDeploymentAction $transitionDeploymentAction,
+        private readonly ProjectInspectionOutcomeService $inspectionOutcome,
     ) {}
 
     /**
@@ -99,6 +101,12 @@ final class FailAgentCommandAction
                         failureData: $this->failureClassifier->classify($errorCode),
                     );
                 }
+            }
+
+            if ($command->type === AgentCommandType::InspectProject) {
+                // Locks the project before the stale check so a newer
+                // inspection can never be overwritten by this late failure.
+                $this->inspectionOutcome->recordFailure($command, $errorCode);
             }
 
             if ($command->type === AgentCommandType::ResumeNode) {

@@ -7,6 +7,7 @@ namespace App\Actions\Agent;
 use App\Actions\Admin\CreateStopProjectCommandAction;
 use App\Actions\Deployment\TransitionDeploymentAction;
 use App\Data\Agent\DeployProjectResultData;
+use App\Data\Agent\ProjectInspectionResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
@@ -17,6 +18,7 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Services\Project\ProjectInspectionOutcomeService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -25,6 +27,7 @@ final class CompleteAgentCommandAction
     public function __construct(
         private readonly TransitionDeploymentAction $transitionDeployment,
         private readonly CreateStopProjectCommandAction $createStopProjectCommand,
+        private readonly ProjectInspectionOutcomeService $inspectionOutcome,
     ) {}
 
     /**
@@ -68,6 +71,10 @@ final class CompleteAgentCommandAction
 
             if ($command->type === AgentCommandType::DeployProject && $command->deployment_id !== null) {
                 $this->completeDeployment($agent, $command, DeployProjectResultData::fromArray($result));
+            }
+
+            if ($command->type === AgentCommandType::InspectProject && $command->project_id !== null) {
+                $this->completeInspection($agent, $command, ProjectInspectionResultData::fromArray($result));
             }
 
             if ($command->type->isNodeLevel()) {
@@ -131,6 +138,30 @@ final class CompleteAgentCommandAction
 
         // Reached here only if not already Succeeded (idempotent path returns early)
         return true;
+    }
+
+    private function completeInspection(AgentNode $agent, AgentCommand $command, ProjectInspectionResultData $result): void
+    {
+        $project = $this->inspectionOutcome->recordSuccess($command, $result);
+
+        if ($project === null) {
+            // Superseded by a newer inspection; the agent's work is discarded.
+            return;
+        }
+
+        AuditEvent::create([
+            'actor_type' => AgentNode::class,
+            'actor_id' => $agent->id,
+            'action' => 'project.inspection_completed',
+            'subject_type' => Project::class,
+            'subject_id' => $project->id,
+            'metadata' => [
+                'command_id' => $command->id,
+                'commit_sha' => $result->commitSha,
+                'dockerfile_found' => $result->dockerfileFound,
+                'package_manager' => $result->packageManager,
+            ],
+        ]);
     }
 
     /**

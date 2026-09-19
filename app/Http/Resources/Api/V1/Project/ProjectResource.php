@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Project;
 
 use App\Models\Project;
+use App\Support\Project\ProjectPreviewPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -40,6 +41,9 @@ final class ProjectResource extends JsonResource
             'status' => $this->resource->status,
             'runtime_status' => $this->resource->runtime_status,
             'detected_port' => $this->resource->detected_port,
+            'preview_status' => ProjectPreviewPresenter::status($this->resource),
+            'inspection' => ProjectPreviewPresenter::inspection($this->resource),
+            'inspection_error_code' => $this->resource->inspection_error_code,
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()
                 : null,

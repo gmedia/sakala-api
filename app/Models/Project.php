@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\ProjectInspectionStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use Carbon\CarbonImmutable;
@@ -33,6 +34,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property ProjectStatus $status
  * @property RuntimeStatus $runtime_status
  * @property int|null $detected_port
+ * @property array<string, mixed>|null $inspection
+ * @property ProjectInspectionStatus|null $inspection_status
+ * @property string|null $inspection_error_code
+ * @property CarbonImmutable|null $inspected_at
  * @property CarbonImmutable|null $last_deployed_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
@@ -52,6 +57,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'status',
     'runtime_status',
     'detected_port',
+    'inspection',
+    'inspection_status',
+    'inspection_error_code',
+    'inspected_at',
     'last_deployed_at',
 ])]
 class Project extends Model
@@ -108,6 +117,9 @@ class Project extends Model
             'status' => ProjectStatus::class,
             'runtime_status' => RuntimeStatus::class,
             'detected_port' => 'integer',
+            'inspection' => 'array',
+            'inspection_status' => ProjectInspectionStatus::class,
+            'inspected_at' => 'immutable_datetime',
             'github_repository_id' => 'integer',
             'last_deployed_at' => 'immutable_datetime',
         ];

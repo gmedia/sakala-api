@@ -17,7 +17,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `github_installations` | Entity global GitHub App installation, metadata akun GitHub, dan status akses repository. |
 | `github_installation_user` | Relasi user Sakala dengan installation GitHub yang telah diverifikasi. |
 | `github_webhook_deliveries` | Delivery ID webhook GitHub untuk pemrosesan lifecycle yang idempoten. |
-| `projects` | Metadata repository, generated domain, dan status runtime. |
+| `projects` | Metadata repository, generated domain, status runtime, dan hasil inspeksi stack terakhir (`inspection`, `inspection_status`, `inspection_error_code`, `inspected_at`). |
 | `environment_variables` | Key dan value terenkripsi per project. |
 | `deployments` | Satu attempt deployment, snapshot source yang dijalankan, node target, resource yang diterapkan agent, dan status finalisasi. |
 | `agent_nodes` | Identitas runtime node, token hash, capability, protocol revision, desired lifecycle state, dan heartbeat terakhir. |

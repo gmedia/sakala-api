@@ -14,6 +14,7 @@ use App\Enums\DeploymentTrigger;
 use App\Enums\LogStream;
 use App\Enums\OAuthProvider;
 use App\Enums\OnboardingSource;
+use App\Enums\ProjectInspectionStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Enums\UserRole;
@@ -131,6 +132,45 @@ class DemoSeeder extends Seeder
                     'finished_at' => now()->subMinutes(30),
                 ],
             );
+
+            $inspection = [
+                'repository_url' => $portfolio->repository_url,
+                'commit_sha' => 'c7b0db9ab9e887c73a8f9e14e35d5786f48068b2',
+                'dockerfile_found' => false,
+                'env_example_found' => true,
+                'compose_found' => false,
+                'manifests' => ['package.json'],
+                'package_manager' => 'npm',
+                'railpack' => ['providers' => ['node']],
+            ];
+
+            AgentCommand::query()->updateOrCreate(
+                ['idempotency_key' => 'inspect:'.$portfolio->id.':c7b0db9ab9e887c73a8f9e14e35d5786f48068b2'],
+                [
+                    'project_id' => $portfolio->id,
+                    'deployment_id' => null,
+                    'agent_node_id' => $agent->id,
+                    'type' => AgentCommandType::InspectProject,
+                    'status' => AgentCommandStatus::Succeeded,
+                    'payload' => [
+                        'repository_url' => $portfolio->repository_url,
+                        'commit_sha' => 'c7b0db9ab9e887c73a8f9e14e35d5786f48068b2',
+                        'repository_access' => 'public',
+                    ],
+                    'result' => $inspection,
+                    'attempts' => 1,
+                    'available_at' => now()->subMinutes(35),
+                    'claimed_at' => now()->subMinutes(35),
+                    'started_at' => now()->subMinutes(35),
+                    'completed_at' => now()->subMinutes(34),
+                ],
+            );
+
+            $portfolio->update([
+                'inspection' => $inspection,
+                'inspection_status' => ProjectInspectionStatus::Succeeded,
+                'inspected_at' => now()->subMinutes(34),
+            ]);
 
             $successfulCommand = AgentCommand::query()->updateOrCreate(
                 ['idempotency_key' => 'demo:portfolio-kelas-web:deploy:1'],

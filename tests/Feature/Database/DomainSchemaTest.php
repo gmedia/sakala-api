@@ -29,6 +29,10 @@ test('the MVP domain schema exposes its required tables and columns', function (
         'default_domain',
         'status',
         'runtime_status',
+        'inspection',
+        'inspection_status',
+        'inspection_error_code',
+        'inspected_at',
         'last_deployed_at',
         'deleted_at',
     ]))->toBeTrue()
@@ -142,5 +146,6 @@ test('the local demo seeder is safe to rerun', function () {
         ->and($user->projects()->count())->toBe(2)
         ->and(Project::query()->where('slug', 'portfolio-kelas-web')->count())->toBe(1)
         ->and(AgentNode::query()->where('agent_id', 'local-agent-01')->count())->toBe(1)
-        ->and(AgentCommand::query()->count())->toBe(2);
+        // deploy + pending health check + the portfolio inspection preview
+        ->and(AgentCommand::query()->count())->toBe(3);
 });

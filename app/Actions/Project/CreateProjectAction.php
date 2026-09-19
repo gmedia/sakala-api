@@ -32,12 +32,13 @@ final class CreateProjectAction
         protected PilotRuntimeLimitService $runtimeLimitService,
         private readonly GithubInstallationService $githubInstallationService,
         private readonly RecordUsageSignalAction $recordAction,
+        private readonly RequestProjectInspectionAction $requestInspection,
     ) {}
 
     public function handle(User $user, CreateProjectData $data): Project
     {
         try {
-            return DB::transaction(function () use ($user, $data): Project {
+            $project = DB::transaction(function () use ($user, $data): Project {
                 User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
                 $this->runtimeLimitService->checkProjectCreationLimit($user);
@@ -58,6 +59,12 @@ final class CreateProjectAction
                     'default_domain' => $projectIdentity->defaultDomain,
                 ]);
             });
+
+            // Outside the creation transaction: the preview talks to GitHub
+            // and must never hold the user lock or fail the creation.
+            $this->requestInspection->handle($project);
+
+            return $project->refresh();
         } catch (ProjectLimitExceededException $e) {
             $limitName = self::LIMIT_EXCEPTION_MAP[get_class($e)];
             $this->recordAction->handle(

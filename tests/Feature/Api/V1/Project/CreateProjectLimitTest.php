@@ -7,8 +7,19 @@ use App\Models\Project;
 use App\Models\UsageSignalRecord;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    // Project creation now requests a stack preview, which resolves the
+    // branch head on GitHub; keep tests off the network.
+    Http::fake([
+        'api.github.com/repos/*/commits*' => Http::response([
+            ['sha' => '0123456789abcdef0123456789abcdef01234567', 'commit' => ['message' => 'feat: initial']],
+        ], 200),
+    ]);
+});
 
 test('authenticated user can create projects up to the pilot limit', function () {
     config(['sakala.pilot_limits.max_projects_per_user' => 3]);

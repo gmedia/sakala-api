@@ -69,6 +69,10 @@ Gunakan DTO di `app/Data/<Domain>` ketika payload melintasi lebih dari satu laye
 
 Scramble menginfer dokumentasi dari route, validation rules pada Form Request, return type controller, dan API Resource. Jalankan `composer docs:analyse` setiap menambah atau mengubah endpoint. Lihat [panduan OpenAPI](OPENAPI.md).
 
+## Project Preview
+
+`ProjectResource` dan `CreateProjectResource` menyertakan `preview_status` (`pending` | `succeeded` | `failed` | `unavailable`), `inspection` (hanya saat `succeeded`: `repository_url`, `commit_sha`, `dockerfile_found`, `env_example_found`, `compose_found`, `manifests`, `package_manager`, `inspected_at`), dan `inspection_error_code`. Preview diminta otomatis saat project dibuat dan tidak pernah menggagalkan pembuatan; `unavailable` dengan kode `branch_not_found`, `repository_access_denied`, atau `github_unavailable` berarti tidak ada command inspeksi yang dibuat. Endpoint untuk meminta inspeksi ulang belum tersedia.
+
 ## Deployment Representation
 
 `DeploymentResource` menyertakan `agent_node_id` (node target yang dipin control plane), `applied_resources` (resource yang benar-benar diterapkan agent, `null` sampai command selesai), serta `finalization_deferred` dan `finalization_deferred_reason` (`grace_elapsed` atau `runtime_error`) bila agent men-commit route tetapi tidak sempat merapikan workload lama; control plane lalu mengirim `StopProject` untuk workload tersebut. `image_reference` diisi dari metadata event `deployment.runtime.ready`.

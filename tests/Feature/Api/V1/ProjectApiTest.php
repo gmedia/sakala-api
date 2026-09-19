@@ -5,8 +5,19 @@ declare(strict_types=1);
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Http;
 
 uses(LazilyRefreshDatabase::class);
+
+beforeEach(function (): void {
+    // Project creation now requests a stack preview, which resolves the
+    // branch head on GitHub; keep tests off the network.
+    Http::fake([
+        'api.github.com/repos/*/commits*' => Http::response([
+            ['sha' => '0123456789abcdef0123456789abcdef01234567', 'commit' => ['message' => 'feat: initial']],
+        ], 200),
+    ]);
+});
 
 test('route enforces auth:web middleware (rejects sanctum)', function () {
     $user = User::factory()->create();
