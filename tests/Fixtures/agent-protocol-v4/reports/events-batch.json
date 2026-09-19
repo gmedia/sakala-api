@@ -1,0 +1,14 @@
+{
+  "events": [
+    {
+      "type": "deployment.runtime.ready",
+      "level": "info",
+      "message": "Application container and route are ready.",
+      "metadata": {
+        "builder": "dockerfile",
+        "domain": "portfolio.run.sakala.localhost"
+      },
+      "occurred_at": "2026-06-23T08:00:01Z"
+    }
+  ]
+}

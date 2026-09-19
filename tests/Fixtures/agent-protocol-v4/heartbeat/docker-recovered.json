@@ -18,10 +18,10 @@
     "uptime_seconds": 86400,
     "detail_counts": {
       "unhealthy_details": 0,
-      "recovered_workloads": 0,
-      "orphans": 0,
-      "stale_routes": 0,
-      "stale_images": 0,
+      "recovered_workloads": 1,
+      "orphans": 1,
+      "stale_routes": 2,
+      "stale_images": 1,
       "compatibility_issues": 0
     },
     "resources": {
@@ -60,14 +60,44 @@
     },
     "startup_reconciliation": {
       "captured_at": "2026-06-23T07:59:58Z",
-      "inspected_containers": 2,
-      "cleaned_workspaces": 0,
+      "inspected_containers": 3,
+      "cleaned_workspaces": 1,
       "reattached_log_followers": 1,
-      "recovered_execution_records": 2,
-      "recovered_workloads": [],
-      "orphans": [],
-      "stale_routes": [],
-      "stale_images": [],
+      "recovered_execution_records": 1,
+      "recovered_workloads": [
+        {
+          "container_id": "c1f0a5e9d2b4",
+          "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+          "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+          "status": "running"
+        }
+      ],
+      "orphans": [
+        {
+          "container_id": "9b7d2a41c0e3",
+          "project_id": null,
+          "reason": "missing_sakala_labels"
+        }
+      ],
+      "stale_routes": [
+        {
+          "path": "/etc/caddy/sites/ff66ed4a-6303-4be6-8ef4-63c28b112680.Caddyfile",
+          "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+          "deployment_id": "0c2d6e1a-7b8f-4d3c-9a10-5e6f7a8b9c0d"
+        },
+        {
+          "path": "/etc/caddy/sites/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.Caddyfile",
+          "project_id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+          "deployment_id": null
+        }
+      ],
+      "stale_images": [
+        {
+          "image_id": "sha256:3f2e1d0c",
+          "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+          "deployment_id": null
+        }
+      ],
       "compatibility_issues": []
     }
   },

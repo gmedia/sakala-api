@@ -103,7 +103,7 @@ test('creating a project requests an inspection pinned to an eligible node', fun
         ])
         ->and($project->inspection_status)->toBe(ProjectInspectionStatus::Pending);
 
-    // The wire shape matches the v0.1.0 inspect-project fixture (minus identifiers).
+    // The wire shape matches the v0.2.0 inspect-project fixture (minus identifiers).
     $fixture = agentCommandFixture('inspect-project');
     $item = $this->withHeaders(inspectorHeaders($node))->getJson('/api/agent/v1/commands')->assertOk()->json('data.0');
     expect(array_keys($item))->toBe(array_keys($fixture))

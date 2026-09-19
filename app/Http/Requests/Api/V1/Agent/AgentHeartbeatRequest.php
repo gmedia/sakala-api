@@ -36,8 +36,8 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.lifecycle_state' => ['required', 'string', 'max:50'],
             'metadata.uptime_seconds' => ['present', 'nullable', 'integer', 'min:0'],
 
-            // Not part of the v0.1.0 wire payload; newer agents add it so the
-            // API can tell when detail arrays were truncated. Optional, but
+            // Sent since agent v0.2.0 so the API can tell when detail arrays
+            // were truncated to 50 items; v0.1.0 omits it. Optional, but
             // complete when present.
             'metadata.detail_counts' => ['sometimes', 'array'],
             'metadata.detail_counts.unhealthy_details' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
@@ -94,6 +94,11 @@ final class AgentHeartbeatRequest extends FormRequest
             // The v0.1.0 documented payload omits this list even though the
             // binary sends it; accept both.
             'metadata.startup_reconciliation.compatibility_issues' => ['sometimes', 'array', 'max:50'],
+            // Stale route items: `deployment_id` is sent since v0.2.0 and is
+            // null for a legacy route generation; v0.1.0 items omit it.
+            'metadata.startup_reconciliation.stale_routes.*.path' => ['required', 'string', 'max:4096'],
+            'metadata.startup_reconciliation.stale_routes.*.project_id' => ['nullable', 'uuid'],
+            'metadata.startup_reconciliation.stale_routes.*.deployment_id' => ['nullable', 'uuid'],
 
             'sent_at' => ['required', 'date'],
         ];
@@ -105,7 +110,10 @@ final class AgentHeartbeatRequest extends FormRequest
             hostname: $this->validated('hostname'),
             runtimeNetwork: $this->validated('runtime_network'),
             capabilities: $this->validated('capabilities'),
-            metadata: $this->validated('metadata'),
+            // Persist the metadata as reported (validation above guarantees
+            // its shape); nested wildcard rules would otherwise strip items
+            // and drop additive fields from newer agent releases.
+            metadata: (array) $this->input('metadata', []),
             status: AgentNodeStatus::from($this->validated('status')),
             protocolVersion: (int) $this->validated('metadata.protocol_version'),
             sentAt: CarbonImmutable::parse($this->validated('sent_at')),

@@ -1,0 +1,14 @@
+{
+  "logs": [
+    {
+      "stream": "system",
+      "message": "[docker-build] exporting to image",
+      "recorded_at": "2026-06-23T08:00:02Z"
+    },
+    {
+      "stream": "stdout",
+      "message": "[docker-build] naming to sakala/project-…",
+      "recorded_at": "2026-06-23T08:00:02Z"
+    }
+  ]
+}

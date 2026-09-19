@@ -79,6 +79,18 @@ final class CompleteAgentCommandAction
 
             if ($command->type === AgentCommandType::ReconcileWorkload && $command->project_id !== null) {
                 // Drift is reported to operators; nothing is repaired implicitly.
+                // Since agent v0.2.0 a restarted log follower runs under the
+                // original DeployProject command, which the item names.
+                $actionsApplied = is_array($result['actions_applied'] ?? null) ? $result['actions_applied'] : [];
+                $followerCommandIds = array_values(array_filter(array_map(
+                    static fn (mixed $item): ?string => is_array($item)
+                        && ($item['action'] ?? null) === 'restart_log_follower'
+                        && is_string($item['command_id'] ?? null)
+                        ? $item['command_id']
+                        : null,
+                    $actionsApplied,
+                )));
+
                 AuditEvent::create([
                     'actor_type' => AgentNode::class,
                     'actor_id' => $agent->id,
@@ -92,7 +104,8 @@ final class CompleteAgentCommandAction
                         'actual_state' => $result['actual_state'] ?? null,
                         'in_sync' => $result['in_sync'] ?? null,
                         'drift_reason' => $result['drift_reason'] ?? null,
-                        'actions_applied' => $result['actions_applied'] ?? [],
+                        'actions_applied' => $actionsApplied,
+                        'log_follower_command_ids' => $followerCommandIds,
                     ],
                 ]);
             }

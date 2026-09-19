@@ -13,7 +13,7 @@ function heartbeatPayload(array $overrides = []): array
             'project-inspection',
         ],
         'metadata' => [
-            'version' => '0.1.0',
+            'version' => '0.2.0',
             'protocol_version' => 4,
             'runtime_driver' => 'docker',
             'lifecycle_state' => 'active',
@@ -22,7 +22,7 @@ function heartbeatPayload(array $overrides = []): array
                 'unhealthy_details' => 0,
                 'recovered_workloads' => 0,
                 'orphans' => 0,
-                'stale_routes' => 0,
+                'stale_routes' => 2,
                 'stale_images' => 0,
                 'compatibility_issues' => 0,
             ],
@@ -68,7 +68,19 @@ function heartbeatPayload(array $overrides = []): array
                 'recovered_execution_records' => 2,
                 'recovered_workloads' => [],
                 'orphans' => [],
-                'stale_routes' => [],
+                // v0.2.0 adds deployment_id; null marks a legacy route generation.
+                'stale_routes' => [
+                    [
+                        'path' => '/etc/caddy/sites/ff66ed4a-6303-4be6-8ef4-63c28b112680.Caddyfile',
+                        'project_id' => 'ff66ed4a-6303-4be6-8ef4-63c28b112680',
+                        'deployment_id' => '0c2d6e1a-7b8f-4d3c-9a10-5e6f7a8b9c0d',
+                    ],
+                    [
+                        'path' => '/etc/caddy/sites/1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.Caddyfile',
+                        'project_id' => '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d',
+                        'deployment_id' => null,
+                    ],
+                ],
                 'stale_images' => [],
                 'compatibility_issues' => [],
             ],
