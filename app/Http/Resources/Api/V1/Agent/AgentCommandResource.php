@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Agent;
 
 use App\Models\AgentCommand;
+use App\Models\AgentNode;
+use App\Services\Agent\AgentCommandPayloadMaterializer;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,27 +24,22 @@ final class AgentCommandResource extends JsonResource
             'status' => $this->status->value,
             'project_id' => $this->project_id,
             'deployment_id' => $this->deployment_id,
-            'payload' => $this->buildPayload(),
+            'payload' => $this->buildPayload($request),
         ];
     }
 
     /**
-     * Build the contract-compliant payload shaped by command type. Commands
-     * that carry no payload always serialise as an empty JSON object, never
-     * `[]` or `null`, so the wire matches the agent protocol fixtures.
+     * Build the contract-compliant payload for the node receiving it. Secrets
+     * are decrypted only for the pinned node; commands that carry no payload
+     * serialise as an empty JSON object.
      *
      * @return array<string, mixed>|object
      */
-    private function buildPayload(): array|object
+    private function buildPayload(Request $request): array|object
     {
-        if (! $this->type->carriesPayload()) {
-            // Lifecycle commands carry only identity; the API must not leak
-            // Docker names, shell commands, or credentials here.
-            return (object) [];
-        }
+        /** @var AgentNode $viewer */
+        $viewer = $request->input('agent');
 
-        $payload = $this->payload ?? [];
-
-        return $payload === [] ? (object) [] : $payload;
+        return app(AgentCommandPayloadMaterializer::class)->forNode($this->resource, $viewer);
     }
 }

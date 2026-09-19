@@ -17,7 +17,9 @@ final class DeploymentFailureClassifier
             'repository_access_denied',
             'repository_auth_failed',
             'repository_credential_expired',
-            'repository_commit_not_found' => new DeploymentFailureData(
+            'repository_credential_unavailable',
+            'repository_commit_not_found',
+            'runtime_repository_failed' => new DeploymentFailureData(
                 code: $errorCode,
                 category: DeploymentFailureCategory::Checkout,
                 summary: 'Deployment gagal saat mengambil source code.',
@@ -31,7 +33,12 @@ final class DeploymentFailureClassifier
                 recoveryHint: 'Periksa konfigurasi build dan dependency aplikasi.',
             ),
 
-            'runtime_execution_failed' => new DeploymentFailureData(
+            'runtime_execution_failed',
+            'runtime_container_failed',
+            'runtime_workload_not_found',
+            'runtime_workload_not_running',
+            'runtime_reporting_failed',
+            'runtime_filesystem_failed' => new DeploymentFailureData(
                 code: $errorCode,
                 category: DeploymentFailureCategory::Start,
                 summary: 'Deployment gagal saat menjalankan aplikasi.',
@@ -65,6 +72,17 @@ final class DeploymentFailureClassifier
                 category: DeploymentFailureCategory::Resource,
                 summary: 'Deployment gagal karena resource runtime tidak mencukupi.',
                 recoveryHint: 'Periksa penggunaan CPU, memory, dan disk pada runtime.',
+            ),
+
+            'runtime_preflight_failed',
+            'runtime_dependency_failed',
+            'invalid_runtime_configuration',
+            'invalid_runtime_command',
+            'unsupported_runtime_command' => new DeploymentFailureData(
+                code: $errorCode,
+                category: DeploymentFailureCategory::Node,
+                summary: 'Deployment gagal karena runtime node tidak siap menjalankan command.',
+                recoveryHint: 'Coba deploy ulang; bila berulang, hubungi maintainer untuk memeriksa runtime node.',
             ),
 
             default => new DeploymentFailureData(

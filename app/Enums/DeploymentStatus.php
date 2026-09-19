@@ -34,6 +34,43 @@ enum DeploymentStatus: string
     }
 
     /**
+     * Position in the forward lifecycle. Terminal states share the highest
+     * rank so they are never "behind" an active state.
+     */
+    public function order(): int
+    {
+        return match ($this) {
+            self::Queued => 0,
+            self::Cloning => 1,
+            self::Analyzing => 2,
+            self::Building => 3,
+            self::Deploying => 4,
+            self::Routing => 5,
+            self::HealthChecking => 6,
+            self::Succeeded,
+            self::Failed,
+            self::Cancelled => 7,
+        };
+    }
+
+    /**
+     * Map a DeployProject event reported by the agent to the deployment
+     * phase it announces. `succeeded` is never derived from an event; only
+     * the command completion is authoritative for that. Events that carry no
+     * phase (resources resolved, command claimed, ...) return null.
+     */
+    public static function fromAgentEventType(string $type): ?self
+    {
+        return match ($type) {
+            'deployment.checkout.started' => self::Cloning,
+            'deployment.build.started' => self::Building,
+            'deployment.container.started' => self::Deploying,
+            'deployment.runtime.ready' => self::Routing,
+            default => null,
+        };
+    }
+
+    /**
      * @return array<int, self>
      */
     public static function activeCases(): array

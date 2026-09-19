@@ -84,15 +84,20 @@ final class FailAgentCommandAction
             ]);
 
             if ($command->type === AgentCommandType::DeployProject && $command->deployment_id !== null) {
-                $failureData = $this->failureClassifier->classify($errorCode);
+                $deployment = Deployment::query()
+                    ->whereKey($command->deployment_id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-                $this->transitionDeploymentAction->handleWithinTransaction(
-                    deployment: Deployment::query()
-                        ->whereKey($command->deployment_id)
-                        ->firstOrFail(),
-                    nextStatus: DeploymentStatus::Failed,
-                    failureData: $failureData,
-                );
+                // The control plane may already have expired or failed the
+                // deployment; a late agent failure must not throw.
+                if ($deployment->status->isActive()) {
+                    $this->transitionDeploymentAction->handleWithinTransaction(
+                        deployment: $deployment,
+                        nextStatus: DeploymentStatus::Failed,
+                        failureData: $this->failureClassifier->classify($errorCode),
+                    );
+                }
             }
 
             if ($command->type->isNodeLevel()) {

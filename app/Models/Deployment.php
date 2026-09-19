@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
+use App\Enums\FinalizationDeferredReason;
 use Carbon\CarbonImmutable;
 use Database\Factories\DeploymentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -31,6 +32,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $idempotency_key
  * @property array<string, mixed>|null $requested_resources
  * @property array<string, mixed>|null $effective_resources
+ * @property array<string, mixed>|null $applied_resources
+ * @property bool $finalization_deferred
+ * @property FinalizationDeferredReason|null $finalization_deferred_reason
  * @property string|null $failure_code
  * @property string|null $failure_summary
  * @property CarbonImmutable|null $started_at
@@ -55,6 +59,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'image_reference',
     'requested_resources',
     'effective_resources',
+    'applied_resources',
+    'finalization_deferred',
+    'finalization_deferred_reason',
     'failure_code',
     'failure_summary',
     'started_at',
@@ -129,6 +136,9 @@ class Deployment extends Model
             'trigger' => DeploymentTrigger::class,
             'requested_resources' => 'array',
             'effective_resources' => 'array',
+            'applied_resources' => 'array',
+            'finalization_deferred' => 'boolean',
+            'finalization_deferred_reason' => FinalizationDeferredReason::class,
             'started_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',
             'cancelled_at' => 'immutable_datetime',

@@ -13,5 +13,6 @@ enum DeploymentFailureCategory: string
     case Route = 'route';
     case Timeout = 'timeout';
     case Resource = 'resource';
+    case Node = 'node';
     case Unknown = 'unknown';
 }

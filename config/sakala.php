@@ -30,6 +30,15 @@ return [
             static fn (string $value): int => (int) trim($value),
             explode(',', (string) env('SAKALA_AGENT_SUPPORTED_PROTOCOL_VERSIONS', '4')),
         ))),
+        // A node whose last heartbeat is older than this is not scheduled work.
+        'offline_after_seconds' => (int) env('SAKALA_AGENT_OFFLINE_AFTER_SECONDS', 60),
+    ],
+
+    'deployments' => [
+        // Walk deployments through a fake lifecycle without a runtime node.
+        // Only for local development of the console; never enable where a
+        // real agent is connected, because both would drive the same record.
+        'simulate' => (bool) env('SAKALA_SIMULATE_DEPLOYMENTS', false),
     ],
 
     'usage_signals' => [

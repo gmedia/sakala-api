@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Actions\Agent;
 
+use App\Actions\Admin\CreateStopProjectCommandAction;
+use App\Actions\Deployment\TransitionDeploymentAction;
+use App\Data\Agent\DeployProjectResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
@@ -14,10 +17,16 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 final class CompleteAgentCommandAction
 {
+    public function __construct(
+        private readonly TransitionDeploymentAction $transitionDeployment,
+        private readonly CreateStopProjectCommandAction $createStopProjectCommand,
+    ) {}
+
     /**
      * Mark a claimed/running command as succeeded.
      * Returns true when the transition was performed, false when the command
@@ -56,6 +65,10 @@ final class CompleteAgentCommandAction
                 'completed_at' => now(),
                 'result' => $result,
             ]);
+
+            if ($command->type === AgentCommandType::DeployProject && $command->deployment_id !== null) {
+                $this->completeDeployment($agent, $command, DeployProjectResultData::fromArray($result));
+            }
 
             if ($command->type->isNodeLevel()) {
                 // Result keys only: never echo command payload into the audit trail.
@@ -118,5 +131,100 @@ final class CompleteAgentCommandAction
 
         // Reached here only if not already Succeeded (idempotent path returns early)
         return true;
+    }
+
+    /**
+     * The agent's completion is authoritative for a deployment: record what
+     * it applied, mark the deployment succeeded (which flips the project to
+     * running), and when the agent could not finish post-commit cleanup,
+     * explicitly stop every superseded workload on the same node.
+     */
+    private function completeDeployment(AgentNode $agent, AgentCommand $command, DeployProjectResultData $result): void
+    {
+        /** @var Deployment $deployment */
+        $deployment = Deployment::query()
+            ->whereKey($command->deployment_id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $deployment->update([
+            'applied_resources' => $result->appliedResources?->toArray(),
+            'finalization_deferred' => $result->finalizationDeferred,
+            'finalization_deferred_reason' => $result->finalizationDeferredReason,
+        ]);
+
+        if ($deployment->status->isTerminal()) {
+            // Expired or failed by the control plane before the agent reported;
+            // keep the record, never resurrect it.
+            AuditEvent::create([
+                'actor_type' => AgentNode::class,
+                'actor_id' => $agent->id,
+                'action' => 'deployment.completion_after_terminal',
+                'subject_type' => Deployment::class,
+                'subject_id' => $deployment->id,
+                'metadata' => [
+                    'command_id' => $command->id,
+                    'status' => $deployment->status->value,
+                ],
+            ]);
+
+            return;
+        }
+
+        // The agent reports phases itself but has no "succeeded" event; the
+        // API writes the closing timeline entry so the console sees it.
+        $deployment = $this->transitionDeployment->handleWithinTransaction(
+            deployment: $deployment,
+            nextStatus: DeploymentStatus::Succeeded,
+        );
+
+        if (! $result->finalizationDeferred) {
+            return;
+        }
+
+        $this->stopSupersededDeployments($agent, $command, $deployment, $result);
+    }
+
+    private function stopSupersededDeployments(
+        AgentNode $agent,
+        AgentCommand $command,
+        Deployment $deployment,
+        DeployProjectResultData $result,
+    ): void {
+        /** @var Collection<int, Deployment> $superseded */
+        $superseded = Deployment::query()
+            ->where('project_id', $deployment->project_id)
+            ->where('agent_node_id', $deployment->agent_node_id)
+            ->where('status', DeploymentStatus::Succeeded)
+            ->where('sequence', '<', $deployment->sequence)
+            ->whereKeyNot($deployment->id)
+            ->orderBy('sequence')
+            ->get();
+
+        $stopCommandIds = [];
+
+        foreach ($superseded as $prior) {
+            $stop = $this->createStopProjectCommand->handle(
+                deployment: $prior,
+                reason: 'finalization_deferred:'.($result->finalizationDeferredReason->value ?? 'unknown'),
+                idempotencyKey: "deferred-finalization:{$deployment->id}:{$prior->id}",
+            );
+
+            $stopCommandIds[] = $stop->id;
+        }
+
+        AuditEvent::create([
+            'actor_type' => AgentNode::class,
+            'actor_id' => $agent->id,
+            'action' => 'deployment.finalization_deferred',
+            'subject_type' => Deployment::class,
+            'subject_id' => $deployment->id,
+            'metadata' => [
+                'command_id' => $command->id,
+                'agent_node_id' => $deployment->agent_node_id,
+                'reason' => $result->finalizationDeferredReason?->value,
+                'stop_command_ids' => $stopCommandIds,
+            ],
+        ]);
     }
 }

@@ -25,29 +25,25 @@ final class TransitionDeploymentAction
         private readonly CreateSleepProjectCommandAction $createSleepProjectCommandAction,
     ) {}
 
+    /**
+     * Forward-only lifecycle. Any active deployment may end in a terminal
+     * state (the agent's completion or failure is authoritative and does not
+     * replay every phase); otherwise the next phase must be strictly later
+     * than the current one.
+     */
     private function canTransition(
         DeploymentStatus $current,
         DeploymentStatus $next,
     ): bool {
-        if ($next === DeploymentStatus::Failed) {
-            return ! $current->isTerminal();
+        if ($current->isTerminal()) {
+            return false;
         }
 
-        return match ($current) {
-            DeploymentStatus::Queued => $next === DeploymentStatus::Cloning,
-            DeploymentStatus::Cloning => $next === DeploymentStatus::Analyzing,
-            DeploymentStatus::Analyzing => $next === DeploymentStatus::Building,
-            DeploymentStatus::Building => $next === DeploymentStatus::Deploying,
-            DeploymentStatus::Deploying => $next === DeploymentStatus::Routing,
-            DeploymentStatus::Routing => $next === DeploymentStatus::HealthChecking,
+        if ($next->isTerminal()) {
+            return true;
+        }
 
-            DeploymentStatus::HealthChecking => in_array($next, [
-                DeploymentStatus::Succeeded,
-                DeploymentStatus::Cancelled,
-            ], true),
-
-            default => false,
-        };
+        return $next->order() > $current->order();
     }
 
     private function messageFor(DeploymentStatus $status): string
@@ -112,6 +108,14 @@ final class TransitionDeploymentAction
             $project->update([
                 'runtime_status' => RuntimeStatus::Failed,
             ]);
+
+            return;
+        }
+
+        if ($status->isActive() && $status !== DeploymentStatus::Queued) {
+            $project->update([
+                'runtime_status' => RuntimeStatus::Deploying,
+            ]);
         }
     }
 
@@ -119,6 +123,7 @@ final class TransitionDeploymentAction
         Deployment $deployment,
         DeploymentStatus $nextStatus,
         ?DeploymentFailureData $failureData = null,
+        bool $recordTimeline = true,
     ): Deployment {
         $deployment = Deployment::query()
             ->whereKey($deployment->id)
@@ -142,7 +147,9 @@ final class TransitionDeploymentAction
             $attributes['failure_summary'] = $failureData->summary;
         }
 
-        if ($currentStatus === DeploymentStatus::Queued && $nextStatus === DeploymentStatus::Cloning) {
+        // Every transition leaves Queued behind (forward-only), so the first
+        // one marks the start; later ones never overwrite it.
+        if ($deployment->started_at === null) {
             $attributes['started_at'] = now();
         }
 
@@ -174,22 +181,26 @@ final class TransitionDeploymentAction
             ]
         );
 
-        $message = $this->messageFor($nextStatus);
+        // When the agent drives the lifecycle it has already reported the
+        // timeline; only the simulated path needs synthetic events and logs.
+        if ($recordTimeline) {
+            $message = $this->messageFor($nextStatus);
 
-        $this->createDeploymentEventAction->handle(
-            deployment: $deployment,
-            level: $this->eventLevel($nextStatus),
-            type: "deployment.{$nextStatus->value}",
-            message: $message,
-        );
+            $this->createDeploymentEventAction->handle(
+                deployment: $deployment,
+                level: $this->eventLevel($nextStatus),
+                type: "deployment.{$nextStatus->value}",
+                message: $message,
+            );
 
-        $this->createDeploymentLogAction->handle(
-            deployment: $deployment,
-            logStream: $nextStatus === DeploymentStatus::Failed
-                ? LogStream::Stderr
-                : LogStream::Stdout,
-            message: $message,
-        );
+            $this->createDeploymentLogAction->handle(
+                deployment: $deployment,
+                logStream: $nextStatus === DeploymentStatus::Failed
+                    ? LogStream::Stderr
+                    : LogStream::Stdout,
+                message: $message,
+            );
+        }
 
         $this->updateProjectRuntime(
             deployment: $deployment,
@@ -203,11 +214,13 @@ final class TransitionDeploymentAction
         Deployment $deployment,
         DeploymentStatus $nextStatus,
         ?DeploymentFailureData $failureData = null,
+        bool $recordTimeline = true,
     ): Deployment {
         return $this->transition(
             deployment: $deployment,
             nextStatus: $nextStatus,
             failureData: $failureData,
+            recordTimeline: $recordTimeline,
         );
     }
 
@@ -215,12 +228,14 @@ final class TransitionDeploymentAction
         Deployment $deployment,
         DeploymentStatus $nextStatus,
         ?DeploymentFailureData $failureData = null,
+        bool $recordTimeline = true,
     ): Deployment {
-        return DB::transaction(function () use ($deployment, $nextStatus, $failureData) {
+        return DB::transaction(function () use ($deployment, $nextStatus, $failureData, $recordTimeline) {
             return $this->transition(
                 deployment: $deployment,
                 nextStatus: $nextStatus,
                 failureData: $failureData,
+                recordTimeline: $recordTimeline,
             );
         });
     }

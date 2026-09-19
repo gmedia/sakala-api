@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Actions\Deployment\AllocateDeploymentRealtimeSequenceAction;
+use App\Actions\Deployment\TransitionDeploymentAction;
 use App\Data\Agent\AgentReportAcknowledgementData;
 use App\Data\Agent\DeploymentEventReportItemData;
 use App\Data\Agent\ReportDeploymentEventData;
 use App\Enums\AgentCommandStatus;
+use App\Enums\AgentCommandType;
+use App\Enums\DeploymentStatus;
 use App\Events\Deployment\DeploymentEventCreated;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Exceptions\Agent\ReportIdempotencyConflictException;
@@ -33,6 +36,7 @@ final class ReportDeploymentEventAction
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateRealtimeSequence,
         private readonly AgentCommandProgressService $progress,
         private readonly AgentCommandReportRecorder $commandReports,
+        private readonly TransitionDeploymentAction $transitionDeployment,
     ) {}
 
     public function handle(
@@ -160,10 +164,45 @@ final class ReportDeploymentEventAction
                 }
                 $sequences[] = $nextSequence;
                 $nextSequence++;
+
+                if ($command->type === AgentCommandType::DeployProject) {
+                    $deployment = $this->advanceDeployment($deployment, $item);
+                }
             }
 
             return $this->acknowledgement($data->items, $duplicateCount, $sequences);
         });
+    }
+
+    /**
+     * Agent phase events drive the deployment status forward. Duplicate or
+     * out-of-order events (retries, restarts) never move it backwards, and
+     * `succeeded` is only ever set by the command completion. The
+     * `deployment.runtime.ready` event also carries the built image.
+     */
+    private function advanceDeployment(Deployment $deployment, DeploymentEventReportItemData $item): Deployment
+    {
+        if ($item->type === 'deployment.runtime.ready') {
+            $image = $item->metadata['image'] ?? null;
+
+            if (is_string($image) && $image !== '' && strlen($image) <= 255) {
+                $deployment->update(['image_reference' => $image]);
+            }
+        }
+
+        $next = DeploymentStatus::fromAgentEventType($item->type);
+
+        if ($next === null
+            || $deployment->status->isTerminal()
+            || $next->order() <= $deployment->status->order()) {
+            return $deployment;
+        }
+
+        return $this->transitionDeployment->handleWithinTransaction(
+            deployment: $deployment,
+            nextStatus: $next,
+            recordTimeline: false,
+        );
     }
 
     /** @return array<string, mixed> */

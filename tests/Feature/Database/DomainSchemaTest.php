@@ -41,6 +41,9 @@ test('the MVP domain schema exposes its required tables and columns', function (
             'status',
             'trigger',
             'failure_code',
+            'applied_resources',
+            'finalization_deferred',
+            'finalization_deferred_reason',
         ]))->toBeTrue()
         ->and(Schema::hasColumns('agent_commands', [
             'id',

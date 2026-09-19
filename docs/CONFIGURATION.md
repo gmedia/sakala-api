@@ -21,6 +21,11 @@ dalam menit (default `60`).
 
 - `SAKALA_AGENT_COMMAND_BATCH_SIZE`: jumlah maksimum command per response polling.
 - `SAKALA_AGENT_SUPPORTED_PROTOCOL_VERSIONS`: daftar protocol revision (dipisah koma) yang boleh menerima command; default `4`. Node dengan revisi lain tetap dapat heartbeat tetapi tidak dijadwalkan.
+- `SAKALA_AGENT_OFFLINE_AFTER_SECONDS`: node yang heartbeat terakhirnya lebih lama dari ini tidak dipilih sebagai target command baru; default `60`.
+
+## Deployments
+
+- `SAKALA_SIMULATE_DEPLOYMENTS`: `true` menjalankan `SimulatedDeploymentJob` yang memalsukan lifecycle deployment tanpa runtime node — hanya untuk pengembangan console lokal. Default `false`; jangan aktifkan bila ada agent yang terhubung karena keduanya akan menggerakkan record deployment yang sama.
 
 ## Agent Reporting dan Log Retention
 
