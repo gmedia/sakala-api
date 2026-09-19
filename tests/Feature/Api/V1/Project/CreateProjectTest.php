@@ -12,7 +12,6 @@ use Illuminate\Support\Facades\Http;
 uses(RefreshDatabase::class);
 
 test('Authenticated user can create a project', function () {
-
     $user = User::factory()->create();
 
     $this->actingAs($user, 'web');
@@ -37,13 +36,17 @@ test('Authenticated user can create a project', function () {
                 'runtime_status',
                 'created_at',
             ],
-        ]);
+        ])
+        ->assertJsonPath('data.github_installation_id', null)
+        ->assertJsonPath('data.github_repository_id', null);
+
     $this->assertDatabaseHas('projects', [
         'user_id' => $user->id,
         'name' => 'Ichikiwir',
         'repository_url' => 'https://github.com/Ngab-Rio/ichikiwir',
         'branch' => 'main',
     ]);
+
     $response->assertJsonPath('data.repository_source', 'public_url');
 });
 
