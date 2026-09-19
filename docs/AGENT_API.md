@@ -93,8 +93,9 @@ Polling **tidak** memberi kepemilikan. Sebuah command ditawarkan ke node bila:
 - `desired_state = active`, atau command bertipe `DrainNode`/`ResumeNode`;
 - command `Pending`, `available_at <= now`, dan `expires_at` belum lewat;
 - command terikat ke node (`agent_node_id = node`), atau belum terikat dan
-  tipenya bukan *pinned* (`InspectProject`, `CleanupRuntime`, `DrainNode`,
-  `ResumeNode` selalu pinned; command pinned tanpa target tidak terlihat);
+  tipenya bukan *pinned* (`InspectProject`, `DeployProject`, `CleanupRuntime`,
+  `DrainNode`, `ResumeNode` selalu pinned; command pinned tanpa target tidak
+  terlihat oleh node mana pun sampai control plane menetapkannya);
 - node memiliki capability yang dibutuhkan tipe command (lihat tabel);
 - project tidak `suspended`, kecuali tipe yang tidak pernah menghidupkan atau
   mengekspos workload (`StopProject`, `SleepProject`, `HealthCheck`,
@@ -113,6 +114,58 @@ yang membawa payload; lifecycle command hanya membawa identitas.
 | `RestartProject`, `StopProject`, `SleepProject`, `WakeProject`, `HealthCheck`, `ReconcileWorkload`, `CleanupRuntime` | `docker-runtime` |
 | `RefreshRoute` | `caddy-file-routing` |
 | `DrainNode`, `ResumeNode` | — |
+
+### DeployProject
+
+Payload mengikuti `DeployProjectPayload` protocol v4:
+
+```json
+{
+  "repository_url": "https://github.com/example/app.git",
+  "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+  "repository_access": "public",
+  "domain": "app.run.sakala.dev",
+  "container_port": 3000,
+  "builder": "auto",
+  "environment": { "APP_ENV": "production" },
+  "resources": { "memory_mb": 256, "cpu_millis": 500, "pids_limit": 128 },
+  "timeouts": { "build_timeout_seconds": 600, "start_timeout_seconds": 120, "command_timeout_seconds": 900 },
+  "log_bounds": { "max_line_length": 4096, "max_batch_lines": 500, "max_total_bytes": 10485760 }
+}
+```
+
+- `repository_access` adalah `public` untuk project dari URL publik dan
+  `temporary_credential` untuk project yang terhubung lewat GitHub App
+  installation. Sampai endpoint `repository-credential` tersedia, API menolak
+  pembuatan deployment untuk project installation-backed dengan `409` supaya
+  tidak ada command yang pasti gagal di agent.
+- `environment` dikirim **plaintext** hanya kepada node target. Di database
+  nilainya tetap terenkripsi; node lain tidak pernah menerima payload ini.
+  Map kosong diserialisasi sebagai `{}`.
+- Node target dipilih control plane saat deployment dibuat (lihat
+  [Database](DATABASE.md#penjadwalan-node-dan-secret)). Project yang sudah
+  berjalan di suatu node hanya akan dideploy ulang ke node itu. Tanpa node
+  eligible, command menunggu tanpa target dan tanpa `expires_at`, lalu
+  ditetapkan oleh sweep `agent:assign-commands` atau heartbeat berikutnya.
+
+Event fase dari agent menggerakkan status deployment (maju saja, retry aman):
+
+| Event | `deployments.status` |
+| --- | --- |
+| `deployment.checkout.started` | `cloning` |
+| `deployment.build.started` | `building` |
+| `deployment.container.started` | `deploying` |
+| `deployment.runtime.ready` | `routing` (+ `image_reference` dari `metadata.image`) |
+
+`succeeded` hanya ditulis oleh `complete`; `failed` oleh `fail`. Result
+`complete` dibaca sebagai `DeployProjectResult`:
+`requested_resources`, `applied_resources` (disimpan ke
+`deployments.applied_resources`), serta `finalization_deferred` dan
+`finalization_deferred_reason` (`grace_elapsed` | `runtime_error`). Bila
+deferred, API membuat `StopProject` idempoten untuk setiap deployment
+`succeeded` lama pada project dan node yang sama — tidak pernah untuk
+deployment baru. Completion pada deployment yang sudah ditutup control plane
+(mis. kedaluwarsa) tetap `204`, dicatat di audit, dan tidak mengubah status.
 
 ### Claim
 
@@ -196,8 +249,6 @@ Lihat README di folder tersebut.
 ## Belum tersedia pada API
 
 Bagian kontrak v4 berikut belum diimplementasikan dan akan menyusul pada
-milestone #55: `POST /commands/{id}/repository-credential`, materialisasi
-`environment` untuk `DeployProject`, `repository_access`, penyelesaian
-deployment dari hasil agent (termasuk `finalization_deferred`), pinning
-`DeployProject`, lease expiry/recovery, admin drain/resume/cleanup/reconcile,
-serta log runtime setelah `complete`.
+milestone #55: `POST /commands/{id}/repository-credential`, alur
+`InspectProject` saat membuat project, lease expiry/recovery, admin
+drain/resume/cleanup/reconcile, serta log runtime setelah `complete`.

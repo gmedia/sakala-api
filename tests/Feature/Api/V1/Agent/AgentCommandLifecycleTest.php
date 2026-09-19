@@ -23,6 +23,7 @@ use App\Models\Project;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\AssertionFailedError;
 
@@ -62,6 +63,8 @@ test('poll returns pending non-expired commands matching capabilities', function
     $command = AgentCommand::factory()->create([
         'type' => AgentCommandType::DeployProject,
         'status' => AgentCommandStatus::Pending,
+        // DeployProject is pinned at creation; only its node may see it.
+        'agent_node_id' => $agent->id,
         'available_at' => now()->subMinute(),
         'expires_at' => now()->addMinutes(10),
         'payload' => ['repository_url' => 'https://github.com/example/app.git'],
@@ -1073,6 +1076,8 @@ test('AgentCommandResource shapes DeployProject payload correctly', function ():
     $command = AgentCommand::factory()->create([
         'type' => AgentCommandType::DeployProject,
         'status' => AgentCommandStatus::Pending,
+        // DeployProject is pinned at creation; only its node may see it.
+        'agent_node_id' => $agent->id,
         'available_at' => now()->subMinute(),
         'expires_at' => now()->addMinutes(10),
         'payload' => [
@@ -1081,7 +1086,7 @@ test('AgentCommandResource shapes DeployProject payload correctly', function ():
             'domain' => 'portfolio.run.sakala.localhost',
             'container_port' => 3000,
             'builder' => 'auto',
-            'environment' => ['APP_ENV' => 'production'],
+            'environment' => ['APP_ENV' => Crypt::encryptString('production')],
             'resources' => ['memory_mb' => 256, 'cpu_millis' => 500, 'pids_limit' => 128],
             'timeouts' => ['build_timeout_seconds' => 600, 'start_timeout_seconds' => 120, 'command_timeout_seconds' => 900],
             'log_bounds' => ['max_line_length' => 4096, 'max_batch_lines' => 500, 'max_total_bytes' => 10485760],
@@ -1102,6 +1107,7 @@ test('AgentCommandResource shapes DeployProject payload correctly', function ():
         ->toBe('https://github.com/gmedia/example-app.git');
     expect($item['payload']['commit_sha'])
         ->toBe('0123456789abcdef0123456789abcdef01234567');
+    expect($item['payload']['environment'])->toBe(['APP_ENV' => 'production']);
 });
 
 test('AgentCommandResource shapes lifecycle command payload as empty object', function (): void {

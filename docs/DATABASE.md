@@ -19,7 +19,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `github_webhook_deliveries` | Delivery ID webhook GitHub untuk pemrosesan lifecycle yang idempoten. |
 | `projects` | Metadata repository, generated domain, dan status runtime. |
 | `environment_variables` | Key dan value terenkripsi per project. |
-| `deployments` | Satu attempt deployment dan snapshot source yang dijalankan. |
+| `deployments` | Satu attempt deployment, snapshot source yang dijalankan, node target, resource yang diterapkan agent, dan status finalisasi. |
 | `agent_nodes` | Identitas runtime node, token hash, capability, protocol revision, desired lifecycle state, dan heartbeat terakhir. |
 | `agent_commands` | Durable command queue antara API dan agent. |
 | `agent_command_reports` | Event/log append-only untuk command tanpa deployment (InspectProject, CleanupRuntime, DrainNode, ResumeNode). |
@@ -72,6 +72,8 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 - Sequence event/log unik per deployment. Action penerima report mengunci command dan deployment dalam transaction, lalu mengalokasikan sequence secara atomic. Setiap item dengan `Idempotency-Key` menyimpan HMAC `payload_hash` dari payload logical sebelum redaction; unique `(agent_command_id, idempotency_key)` membuat retry memakai sequence yang sama dan mencegah baris ganda. Request tanpa key sengaja tidak menyimpan idempotency key sehingga tetap append-only. `agent_commands.reported_log_bytes` menyimpan counter budget log kumulatif dan hanya ditambah di transaction setelah command di-lock.
 - Status transition tidak boleh dilakukan langsung dari controller; gunakan Action yang memvalidasi state saat ini.
 - Transisi `Claimed -> Running` dilakukan API pada report pertama yang diterima dari node pemilik (agent mengirim event `command.claimed` segera setelah claim dan tidak memanggil endpoint lain). `started_at` diisi sekali di transaction report yang sama.
+- Status deployment pada jalur agent digerakkan oleh event fase (`deployment.checkout.started` → `cloning`, `deployment.build.started` → `building`, `deployment.container.started` → `deploying`, `deployment.runtime.ready` → `routing`) di dalam transaction report yang sama, hanya maju dan tidak pernah mundur, sehingga retry event bersifat idempoten. `succeeded` hanya ditulis oleh `complete`; `failed` oleh `fail` atau control plane. `TransitionDeploymentAction` menerima state terminal dari state aktif mana pun karena laporan agent bersifat otoritatif.
+- Saat `complete` DeployProject membawa `finalization_deferred = true`, API membuat `StopProject` untuk setiap deployment `succeeded` yang lebih lama pada project dan node yang sama dengan `idempotency_key` deterministik (`deferred-finalization:{baru}:{lama}`), sehingga retry completion tidak menggandakan command dan deployment baru tidak pernah menjadi target.
 
 ## Node Lifecycle dan Protocol
 
@@ -79,7 +81,15 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 
 `agent_nodes.protocol_version` diambil dari `metadata.protocol_version` heartbeat dan dibandingkan dengan `sakala.agent.supported_protocol_versions`. Node dengan revisi yang tidak didukung (atau belum pernah heartbeat) tetap bisa online tetapi tidak eligible menerima command. Tidak ada index tambahan untuk kedua kolom ini: jumlah node pada pilot kecil dan pemilihan node sudah memakai index `(status, last_seen_at)`.
 
-Command dengan tipe *pinned* (`InspectProject`, `CleanupRuntime`, `DrainNode`, `ResumeNode`) hanya ditawarkan ke node yang tercatat pada `agent_node_id`; command pinned tanpa target tidak terlihat oleh node mana pun sampai control plane menetapkannya.
+Command dengan tipe *pinned* (`InspectProject`, `DeployProject`, `CleanupRuntime`, `DrainNode`, `ResumeNode`) hanya ditawarkan ke node yang tercatat pada `agent_node_id`; command pinned tanpa target tidak terlihat oleh node mana pun sampai control plane menetapkannya.
+
+## Penjadwalan Node dan Secret
+
+`DeployProject` dipin ke satu node saat deployment dibuat (`AgentNodeSchedulerService`): node harus `auth_status = active`, `desired_state = active`, status `ready`/`busy`/`degraded`, protocol revision didukung, heartbeat lebih baru dari `sakala.agent.offline_after_seconds`, dan memiliki capability yang dibutuhkan. Project yang sudah punya deployment `succeeded` **hanya** diarahkan ke node yang sama (route Caddy dan container bersifat node-local; workload lama di node A tidak bisa dibersihkan dari node B) — bila node itu sedang tidak eligible, command menunggu tanpa target dan tidak pernah dipindahkan diam-diam; migrasi lintas node adalah flow eksplisit tersendiri. Untuk project baru dipilih node dengan reservasi paling sedikit (command Pending yang sudah dipin, Claimed, dan Running). `deployments.agent_node_id` dan `agent_commands.agent_node_id` ditulis bersama dalam transaction pembuatan deployment.
+
+Bila tidak ada node eligible, command tetap `Pending` tanpa target dan tidak terlihat oleh node mana pun. `DeployProject` dibuat dengan `expires_at = null`: `command_timeout_seconds` adalah deadline eksekusi yang dipakai agent setelah claim, bukan TTL antrean, sehingga deployment yang menunggu node tidak kedaluwarsa diam-diam (yang akan meninggalkan deployment `queued` permanen dan mengunci kuota). Expiry/recovery yang deterministik menyusul bersama lease handling. `AssignPendingCommandsAction` (dijadwalkan setiap menit lewat `agent:assign-commands`, dan dipanggil setelah setiap heartbeat untuk node tersebut) mengunci command satu per satu dan menetapkan target; `deployments.agent_node_id` diisi hanya bila masih `null`.
+
+Nilai `environment` pada `agent_commands.payload` tetap ciphertext `APP_KEY` di database. Dekripsi terjadi hanya di `AgentCommandPayloadMaterializer` saat resource disusun untuk node yang tercatat sebagai target; node lain tidak pernah menerima payload (poll tidak mengembalikannya, claim menjawab `409` tanpa payload).
 
 ## Secret dan Retention
 

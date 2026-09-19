@@ -14,6 +14,12 @@ use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
 
+beforeEach(function (): void {
+    // These tests exercise the simulated lifecycle; real deployments are
+    // driven by the agent and never dispatch the job.
+    config(['sakala.deployments.simulate' => true]);
+});
+
 function fakeGithubCommit(
     string $sha = '3e91b22a2e560a9f42b9d0921ca9b66c94462e5d',
     string $message = 'fix: refactor auth handler',

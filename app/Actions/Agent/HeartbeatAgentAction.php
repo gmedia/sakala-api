@@ -10,11 +10,15 @@ use Illuminate\Support\Facades\DB;
 
 final class HeartbeatAgentAction
 {
+    public function __construct(
+        private readonly AssignPendingCommandsAction $assignPendingCommands,
+    ) {}
+
     public function handle(
         AgentNode $agent,
         AgentHeartbeatData $data,
     ): AgentNode {
-        return DB::transaction(function () use ($agent, $data): AgentNode {
+        $agent = DB::transaction(function () use ($agent, $data): AgentNode {
             /** @var AgentNode $agent */
             $agent = AgentNode::query()
                 ->lockForUpdate()
@@ -32,5 +36,11 @@ final class HeartbeatAgentAction
 
             return $agent->refresh();
         });
+
+        // A node that just came back (or gained capabilities) should pick up
+        // waiting pinned work without waiting for the scheduler sweep.
+        $this->assignPendingCommands->handle(onlyFor: $agent, limit: 10);
+
+        return $agent;
     }
 }

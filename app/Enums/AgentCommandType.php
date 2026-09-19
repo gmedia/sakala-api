@@ -103,6 +103,7 @@ enum AgentCommandType: string
     {
         return match ($this) {
             self::InspectProject,
+            self::DeployProject,
             self::CleanupRuntime,
             self::DrainNode,
             self::ResumeNode => true,

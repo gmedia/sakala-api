@@ -17,6 +17,10 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
+    // These tests exercise the simulated lifecycle; real deployments are
+    // driven by the agent and never dispatch the job.
+    config(['sakala.deployments.simulate' => true]);
+
     if (DB::connection()->getDriverName() !== 'pgsql') {
         return;
     }

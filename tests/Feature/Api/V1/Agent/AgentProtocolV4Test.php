@@ -16,6 +16,7 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 
 uses(RefreshDatabase::class);
 
@@ -65,13 +66,24 @@ function storeFixtureCommand(string $name, ?AgentNode $pinnedTo = null): array
         ? null
         : Deployment::factory()->for($project)->create(['sequence' => 1]);
 
+    $stored = $fixture['payload'];
+
+    // The API keeps environment values encrypted at rest and only decrypts
+    // them on the wire for the pinned node, so store ciphertext here.
+    if ($type === AgentCommandType::DeployProject && isset($stored['environment'])) {
+        $stored['environment'] = array_map(
+            static fn (string $value): string => Crypt::encryptString($value),
+            $stored['environment'],
+        );
+    }
+
     $command = AgentCommand::factory()->create([
         'type' => $type,
         'status' => AgentCommandStatus::from($fixture['status']),
         'project_id' => $project?->id,
         'deployment_id' => $deployment?->id,
         'agent_node_id' => $pinnedTo?->id,
-        'payload' => $fixture['payload'] === [] ? [] : $fixture['payload'],
+        'payload' => $stored,
     ]);
 
     return ['command' => $command, 'fixture' => $fixture];

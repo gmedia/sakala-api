@@ -10,6 +10,7 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
+use App\Enums\RepositoryAccess;
 use App\Enums\UsageSignalType;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
@@ -19,6 +20,7 @@ use App\Models\Deployment;
 use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use App\Models\User;
+use App\Services\Agent\AgentNodeSchedulerService;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use Illuminate\Support\Facades\Crypt;
@@ -75,6 +77,7 @@ final class CreateDeploymentAction
         private readonly GithubBranchService $githubBranchService,
         private readonly PilotRuntimeLimitService $runtimeLimitService,
         private readonly RecordUsageSignalAction $recordAction,
+        private readonly AgentNodeSchedulerService $scheduler,
     ) {}
 
     public function handle(
@@ -94,6 +97,15 @@ final class CreateDeploymentAction
 
         if ($existing !== null) {
             return $existing;
+        }
+
+        // Installation-backed repositories require the agent to lease a
+        // repository credential before checkout. Until the machine API offers
+        // POST /commands/{id}/repository-credential, a stock agent would fail
+        // every such deployment with repository_credential_unavailable, so
+        // refuse up front instead of enqueueing a command that cannot succeed.
+        if ($project->github_installation_id !== null) {
+            abort(409, 'Deployments for repositories connected through a GitHub App installation are not available yet.');
         }
 
         $commit = $this->githubBranchService->getBranchCommit(
@@ -154,9 +166,19 @@ final class CreateDeploymentAction
 
                 $created = true;
 
+                // Pin the target node now so the secret-bearing payload is
+                // only ever materialised for one authenticated node. With no
+                // eligible node the command waits unassigned for a later
+                // assignment sweep or heartbeat.
+                $node = $this->scheduler->selectNodeFor(
+                    AgentCommandType::DeployProject,
+                    $lockedProject,
+                );
+
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,
                     'requested_by' => $user->id,
+                    'agent_node_id' => $node?->id,
                     'idempotency_key' => $data->idempotencyKey,
                     'sequence' => $sequence,
                     'status' => DeploymentStatus::Queued,
@@ -173,6 +195,9 @@ final class CreateDeploymentAction
                 $commandPayload = [
                     'repository_url' => $lockedProject->repository_url,
                     'commit_sha' => $deployment->commit_sha,
+                    'repository_access' => $lockedProject->github_installation_id === null
+                        ? RepositoryAccess::Public->value
+                        : RepositoryAccess::TemporaryCredential->value,
                     'domain' => $lockedProject->default_domain,
                     'container_port' => $lockedProject->detected_port ?? 3000,
                     'builder' => 'auto',
@@ -194,20 +219,23 @@ final class CreateDeploymentAction
                 AgentCommand::create([
                     'project_id' => $lockedProject->id,
                     'deployment_id' => $deployment->id,
+                    'agent_node_id' => $node?->id,
                     'type' => AgentCommandType::DeployProject,
                     'status' => AgentCommandStatus::Pending,
                     'payload' => $commandPayload,
                     'idempotency_key' => (string) Str::uuid(),
                     'available_at' => now(),
-                    'expires_at' => now()->addSeconds(
-                        $effectiveLimits->timeouts->command_timeout_seconds,
-                    ),
+                    // `command_timeout_seconds` is the execution deadline the
+                    // agent applies after claim, not a queue TTL. A deploy
+                    // that is waiting for a node must not silently expire;
+                    // deterministic expiry/recovery arrives with lease handling.
+                    'expires_at' => null,
                 ]);
 
                 return $deployment;
             });
 
-            if ($created) {
+            if ($created && config('sakala.deployments.simulate') === true) {
                 SimulatedDeploymentJob::dispatch($deployment);
             }
 

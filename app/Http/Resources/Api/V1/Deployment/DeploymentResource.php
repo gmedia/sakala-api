@@ -40,6 +40,10 @@ final class DeploymentResource extends JsonResource
             'image_reference' => $this->resource->image_reference,
             'requested_resources' => $this->resource->requested_resources,
             'effective_resources' => $this->resource->effective_resources,
+            'applied_resources' => $this->resource->applied_resources,
+            'finalization_deferred' => $this->resource->finalization_deferred,
+            'finalization_deferred_reason' => $this->resource->finalization_deferred_reason?->value,
+            'agent_node_id' => $this->resource->agent_node_id,
             'started_at' => $this->resource->started_at?->toAtomString(),
             'finished_at' => $this->resource->finished_at
                 ? $this->resource->finished_at->toAtomString()

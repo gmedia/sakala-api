@@ -49,13 +49,68 @@ test('queued deployment can transition to cloning', function (): void {
 
 test('invalid deployment transition is rejected', function (): void {
     $deployment = Deployment::factory()->create([
-        'status' => DeploymentStatus::Queued,
+        'status' => DeploymentStatus::Building,
     ]);
 
     expect(fn () => app(TransitionDeploymentAction::class)->handle(
         deployment: $deployment,
-        nextStatus: DeploymentStatus::Succeeded,
+        nextStatus: DeploymentStatus::Cloning,
     ))->toThrow(InvalidArgumentException::class);
+});
+
+test('any active deployment can be completed by an authoritative report', function (DeploymentStatus $current): void {
+    $deployment = Deployment::factory()->create([
+        'status' => $current,
+    ]);
+
+    $result = app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Succeeded,
+    );
+
+    expect($result->status)->toBe(DeploymentStatus::Succeeded)
+        ->and($result->finished_at)->not->toBeNull()
+        ->and($result->started_at)->not->toBeNull();
+})->with([
+    'queued' => DeploymentStatus::Queued,
+    'building' => DeploymentStatus::Building,
+    'routing' => DeploymentStatus::Routing,
+]);
+
+test('phases may be skipped forward but never revisited', function (): void {
+    $deployment = Deployment::factory()->create([
+        'status' => DeploymentStatus::Cloning,
+    ]);
+
+    $result = app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Deploying,
+    );
+
+    expect($result->status)->toBe(DeploymentStatus::Deploying)
+        ->and($result->project->runtime_status)->toBe(RuntimeStatus::Deploying);
+
+    expect(fn () => app(TransitionDeploymentAction::class)->handle(
+        deployment: $result,
+        nextStatus: DeploymentStatus::Building,
+    ))->toThrow(InvalidArgumentException::class);
+});
+
+test('transitions can skip the synthetic timeline when the agent already reported it', function (): void {
+    $deployment = Deployment::factory()->create([
+        'status' => DeploymentStatus::Queued,
+    ]);
+
+    $result = app(TransitionDeploymentAction::class)->handle(
+        deployment: $deployment,
+        nextStatus: DeploymentStatus::Building,
+        recordTimeline: false,
+    );
+
+    expect($result->status)->toBe(DeploymentStatus::Building)
+        ->and($result->events()->count())->toBe(0)
+        ->and($result->logs()->count())->toBe(0)
+        ->and($result->realtime_sequence)->toBe(1);
 });
 
 test('terminal deployment cannot transition again', function (): void {
@@ -211,7 +266,7 @@ test('broadcast failure does not prevent deployment persistence', function (): v
 
 test('invalid deployment transition is rejected without changing state', function (): void {
     $deployment = Deployment::factory()->create([
-        'status' => DeploymentStatus::Queued,
+        'status' => DeploymentStatus::Building,
         'started_at' => null,
         'finished_at' => null,
         'cancelled_at' => null,
@@ -219,13 +274,13 @@ test('invalid deployment transition is rejected without changing state', functio
 
     expect(fn () => app(TransitionDeploymentAction::class)->handle(
         deployment: $deployment,
-        nextStatus: DeploymentStatus::Succeeded,
+        nextStatus: DeploymentStatus::Queued,
     ))->toThrow(InvalidArgumentException::class);
 
     $deployment->refresh();
 
     expect($deployment->status)
-        ->toBe(DeploymentStatus::Queued);
+        ->toBe(DeploymentStatus::Building);
 
     expect($deployment->started_at)
         ->toBeNull();
