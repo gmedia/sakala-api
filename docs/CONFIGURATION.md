@@ -39,8 +39,8 @@ dalam menit (default `60`).
 ## Database dan Infrastruktur
 
 - `DB_*`: koneksi PostgreSQL. `DB_TIMEZONE` (default `UTC`) mengunci timezone sesi PostgreSQL; control plane menyimpan dan mengembalikan UTC apa pun timezone server database.
-- `REDIS_*`: cache dan scaling Reverb.
-- `CACHE_STORE`: cache store default yang juga dipakai Laravel scheduler untuk mutex `withoutOverlapping`/`onOneServer`. Gunakan store yang mendukung lock dan dibagi bersama (Redis pada deployment multi-instance).
+- `REDIS_*`: cache dan scaling Reverb. Runtime lokal memakai Valkey (`REDIS_HOST=valkey`, port `FORWARD_VALKEY_PORT`); Valkey kompatibel protokol Redis sehingga client `phpredis` dan konfigurasi `redis` Laravel tidak berubah.
+- `CACHE_STORE`: cache store default yang juga dipakai Laravel scheduler untuk mutex `withoutOverlapping`/`onOneServer`. Gunakan store yang mendukung lock dan dibagi bersama (Valkey/Redis pada deployment multi-instance).
 - `QUEUE_CONNECTION`: queue driver; local default memakai database.
 - `MAIL_*`: Mailpit pada local runtime.
 

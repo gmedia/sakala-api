@@ -10,7 +10,17 @@ php artisan key:generate
 ./vendor/bin/sail artisan migrate
 ```
 
-Services: API `:8000`, PostgreSQL `:5432`, Redis `:6379`, Mailpit UI `:8025`, dan port Reverb `:8081`. Jalankan worker/Reverb pada terminal terpisah saat dibutuhkan.
+Services: API `:8000`, PostgreSQL `:5432`, Valkey `:6379` (diakses lewat client Redis Laravel, `REDIS_HOST=valkey`), Mailpit UI `:8025`, dan port Reverb `:8081`. Jalankan worker/Reverb pada terminal terpisah saat dibutuhkan.
+
+### Upgrade checkout lama dari Redis ke Valkey
+
+Runtime lokal sebelumnya memakai service `redis`. `.env.example` sudah menunjuk ke Valkey, tetapi `.env` yang sudah ada tidak berubah otomatis dan container Redis lama menjadi *orphan* yang tidak dihapus `sail down` biasa — bila masih hidup ia menahan port `6379` sehingga Valkey gagal start. Setelah menarik perubahan ini:
+
+1. Ubah `.env`: `REDIS_HOST=valkey`.
+2. Bila `FORWARD_REDIS_PORT` pernah dikustom, ganti namanya menjadi `FORWARD_VALKEY_PORT` (nilai sama).
+3. `./vendor/bin/sail down --remove-orphans` untuk menghentikan dan menghapus container Redis lama.
+4. `./vendor/bin/sail up -d`.
+5. Volume `sail-redis` hanya berisi cache dan boleh dihapus: `docker volume rm sakala-api_sail-redis` (nama prefix mengikuti nama direktori project; lihat `docker volume ls`).
 
 ## Scheduler
 
@@ -18,7 +28,7 @@ Beberapa proses control plane berjalan lewat scheduler Laravel (`agent:assign-co
 
 ## Tanpa Docker
 
-Sesuaikan host PostgreSQL/Redis/Mail di `.env`, lalu jalankan `composer dev`. PHP extension yang dibutuhkan harus tersedia pada host.
+Sesuaikan host PostgreSQL/Valkey (atau Redis)/Mail di `.env`, lalu jalankan `composer dev`. PHP extension yang dibutuhkan harus tersedia pada host.
 
 ## Quality
 
