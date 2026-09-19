@@ -6,10 +6,17 @@ menjelaskan apa yang **diimplementasikan API**; wire type normatif berada di
 `docs/COMMAND_LIFECYCLE.md`, `docs/COMPATIBILITY.md`). Target kompatibilitas
 saat ini adalah **sakala-agent v0.1.0, protocol revision 4**.
 
-Semua endpoint berada di `/api/agent/v1/*`, terpisah dari app API `/api/v1/*`.
-Perubahan endpoint, command type, atau wire field harus dilakukan bersama
-perubahan protocol Agent yang eksplisit; API tidak menambah kontrak wire secara
-sepihak.
+Machine protocol berada di `/api/agent/v1/*`, sebuah route family yang
+diversikan terpisah dari app API `/api/v1/*`. `v1` pada URL adalah versi
+route family API, **bukan** protocol revision agent: saat ini family ini
+melayani protocol revision **4**, dan admission revisi digate lewat
+`metadata.protocol_version` pada heartbeat (`SAKALA_AGENT_SUPPORTED_PROTOCOL_VERSIONS`),
+sehingga revisi protocol dapat berganti tanpa mengubah URL. Family yang sama
+juga memuat endpoint admin node `/api/agent/v1/agents/*` (Sanctum, bukan
+bearer agent) untuk provisioning, rotate, revoke, drain, resume, dan cleanup.
+Perubahan endpoint, command type, atau wire field pada bagian machine harus
+dilakukan bersama perubahan protocol Agent yang eksplisit; API tidak menambah
+kontrak wire secara sepihak.
 
 ## Autentikasi
 
@@ -42,10 +49,13 @@ Lihat [Autentikasi](AUTHENTICATION.md) untuk provisioning, rotasi, dan revoke.
 | `POST` | `/commands/{id}/complete` | Command selesai sukses. |
 | `POST` | `/commands/{id}/fail` | Command gagal. |
 
-`{id}` adalah UUID `agent_commands.id`. Urutan yang dijalankan agent v0.1.0:
-`node-state` (sekali, bootstrap) → `heartbeat` (berkala) → `commands` (poll)
-→ `claim` → [`repository-credential`] → `events`/`logs` → `complete` |
-`fail`.
+`{id}` adalah UUID `agent_commands.id`. Pada agent v0.1.0 hanya `node-state`
+yang memiliki urutan tetap: dipanggil sekali saat bootstrap dan harus berhasil
+sebelum worker apa pun dimulai. Setelah itu heartbeat worker dan command
+poller berjalan berkala dan **independen** — tidak ada jaminan request
+pertama setelah bootstrap adalah `heartbeat`. Untuk setiap command urutannya
+`commands` (poll) → `claim` → [`repository-credential`] → `events`/`logs` →
+`complete` | `fail`.
 
 Endpoint admin yang mengendalikan sisi control plane (provisioning, rotate,
 revoke, drain, resume, cleanup, stop, suspend, reconcile) dijelaskan di
@@ -456,10 +466,14 @@ Semantik control plane yang perlu diketahui agent:
 7. Node diturunkan `offline` bila tidak heartbeat selama
    `SAKALA_AGENT_OFFLINE_AFTER_SECONDS` (60) dan tidak ditawari command apa
    pun sampai heartbeat berikutnya. Interval heartbeat agent (10 s) aman.
-8. `DeployProject`/`InspectProject` dipin ke satu node saat dibuat dan
-   dimaterialisasi (environment plaintext) hanya untuk node itu; command
-   tanpa target tidak terlihat oleh node mana pun. Project yang sudah
-   berjalan di sebuah node hanya dideploy ulang ke node itu.
+8. `DeployProject`/`InspectProject` adalah *pinned command type*: keduanya
+   harus punya node target yang deterministik sebelum ditawarkan atau
+   diklaim. Bila saat dibuat belum ada node eligible, command dibuat dengan
+   `agent_node_id = null`, tidak terlihat oleh node mana pun, dan menunggu
+   penugasan oleh sweep `agent:assign-commands` atau heartbeat node yang
+   menjadi eligible. Payload sensitif (`environment` plaintext) hanya
+   dimaterialisasi untuk node target tersebut. Project yang sudah berjalan
+   di sebuah node hanya dideploy ulang ke node itu.
 9. Log runtime setelah `complete` diterima hanya untuk `DeployProject`
    (follower `docker logs --follow`), tetap dibatasi `max_total_bytes`
    (`422` bila habis); event setelah terminal dijawab `409`. Follower yang

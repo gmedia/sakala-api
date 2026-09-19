@@ -19,8 +19,8 @@ Frontend berada di `sakala-console`. Eksekusi runtime berada di `sakala-agent`. 
 Semua kontrak baru memakai JSON dan versi mayor di URL. Route dikelompokkan berdasarkan audience:
 
 - App API (`/api/v1/app/*`, `/api/v1/auth/*`, `/api/v1/onboarding/*`) untuk console first-party.
-- Machine protocol agent (`/api/agent/v1/*`) untuk heartbeat, node-state, polling, claim, credential lease, events/logs, dan completion — diversikan terpisah dari app API karena mengikuti protocol revision `sakala-agent`; kontraknya ada di [Agent API](docs/AGENT_API.md).
-- Admin API (`/api/v1/admin/*` untuk project control, `/api/agent/v1/agents/*` untuk provisioning dan lifecycle node) untuk operasi internal yang diautorisasi.
+- Route family `/api/agent/v1/*`, diversikan terpisah dari app API. Bagian machine (bearer agent + `X-Agent-Id`) melayani heartbeat, node-state, polling, claim, credential lease, events/logs, dan completion; saat ini untuk `sakala-agent` protocol revision 4 — `v1` pada URL adalah versi route family, sedangkan revisi protocol digate lewat `metadata.protocol_version` heartbeat. Kontraknya ada di [Agent API](docs/AGENT_API.md).
+- Admin API (`/api/v1/admin/*` untuk project control; `/api/agent/v1/agents/*`, Sanctum, untuk provisioning dan lifecycle node) untuk operasi internal yang diautorisasi.
 - Webhook endpoint (`/api/v1/webhooks/*`) untuk provider seperti GitHub.
 
 ## Persistence
