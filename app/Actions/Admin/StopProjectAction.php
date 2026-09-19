@@ -11,6 +11,7 @@ use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectControlAction;
 use App\Enums\RuntimeStatus;
+use App\Enums\UsageSignalType;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
@@ -22,6 +23,10 @@ use Illuminate\Support\Str;
 
 final class StopProjectAction
 {
+    public function __construct(
+        private readonly RecordUsageSignalAction $recordAction,
+    ) {}
+
     private function findExistingRequest(
         ProjectControlData $data,
     ): ?ProjectControlRequest {
@@ -221,6 +226,14 @@ final class StopProjectAction
                     'agent_node_id' => $deployment->agent_node_id,
                 ],
             ]);
+
+            $this->recordAction->handle(
+                type: UsageSignalType::ManualIntervention,
+                count: 1,
+                scope: 'project',
+                scopeId: (string) $lockedProject->id,
+                tags: ['action_code' => 'manual_stop'],
+            );
 
             return new ProjectControlResultData(
                 project: $lockedProject->refresh(),

@@ -15,6 +15,7 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\ProjectControlRequest;
+use App\Models\UsageSignalRecord;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -1120,4 +1121,75 @@ test('admin cannot reuse suspend idempotency key for another project', function 
             ->where('idempotency_key', 'suspend-project-003')
             ->count()
     )->toBe(1);
+});
+
+test('suspend project records manual_intervention signal on new request', function (): void {
+    $admin = User::factory()->create(['role' => UserRole::Admin]);
+    $agent = AgentNode::factory()->create(['status' => AgentNodeStatus::Ready]);
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    // First call — new request with unique idempotency key, should record signal.
+    $response = $this->postJson("/api/v1/admin/projects/{$project->id}/suspend", [
+        'reason' => 'Test intervention',
+        'idempotency_key' => 'suspend-new-request-'.Str::uuid(),
+    ]);
+
+    $response->assertAccepted();
+
+    $signal = UsageSignalRecord::where('signal_type', 'manual_intervention')
+        ->where('scope', 'project')
+        ->first();
+
+    expect($signal)->not->toBeNull();
+    expect($signal->count)->toBe(1);
+    expect($signal->tags['action_code'])->toBe('manual_suspend');
+});
+
+test('suspend project does not double-record manual_intervention on idempotent retry', function (): void {
+    $admin = User::factory()->create(['role' => UserRole::Admin]);
+    $agent = AgentNode::factory()->create(['status' => AgentNodeStatus::Ready]);
+    $project = Project::factory()->create([
+        'status' => ProjectStatus::Active,
+        'runtime_status' => RuntimeStatus::Running,
+    ]);
+    $deployment = Deployment::factory()->create([
+        'project_id' => $project->id,
+        'agent_node_id' => $agent->id,
+        'status' => DeploymentStatus::Succeeded,
+    ]);
+
+    $key = (string) Str::uuid();
+
+    $this->actingAs($admin, 'web');
+
+    // First call — new request with idempotency key header.
+    $this->postJson(
+        "/api/v1/admin/projects/{$project->id}/suspend",
+        ['reason' => 'Test intervention'],
+        ['Idempotency-Key' => $key]
+    )->assertAccepted();
+
+    // Second call — same idempotency key header, should return existing result without recording again.
+    $this->postJson(
+        "/api/v1/admin/projects/{$project->id}/suspend",
+        ['reason' => 'Test intervention'],
+        ['Idempotency-Key' => $key]
+    )->assertAccepted();
+
+    // Only one signal should exist (not doubled).
+    $signalCount = UsageSignalRecord::where('signal_type', 'manual_intervention')
+        ->where('scope', 'project')
+        ->count();
+
+    expect($signalCount)->toBe(1);
 });

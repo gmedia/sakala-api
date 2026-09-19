@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Actions\Project;
 
+use App\Actions\Admin\RecordUsageSignalAction;
 use App\Data\Project\CreateProjectData;
 use App\Enums\GithubRepositorySource;
+use App\Enums\UsageSignalType;
+use App\Exceptions\Runtime\ProjectLimitExceededException;
 use App\Models\GithubInstallation;
 use App\Models\Project;
 use App\Models\User;
@@ -16,36 +19,56 @@ use Illuminate\Support\Facades\DB;
 
 final class CreateProjectAction
 {
+    /**
+     * @var array<string, string>
+     */
+    private const LIMIT_EXCEPTION_MAP = [
+        ProjectLimitExceededException::class => 'max_projects_per_user',
+    ];
+
     public function __construct(
         protected GenerateProjectIdentity $generateIdentity,
         protected RepositoryParser $repositoryParser,
         protected PilotRuntimeLimitService $runtimeLimitService,
         private readonly GithubInstallationService $githubInstallationService,
+        private readonly RecordUsageSignalAction $recordAction,
     ) {}
 
     public function handle(User $user, CreateProjectData $data): Project
     {
-        return DB::transaction(function () use ($user, $data): Project {
-            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+        try {
+            return DB::transaction(function () use ($user, $data): Project {
+                User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
-            $this->runtimeLimitService->checkProjectCreationLimit($user);
+                $this->runtimeLimitService->checkProjectCreationLimit($user);
 
-            $projectIdentity = $this->generateIdentity->handle($data->name);
+                $projectIdentity = $this->generateIdentity->handle($data->name);
 
-            $attributes = match ($data->repositorySource) {
-                GithubRepositorySource::PublicUrl => $this->publicRepositoryAttributes($data),
-                GithubRepositorySource::GithubInstallation => $this->installationRepositoryAttributes($user, $data),
-            };
+                $attributes = match ($data->repositorySource) {
+                    GithubRepositorySource::PublicUrl => $this->publicRepositoryAttributes($data),
+                    GithubRepositorySource::GithubInstallation => $this->installationRepositoryAttributes($user, $data),
+                };
 
-            return Project::create([
-                'user_id' => $user->id,
-                'name' => $data->name,
-                'slug' => $projectIdentity->slug,
-                ...$attributes,
-                'branch' => $data->branch,
-                'default_domain' => $projectIdentity->defaultDomain,
-            ]);
-        });
+                return Project::create([
+                    'user_id' => $user->id,
+                    'name' => $data->name,
+                    'slug' => $projectIdentity->slug,
+                    ...$attributes,
+                    'branch' => $data->branch,
+                    'default_domain' => $projectIdentity->defaultDomain,
+                ]);
+            });
+        } catch (ProjectLimitExceededException $e) {
+            $limitName = self::LIMIT_EXCEPTION_MAP[get_class($e)];
+            $this->recordAction->handle(
+                type: UsageSignalType::RejectedLimits,
+                count: 1,
+                scope: 'user',
+                tags: ['limit_name' => $limitName],
+            );
+
+            throw $e;
+        }
     }
 
     /** @return array<string, mixed> */

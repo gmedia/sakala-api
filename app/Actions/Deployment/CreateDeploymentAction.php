@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace App\Actions\Deployment;
 
+use App\Actions\Admin\RecordUsageSignalAction;
 use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
+use App\Enums\UsageSignalType;
+use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
+use App\Exceptions\Runtime\ResourceLimitExceededException;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\AgentCommand;
 use App\Models\Deployment;
@@ -55,9 +59,22 @@ final class CreateDeploymentAction
         return $existing;
     }
 
+    private const LIMIT_EXCEPTION_MAP = [
+        ActiveDeploymentLimitExceededException::class => [
+            'user' => 'max_active_deployments_per_user',
+            'project' => 'max_active_deployments_per_project',
+        ],
+        ResourceLimitExceededException::class => [
+            'memory_mb' => 'max_memory_mb',
+            'cpu_millis' => 'max_cpu_millis',
+            'pids_limit' => 'max_pids_limit',
+        ],
+    ];
+
     public function __construct(
         private readonly GithubBranchService $githubBranchService,
         private readonly PilotRuntimeLimitService $runtimeLimitService,
+        private readonly RecordUsageSignalAction $recordAction,
     ) {}
 
     public function handle(
@@ -86,92 +103,139 @@ final class CreateDeploymentAction
 
         $created = false;
 
-        $deployment = DB::transaction(function () use ($project, $user, $data, $commit, &$created) {
-            // Lock user record to ensure atomic active deployment quota across different projects
-            User::query()
-                ->whereKey($user->id)
-                ->lockForUpdate()
-                ->firstOrFail();
+        try {
+            $deployment = DB::transaction(function () use (
+                $project,
+                $user,
+                $data,
+                $commit,
+                &$created
+            ) {
+                // Lock user record to ensure atomic active deployment quota
+                // across different projects
+                User::query()
+                    ->whereKey($user->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            /** @var Project $lockedProject */
-            $lockedProject = Project::query()
-                ->whereKey($project->id)
-                ->lockForUpdate()
-                ->firstOrFail();
+                /** @var Project $lockedProject */
+                $lockedProject = Project::query()
+                    ->whereKey($project->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            $existing = $this->findExistingDeployment(
-                project: $lockedProject,
-                user: $user,
-                data: $data,
-            );
+                $existing = $this->findExistingDeployment(
+                    project: $lockedProject,
+                    user: $user,
+                    data: $data,
+                );
 
-            if ($existing !== null) {
-                return $existing;
+                if ($existing !== null) {
+                    return $existing;
+                }
+
+                if ($lockedProject->status === ProjectStatus::Suspended) {
+                    abort(409, 'Project is suspended.');
+                }
+
+                // Enforce active deployment limits under user and project lock
+                $this->runtimeLimitService->checkActiveDeploymentLimit(
+                    $user,
+                    $lockedProject,
+                );
+
+                // Resolve effective runtime limits
+                $effectiveLimits = $this->runtimeLimitService->resolveEffectiveLimits(
+                    $data->requested_resources,
+                    $user,
+                );
+
+                $sequence = (int) $lockedProject->deployments()->max('sequence') + 1;
+
+                $created = true;
+
+                $deployment = Deployment::create([
+                    'project_id' => $lockedProject->id,
+                    'requested_by' => $user->id,
+                    'idempotency_key' => $data->idempotencyKey,
+                    'sequence' => $sequence,
+                    'status' => DeploymentStatus::Queued,
+                    'trigger' => $data->trigger,
+                    'branch' => $data->branch,
+                    'commit_sha' => $commit['sha'],
+                    'commit_message' => $commit['message'],
+                    'requested_resources' => $data->requested_resources?->toArray(),
+                    'effective_resources' => $effectiveLimits->toArray(),
+                ]);
+
+                // Create pending DeployProject agent command with explicit
+                // limits contract
+                $commandPayload = [
+                    'repository_url' => $lockedProject->repository_url,
+                    'commit_sha' => $deployment->commit_sha,
+                    'domain' => $lockedProject->default_domain,
+                    'container_port' => $lockedProject->detected_port ?? 3000,
+                    'builder' => 'auto',
+                    'environment' => $lockedProject->environmentVariables
+                        ->mapWithKeys(fn (EnvironmentVariable $env): array => [
+                            $env->key => (string) (
+                                $env->getRawOriginal('encrypted_value')
+                                ?? Crypt::encryptString(
+                                    (string) $env->encrypted_value
+                                )
+                            ),
+                        ])
+                        ->all(),
+                    'resources' => $effectiveLimits->toResourcesArray(),
+                    'timeouts' => $effectiveLimits->timeouts->toArray(),
+                    'log_bounds' => $effectiveLimits->log_bounds->toArray(),
+                ];
+
+                AgentCommand::create([
+                    'project_id' => $lockedProject->id,
+                    'deployment_id' => $deployment->id,
+                    'type' => AgentCommandType::DeployProject,
+                    'status' => AgentCommandStatus::Pending,
+                    'payload' => $commandPayload,
+                    'idempotency_key' => (string) Str::uuid(),
+                    'available_at' => now(),
+                    'expires_at' => now()->addSeconds(
+                        $effectiveLimits->timeouts->command_timeout_seconds,
+                    ),
+                ]);
+
+                return $deployment;
+            });
+
+            if ($created) {
+                SimulatedDeploymentJob::dispatch($deployment);
             }
-
-            if ($lockedProject->status === ProjectStatus::Suspended) {
-                abort(409, 'Project is suspended.');
-            }
-
-            // Enforce active deployment limits under user and project lock
-            $this->runtimeLimitService->checkActiveDeploymentLimit($user, $lockedProject);
-
-            // Resolve effective runtime limits
-            $effectiveLimits = $this->runtimeLimitService->resolveEffectiveLimits($data->requested_resources, $user);
-
-            $sequence = (int) $lockedProject->deployments()->max('sequence') + 1;
-
-            $created = true;
-
-            $deployment = Deployment::create([
-                'project_id' => $lockedProject->id,
-                'requested_by' => $user->id,
-                'idempotency_key' => $data->idempotencyKey,
-                'sequence' => $sequence,
-                'status' => DeploymentStatus::Queued,
-                'trigger' => $data->trigger,
-                'branch' => $data->branch,
-                'commit_sha' => $commit['sha'],
-                'commit_message' => $commit['message'],
-                'requested_resources' => $data->requested_resources?->toArray(),
-                'effective_resources' => $effectiveLimits->toArray(),
-            ]);
-
-            // Create pending DeployProject agent command with explicit limits contract
-            $commandPayload = [
-                'repository_url' => $lockedProject->repository_url,
-                'commit_sha' => $deployment->commit_sha,
-                'domain' => $lockedProject->default_domain,
-                'container_port' => $lockedProject->detected_port ?? 3000,
-                'builder' => 'auto',
-                'environment' => $lockedProject->environmentVariables
-                    ->mapWithKeys(fn (EnvironmentVariable $env): array => [
-                        $env->key => (string) ($env->getRawOriginal('encrypted_value') ?? Crypt::encryptString((string) $env->encrypted_value)),
-                    ])
-                    ->all(),
-                'resources' => $effectiveLimits->toResourcesArray(),
-                'timeouts' => $effectiveLimits->timeouts->toArray(),
-                'log_bounds' => $effectiveLimits->log_bounds->toArray(),
-            ];
-
-            AgentCommand::create([
-                'project_id' => $lockedProject->id,
-                'deployment_id' => $deployment->id,
-                'type' => AgentCommandType::DeployProject,
-                'status' => AgentCommandStatus::Pending,
-                'payload' => $commandPayload,
-                'idempotency_key' => (string) Str::uuid(),
-                'available_at' => now(),
-                'expires_at' => now()->addSeconds($effectiveLimits->timeouts->command_timeout_seconds),
-            ]);
 
             return $deployment;
-        });
+        } catch (ActiveDeploymentLimitExceededException $e) {
+            $limitName = self::LIMIT_EXCEPTION_MAP[get_class($e)][
+                $e->scope
+            ] ?? 'unknown';
+            $this->recordAction->handle(
+                type: UsageSignalType::RejectedLimits,
+                count: 1,
+                scope: $e->scope,
+                tags: ['limit_name' => $limitName],
+            );
 
-        if ($created) {
-            SimulatedDeploymentJob::dispatch($deployment);
+            throw $e;
+        } catch (ResourceLimitExceededException $e) {
+            $limitName = self::LIMIT_EXCEPTION_MAP[get_class($e)][
+                $e->resource
+            ] ?? 'unknown';
+            $this->recordAction->handle(
+                type: UsageSignalType::RejectedLimits,
+                count: 1,
+                scope: 'user',
+                tags: ['limit_name' => $limitName],
+            );
+
+            throw $e;
         }
-
-        return $deployment;
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\UserRole;
 use App\Models\Project;
+use App\Models\UsageSignalRecord;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -110,4 +111,29 @@ test('admin user can exceed project creation limit', function () {
         'repository_url' => 'https://github.com/example/admin-project',
         'branch' => 'main',
     ])->assertCreated();
+});
+
+test('project limit rejection records rejected_limits signal', function (): void {
+    config(['sakala.pilot_limits.max_projects_per_user' => 1]);
+
+    $user = User::factory()->create(['role' => UserRole::User]);
+    Project::factory()->for($user)->create();
+
+    $this->actingAs($user, 'web');
+
+    $response = $this->postJson('/api/v1/app/projects', [
+        'name' => 'Over Limit Project',
+        'repository_url' => 'https://github.com/example/project-two',
+        'branch' => 'main',
+    ]);
+
+    $response->assertUnprocessable();
+
+    $signal = UsageSignalRecord::where('signal_type', 'rejected_limits')
+        ->where('scope', 'user')
+        ->first();
+
+    expect($signal)->not->toBeNull();
+    expect($signal->count)->toBe(1);
+    expect($signal->tags['limit_name'])->toBe('max_projects_per_user');
 });

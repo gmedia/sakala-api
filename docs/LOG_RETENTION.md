@@ -312,7 +312,55 @@ Jika monitoring server mendeteksi penggunaan disk PostgreSQL melebihi 85%:
 
 ---
 
-## 10. Referensi Terkait
+## 10. Retensi Usage Signal Records
+
+Tabel `usage_signal_records` menyimpan agregat operasional yang dikumpulkan secara berkala untuk observabilitas pilot. Retensi berlaku sebagaimana berikut:
+
+### Durasi
+
+- **Durasi Retensi**: **30 hari** sejak `collected_at` (dikonfigurasi via `SAKALA_USAGE_SIGNALS_RETENTION_DAYS`, default: `30`).
+- Record yang `collected_at`-nya lebih tua dari batas retensi akan dipangkas oleh scheduler harian.
+
+### Koleksi Sinyal
+
+Signal agregat dikumpulkan setiap jam oleh command `usage:signals-collect`. Scheduler menjadwalkan secara *hourly* dengan `withoutOverlapping()` dan `onOneServer()`. Collector memakai window hourly yang sejalan dengan jadwal scheduler, sehingga tiap run menutup tepat satu bucket jam lengkap tanpa tumpang tindih.
+
+Signal types yang dicatat:
+
+| Signal | Deskripsi |
+| --- | --- |
+| `deployment_attempt` | Jumlah attempt deployment dalam window (tidak ada tag opsional) |
+| `successful_deployment` | Jumlah deployment berstatus `succeeded` yang terminal di window |
+| `active_projects` | Jumlah project dengan `runtime_status` `running` atau `deploying` |
+| `rejected_limits` | Pelanggaran limit pilot yang ditolak (tag: `limit_name` dari daftar limit yang dikenal) |
+| `agent_failure` | Jumlah agent command berstatus `failed` yang terminal di window |
+| `repeated_build_failure` | Jumlah project dengan ≥N deployment berstatus `failed` dan `failure_code = runtime_build_failed` dalam window (threshold configurable) |
+| `manual_intervention` | Penanda intervensi manual oleh operator (tag: `action_code` dari daftar kode intervensi yang dikenal) |
+
+Tag bersifat opsional dan hanya diisi untuk signal yang mendefinisikan allowlist key + validasi value per-type. Field tag **tidak pernah** menampung nilai sensitif seperti token, password, email, atau free-text sembarangan — sanitasi terjadi di `RecordUsageSignalAction` sebelum persistensi.
+
+### Pembersihan
+
+```bash
+# Simulasi (tanpa menghapus)
+php artisan usage:signals-prune --dry-run
+
+# Eksekusi dengan retensi default (30 hari)
+php artisan usage:signals-prune
+
+# Retensi kustom
+php artisan usage:signals-prune --days=60 --batch=1000
+```
+
+Command berjalan harian melalui scheduler Laravel dengan `withoutOverlapping()` dan `onOneServer()`. Penghapusan dilakukan secara chunked untuk mencegah table lock escalation pada PostgreSQL.
+
+### Audit Trail
+
+Signal `rejected_limits` dan `manual_intervention` secara otomatis membuat `AuditEvent` pada waktu pencatatan sebagai jejak investigasi admin.
+
+---
+
+## 11. Referensi Terkait
 
 - [Arsitektur Sistem (ARCHITECTURE.md)](../ARCHITECTURE.md)
 - [Desain Database & Index Strategy (docs/DATABASE.md)](DATABASE.md)
