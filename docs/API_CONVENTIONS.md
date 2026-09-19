@@ -146,6 +146,14 @@ Idempotency key yang sama tidak boleh digunakan kembali untuk request dengan ide
 
 `ProjectControlRequest` menjadi durable record untuk idempotency project control. Agent command hanya dibuat ketika operasi membutuhkan pekerjaan runtime; karena itu, `Suspend` tanpa live workload tetap memiliki record idempotency meskipun tidak menghasilkan Agent command.
 
+## Agent Node Control
+
+`POST /api/agent/v1/agents/{agent}/drain` dan `POST /api/agent/v1/agents/{agent}/resume` (Sanctum, hanya admin) mengubah intent lifecycle sebuah runtime node dan membuat command `DrainNode`/`ResumeNode` dalam satu transaksi. Body `reason` (wajib, ≤ 500). Response `202 Accepted` dengan `AgentNodeControlResource` (`agent_node_id`, `status` yang dilaporkan, `desired_state`, dan `command{id,type,status}`); `202` berarti intent tersimpan, bukan node sudah drained/aktif — itu dilaporkan agent lewat heartbeat dan completion command.
+
+Header `Idempotency-Key` opsional dengan semantik yang sama dengan project control: identitas request = node + action + actor + reason; key yang sama mengembalikan command yang sama tanpa record/audit baru, key yang dipakai ulang untuk identitas berbeda → `409`. `AgentNodeControlRequest` adalah record durable-nya. Ditolak `409` bila node tidak `active` (auth), sudah berada di desired state yang diminta, atau masih ada lifecycle command yang belum selesai.
+
+`AgentResource` menyertakan `desired_state`, `protocol_version`, dan `last_seen_at` untuk admin.
+
 ## Profile Contract
 
 ### Update Profile

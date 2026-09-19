@@ -26,6 +26,9 @@ final class AgentResource extends JsonResource
             'token_prefix' => $this->token_prefix,
             'auth_status' => $this->auth_status->value,
             'status' => $this->status->value,
+            'desired_state' => $this->desired_state->value,
+            'protocol_version' => $this->protocol_version,
+            'last_seen_at' => $this->last_seen_at?->toAtomString(),
             'created_at' => $this->created_at->toAtomString(),
             'updated_at' => $this->updated_at->toAtomString(),
         ];

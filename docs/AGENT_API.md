@@ -70,6 +70,25 @@ ini sekali sebelum polling dimulai dan berhenti bila gagal. Nilai berasal dari
 `agent_nodes.desired_state` (intent control plane), bukan dari status yang
 dilaporkan heartbeat.
 
+Intent diubah admin lewat `POST /api/agent/v1/agents/{agent}/drain` dan
+`/resume` (Sanctum, admin): `desired_state` disimpan dalam transaksi yang sama
+dengan pembuatan `DrainNode`/`ResumeNode` (pinned ke node, `project_id`/
+`deployment_id` null, payload `{}`), sehingga `node-state` tidak pernah
+berbeda dari command yang akan diterima node. Saat draining/drained — baik
+menurut intent maupun status yang dilaporkan — node hanya ditawari kedua
+command itu; workload lain menunggu sampai node kembali `active`. Setelah
+`DrainNode` selesai, agent sendiri berpindah ke `drained` ketika tidak ada
+pekerjaan berjalan dan melaporkannya lewat heartbeat; `desired_state` tetap
+`draining` sampai admin me-resume. `ResumeNode` yang gagal preflight
+(`runtime_preflight_failed`) mengembalikan `desired_state` ke `drained`.
+`capacity` pada result `ResumeNode` hanya telemetri, bukan izin melewati
+batas node. `maintenance` belum dapat diminta lewat API.
+
+Status `offline` tidak pernah dikirim agent; control plane menurunkannya bila
+heartbeat lebih lama dari `SAKALA_AGENT_OFFLINE_AFTER_SECONDS`
+(`agent:mark-offline-nodes`, tiap menit). Node offline tidak ditawari command
+apa pun; heartbeat berikutnya memulihkan status yang dilaporkan.
+
 ### Polling
 
 ```json
@@ -90,8 +109,10 @@ dilaporkan heartbeat.
 Polling **tidak** memberi kepemilikan. Sebuah command ditawarkan ke node bila:
 
 - node `auth_status = active`, protocol revision didukung, dan status yang
-  dilaporkan `ready`/`busy`/`degraded`;
-- `desired_state = active`, atau command bertipe `DrainNode`/`ResumeNode`;
+  dilaporkan bukan `offline`;
+- untuk command workload: status yang dilaporkan `ready`/`busy`/`degraded`
+  dan `desired_state = active`; `DrainNode`/`ResumeNode` juga ditawarkan saat
+  draining/drained/maintenance;
 - command `Pending`, `available_at <= now`, dan `expires_at` belum lewat;
 - command terikat ke node (`agent_node_id = node`), atau belum terikat dan
   tipenya bukan *pinned* (`InspectProject`, `DeployProject`, `CleanupRuntime`,
@@ -283,5 +304,5 @@ Lihat README di folder tersebut.
 
 Bagian kontrak v4 berikut belum diimplementasikan dan akan menyusul pada
 milestone #55: alur `InspectProject` saat membuat project, lease
-expiry/recovery, admin drain/resume/cleanup/reconcile, serta log runtime
-setelah `complete`.
+expiry/recovery, admin cleanup/reconcile, serta log runtime setelah
+`complete`.

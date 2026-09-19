@@ -69,6 +69,7 @@ test('the MVP domain schema exposes its required tables and columns', function (
             'last_seen_at',
         ]))->toBeTrue()
         ->and(Schema::hasTable('agent_command_reports'))->toBeTrue()
+        ->and(Schema::hasTable('agent_node_control_requests'))->toBeTrue()
         ->and(Schema::hasTable('deployment_events'))->toBeTrue()
         ->and(Schema::hasTable('deployment_logs'))->toBeTrue()
         ->and(Schema::hasTable('audit_events'))->toBeTrue();

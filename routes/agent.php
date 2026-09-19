@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Agent\AgentController;
+use App\Http\Controllers\Api\V1\Agent\AgentNodeControlController;
 use App\Http\Middleware\EnsureAgentToken;
 use App\Http\Middleware\LimitAgentHeartbeatPayload;
 use App\Http\Middleware\LimitAgentReportPayload;
@@ -21,6 +22,8 @@ Route::prefix('agent/v1')->group(function (): void {
         Route::get('agents/{agent}', [AgentController::class, 'show'])->whereUuid('agent');
         Route::post('agents/{agent}/rotate', [AgentController::class, 'rotate'])->whereUuid('agent');
         Route::post('agents/{agent}/revoke', [AgentController::class, 'revoke'])->whereUuid('agent');
+        Route::post('agents/{agent}/drain', [AgentNodeControlController::class, 'drain'])->whereUuid('agent');
+        Route::post('agents/{agent}/resume', [AgentNodeControlController::class, 'resume'])->whereUuid('agent');
     });
 
     // Machine routes for agent heartbeat, command polling, and lifecycle (Bearer token auth)

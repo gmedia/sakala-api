@@ -4,13 +4,18 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Admin;
 
-use App\Data\Admin\ProjectControlData;
+use App\Data\Admin\AgentNodeControlData;
 use App\Http\Requests\Concerns\HandlesIdempotencyKeyHeader;
 use Illuminate\Foundation\Http\FormRequest;
 
-abstract class ProjectControlRequest extends FormRequest
+abstract class AgentNodeControlRequest extends FormRequest
 {
     use HandlesIdempotencyKeyHeader;
+
+    public function authorize(): bool
+    {
+        return $this->user()?->can('update', $this->route('agent')) === true;
+    }
 
     /** @return array<string, array<int, string>> */
     public function rules(): array
@@ -20,11 +25,11 @@ abstract class ProjectControlRequest extends FormRequest
         ];
     }
 
-    public function toData(): ProjectControlData
+    public function toData(): AgentNodeControlData
     {
-        return new ProjectControlData(
+        return new AgentNodeControlData(
             reason: (string) $this->validated('reason'),
-            idempotencyKey: $this->getIdempotencyKey()
+            idempotencyKey: $this->getIdempotencyKey(),
         );
     }
 }

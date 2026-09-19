@@ -27,10 +27,15 @@ final class ClaimAgentCommandAction
      * Returns the claimed command, or null when the command is not claimable
      * (state/eligibility conflict).
      *
-     * The node is re-fetched (not the middleware's copy) because its state
-     * can change between the agent's poll and its claim (e.g. the node went
-     * draining or lost capabilities). Polling gives no ownership, so a node
-     * that is no longer eligible must fail the claim.
+     * The node is re-fetched under its row lock (not the middleware's copy)
+     * because its state can change between the agent's poll and its claim
+     * (e.g. the node went draining or lost capabilities). Polling gives no
+     * ownership, so a node that is no longer eligible must fail the claim.
+     * The lock serialises claims with admin lifecycle changes, offline
+     * derivation, and heartbeats on the same node row: whichever acquires
+     * it first defines the order — a claim that wins is legitimately
+     * in-flight before a drain; a drain that wins makes the claim observe
+     * the new intent and conflict.
      *
      * The transition is a single guarded UPDATE (WHERE status = Pending) —
      * the atomic primitive endorsed by the agent contract. No two processes
@@ -43,11 +48,12 @@ final class ClaimAgentCommandAction
     public function handle(AgentNode $agent, string $commandId): AgentCommand
     {
         return DB::transaction(function () use ($agent, $commandId): AgentCommand {
-            // Re-read the node: middleware loaded it at the start of the
-            // request, and a heartbeat may have changed its status or
-            // capabilities since.
+            // Re-read the node under lock: middleware loaded it at the
+            // start of the request, and a heartbeat or an admin drain may
+            // have changed its status, capabilities, or desired state since.
             $node = AgentNode::query()
                 ->whereKey($agent->id)
+                ->lockForUpdate()
                 ->firstOrFail();
 
             $command = AgentCommand::query()

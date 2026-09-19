@@ -21,7 +21,7 @@ dalam menit (default `60`).
 
 - `SAKALA_AGENT_COMMAND_BATCH_SIZE`: jumlah maksimum command per response polling.
 - `SAKALA_AGENT_SUPPORTED_PROTOCOL_VERSIONS`: daftar protocol revision (dipisah koma) yang boleh menerima command; default `4`. Node dengan revisi lain tetap dapat heartbeat tetapi tidak dijadwalkan.
-- `SAKALA_AGENT_OFFLINE_AFTER_SECONDS`: node yang heartbeat terakhirnya lebih lama dari ini tidak dipilih sebagai target command baru; default `60`.
+- `SAKALA_AGENT_OFFLINE_AFTER_SECONDS`: node yang heartbeat terakhirnya lebih lama dari ini tidak dipilih sebagai target command baru dan ditandai `offline` oleh `agent:mark-offline-nodes`; default `60`.
 
 ## Deployments
 

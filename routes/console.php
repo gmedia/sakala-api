@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Console\Commands\AssignAgentCommandsCommand;
 use App\Console\Commands\CollectUsageSignalsCommand;
+use App\Console\Commands\MarkOfflineAgentNodesCommand;
 use App\Console\Commands\PruneDeploymentLogsCommand;
 use App\Console\Commands\PruneUsageSignalsCommand;
 use Illuminate\Foundation\Inspiring;
@@ -11,6 +12,11 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::command(AssignAgentCommandsCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(MarkOfflineAgentNodesCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();

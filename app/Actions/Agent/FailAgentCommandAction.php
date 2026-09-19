@@ -7,6 +7,7 @@ namespace App\Actions\Agent;
 use App\Actions\Deployment\TransitionDeploymentAction;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\AgentNodeDesiredState;
 use App\Enums\DeploymentStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
@@ -98,6 +99,15 @@ final class FailAgentCommandAction
                         failureData: $this->failureClassifier->classify($errorCode),
                     );
                 }
+            }
+
+            if ($command->type === AgentCommandType::ResumeNode) {
+                // Preflight failed: the node never became active, so the
+                // desired state must not claim otherwise across restarts.
+                AgentNode::query()
+                    ->whereKey($agent->id)
+                    ->where('desired_state', AgentNodeDesiredState::Active)
+                    ->update(['desired_state' => AgentNodeDesiredState::Drained]);
             }
 
             if ($command->type->isNodeLevel()) {
