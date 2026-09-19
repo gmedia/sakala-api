@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\RuntimeStatus;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -129,4 +130,25 @@ test('Pagination links preserve query string', function () {
     expect($next)->toContain('page=2');
     expect($next)->toContain('filter=7_days');
     expect($next)->toContain('per_page=5');
+});
+
+test('project collection returns correctly typed nullable and enum fields', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->create([
+        'user_id' => $user->id,
+        'github_repository_id' => 123,
+        'thumbnail_url' => null,
+        'runtime_status' => RuntimeStatus::Crashed,
+        'last_deployed_at' => null,
+    ]);
+
+    $this->actingAs($user, 'web');
+
+    $this->getJson('/api/v1/app/projects')
+        ->assertOk()
+        ->assertJsonPath('data.0.github_repository_id', 123)
+        ->assertJsonPath('data.0.thumbnail_url', null)
+        ->assertJsonPath('data.0.runtime_status', 'crashed')
+        ->assertJsonPath('data.0.last_deployed_at', null);
 });
