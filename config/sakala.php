@@ -32,6 +32,10 @@ return [
         ))),
         // A node whose last heartbeat is older than this is not scheduled work.
         'offline_after_seconds' => (int) env('SAKALA_AGENT_OFFLINE_AFTER_SECONDS', 60),
+        // Added to a command's execution timeout to form its lease after
+        // claim; covers the agent's post-commit finalization grace and HTTP
+        // round trips before the control plane treats the command as abandoned.
+        'lease_grace_seconds' => (int) env('SAKALA_AGENT_LEASE_GRACE_SECONDS', 60),
     ],
 
     'deployments' => [

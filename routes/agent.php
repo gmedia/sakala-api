@@ -24,6 +24,7 @@ Route::prefix('agent/v1')->group(function (): void {
         Route::post('agents/{agent}/revoke', [AgentController::class, 'revoke'])->whereUuid('agent');
         Route::post('agents/{agent}/drain', [AgentNodeControlController::class, 'drain'])->whereUuid('agent');
         Route::post('agents/{agent}/resume', [AgentNodeControlController::class, 'resume'])->whereUuid('agent');
+        Route::post('agents/{agent}/cleanup', [AgentNodeControlController::class, 'cleanup'])->whereUuid('agent');
     });
 
     // Machine routes for agent heartbeat, command polling, and lifecycle (Bearer token auth)

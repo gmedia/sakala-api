@@ -59,6 +59,7 @@ test('the MVP domain schema exposes its required tables and columns', function (
             'idempotency_key',
             'available_at',
             'expires_at',
+            'lease_expires_at',
         ]))->toBeTrue()
         ->and(Schema::hasTable('oauth_accounts'))->toBeTrue()
         ->and(Schema::hasTable('environment_variables'))->toBeTrue()

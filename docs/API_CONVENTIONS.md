@@ -77,7 +77,7 @@ Scramble menginfer dokumentasi dari route, validation rules pada Form Request, r
 
 `DeploymentResource` menyertakan `agent_node_id` (node target yang dipin control plane), `applied_resources` (resource yang benar-benar diterapkan agent, `null` sampai command selesai), serta `finalization_deferred` dan `finalization_deferred_reason` (`grace_elapsed` atau `runtime_error`) bila agent men-commit route tetapi tidak sempat merapikan workload lama; control plane lalu mengirim `StopProject` untuk workload tersebut. `image_reference` diisi dari metadata event `deployment.runtime.ready`.
 
-Kategori `failure.category` kini juga mengenal `node` (runtime node tidak siap: preflight, dependency, konfigurasi, atau command tidak didukung).
+Kategori `failure.category` juga mengenal `node` (runtime node tidak siap: preflight, dependency, konfigurasi, atau command tidak didukung), `timeout` untuk `command_lease_expired` (node tidak menyelesaikan command sebelum lease habis), dan `scheduling` untuk `command_expired` (command tidak diambil node sebelum batas ketersediaan).
 
 ## Project Control
 
@@ -157,6 +157,12 @@ Idempotency key yang sama tidak boleh digunakan kembali untuk request dengan ide
 Header `Idempotency-Key` opsional dengan semantik yang sama dengan project control: identitas request = node + action + actor + reason; key yang sama mengembalikan command yang sama tanpa record/audit baru, key yang dipakai ulang untuk identitas berbeda → `409`. `AgentNodeControlRequest` adalah record durable-nya. Ditolak `409` bila node tidak `active` (auth), sudah berada di desired state yang diminta, atau masih ada lifecycle command yang belum selesai.
 
 `AgentResource` menyertakan `desired_state`, `protocol_version`, dan `last_seen_at` untuk admin.
+
+`POST /api/agent/v1/agents/{agent}/cleanup` (Sanctum, admin) membuat `CleanupRuntime` dengan body `reason` dan `targets[]` (`stale_workspaces`, `stale_images`, `stale_routes`; distinct, minimal satu). Field `approved` dilarang dari client — API yang menuliskannya. `409` bila node tidak aktif/eligible atau cleanup lain masih berjalan.
+
+## Project Reconciliation
+
+`POST /api/v1/admin/projects/{project}/reconcile` (admin) membuat `ReconcileWorkload` untuk node yang melayani deployment `succeeded` terakhir. Body `reason`, `desired_state` (`running`|`stopped`|`missing`), dan `actions[]` (boleh kosong; nilai `restart_log_follower`, `cleanup_failed_candidate`, `restore_route`). Payload dikirim apa adanya — API tidak menyimpulkan aksi mutatif. Response `202` `ProjectControlResource`; `ProjectControlRequest` dengan action `reconcile` menjadi record idempotency (identitas = project + actor + reason + desired_state + actions). `409` untuk project suspended, tanpa workload terlayani, atau reconciliation yang masih berjalan.
 
 ## Profile Contract
 

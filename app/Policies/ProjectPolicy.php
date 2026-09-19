@@ -89,4 +89,13 @@ final class ProjectPolicy
     {
         return false;
     }
+
+    /**
+     * Determine whether the user can request workload reconciliation.
+     * Admin-only via before().
+     */
+    public function reconcile(User $user, Project $project): bool
+    {
+        return false;
+    }
 }

@@ -68,6 +68,7 @@ final class ChangeAgentNodeLifecycleAction
             [$type, $desired] = match ($action) {
                 AgentNodeControlAction::Drain => [AgentCommandType::DrainNode, AgentNodeDesiredState::Draining],
                 AgentNodeControlAction::Resume => [AgentCommandType::ResumeNode, AgentNodeDesiredState::Active],
+                AgentNodeControlAction::Cleanup => throw new \LogicException('Cleanup is not a lifecycle change.'),
             };
 
             if ($this->hasLifecycleCommandInFlight($locked)) {

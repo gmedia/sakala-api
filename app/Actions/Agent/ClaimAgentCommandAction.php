@@ -77,6 +77,7 @@ final class ClaimAgentCommandAction
                 ->update([
                     'status' => AgentCommandStatus::Claimed->value,
                     'claimed_at' => now(),
+                    'lease_expires_at' => now()->addSeconds($this->leaseSeconds($command)),
                     'attempts' => $command->attempts + 1,
                     'agent_node_id' => $command->agent_node_id ?? $node->id,
                     'updated_at' => now(),
@@ -95,6 +96,22 @@ final class ClaimAgentCommandAction
 
             return $command->fresh();
         });
+    }
+
+    /**
+     * The lease is the agent's execution deadline for this command plus a
+     * grace window. Past it, the control plane treats the command as
+     * abandoned and recovers it (see ExpireAgentCommandsAction).
+     */
+    private function leaseSeconds(AgentCommand $command): int
+    {
+        $timeout = $command->payload['timeouts']['command_timeout_seconds'] ?? null;
+
+        if (! is_int($timeout) || $timeout <= 0) {
+            $timeout = (int) config('sakala.pilot_limits.timeouts.command_timeout_seconds', 900);
+        }
+
+        return $timeout + (int) config('sakala.agent.lease_grace_seconds', 60);
     }
 
     /**
