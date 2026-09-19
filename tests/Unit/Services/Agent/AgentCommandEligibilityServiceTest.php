@@ -25,16 +25,30 @@ function makeNode(
     ]);
 }
 
-test('node is command-eligible only for ready, busy, and degraded states', function (): void {
+test('every reported state except offline can still receive lifecycle commands', function (): void {
     $service = new AgentCommandEligibilityService;
 
-    expect($service->nodeIsCommandEligible(makeNode(AgentNodeStatus::Ready, [])))->toBeTrue()
-        ->and($service->nodeIsCommandEligible(makeNode(AgentNodeStatus::Busy, [])))->toBeTrue()
-        ->and($service->nodeIsCommandEligible(makeNode(AgentNodeStatus::Degraded, [])))->toBeTrue()
-        ->and($service->nodeIsCommandEligible(makeNode(AgentNodeStatus::Draining, [])))->toBeFalse()
-        ->and($service->nodeIsCommandEligible(makeNode(AgentNodeStatus::Drained, [])))->toBeFalse()
-        ->and($service->nodeIsCommandEligible(makeNode(AgentNodeStatus::Maintenance, [])))->toBeFalse()
-        ->and($service->nodeIsCommandEligible(makeNode(AgentNodeStatus::Offline, [])))->toBeFalse();
+    foreach ([AgentNodeStatus::Ready, AgentNodeStatus::Busy, AgentNodeStatus::Degraded, AgentNodeStatus::Draining, AgentNodeStatus::Drained, AgentNodeStatus::Maintenance] as $status) {
+        expect($service->nodeIsCommandEligible(makeNode($status, [])))->toBeTrue($status->value);
+    }
+
+    expect($service->nodeIsCommandEligible(makeNode(AgentNodeStatus::Offline, [])))->toBeFalse();
+});
+
+test('only ready, busy, and degraded nodes accept workload', function (): void {
+    $service = new AgentCommandEligibilityService;
+
+    expect($service->nodeAcceptsWorkload(makeNode(AgentNodeStatus::Ready, [])))->toBeTrue()
+        ->and($service->nodeAcceptsWorkload(makeNode(AgentNodeStatus::Busy, [])))->toBeTrue()
+        ->and($service->nodeAcceptsWorkload(makeNode(AgentNodeStatus::Degraded, [])))->toBeTrue();
+
+    foreach ([AgentNodeStatus::Draining, AgentNodeStatus::Drained, AgentNodeStatus::Maintenance, AgentNodeStatus::Offline] as $status) {
+        $node = makeNode($status, ['docker-runtime']);
+
+        expect($service->nodeAcceptsWorkload($node))->toBeFalse($status->value)
+            ->and($service->nodeIsEligibleFor($node, AgentCommandType::HealthCheck))->toBeFalse($status->value)
+            ->and($service->nodeIsEligibleFor($node, AgentCommandType::ResumeNode))->toBe($status !== AgentNodeStatus::Offline, $status->value);
+    }
 });
 
 test('node has capability when it intersects the required set', function (): void {

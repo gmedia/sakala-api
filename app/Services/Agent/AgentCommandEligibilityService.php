@@ -62,24 +62,28 @@ final class AgentCommandEligibilityService
 
     /**
      * Whether the node may receive any command at all: authorised, on a
-     * supported protocol revision, and in an operational reported state.
-     * Offline nodes are not.
+     * supported protocol revision, and heard from recently enough that it
+     * is not derived offline. A draining or drained node is still reachable
+     * for its own lifecycle commands.
      */
     public function nodeIsCommandEligible(AgentNode $node): bool
     {
         return $node->auth_status === AgentAuthStatus::Active
             && $this->nodeSpeaksSupportedProtocol($node)
-            && in_array($node->status, $this->activeNodeStatuses(), true);
+            && $node->status !== AgentNodeStatus::Offline;
     }
 
     /**
-     * Whether the node may receive workload (project) commands. Nodes whose
-     * desired state is draining, drained, or maintenance only receive node
-     * lifecycle commands, matching what the agent processes locally.
+     * Whether the node may receive workload (project) commands: reachable,
+     * reporting an operational status, and intended to be active. Nodes
+     * that are draining, drained, or in maintenance — by intent or by their
+     * own report — only receive node lifecycle commands, matching what the
+     * agent processes locally.
      */
     public function nodeAcceptsWorkload(AgentNode $node): bool
     {
         return $this->nodeIsCommandEligible($node)
+            && in_array($node->status, $this->activeNodeStatuses(), true)
             && $node->desired_state === AgentNodeDesiredState::Active;
     }
 

@@ -23,6 +23,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `agent_nodes` | Identitas runtime node, token hash, capability, protocol revision, desired lifecycle state, dan heartbeat terakhir. |
 | `agent_commands` | Durable command queue antara API dan agent. |
 | `agent_command_reports` | Event/log append-only untuk command tanpa deployment (InspectProject, CleanupRuntime, DrainNode, ResumeNode). |
+| `agent_node_control_requests` | Record idempotency operasi admin pada runtime node (drain, resume); terpisah dari `project_control_requests` yang project-scoped. |
 | `deployment_events` | Timeline state yang dilaporkan agent. |
 | `deployment_logs` | Output redacted dari build/runtime. |
 | `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. |
@@ -77,7 +78,7 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 
 ## Node Lifecycle dan Protocol
 
-`agent_nodes.status` adalah state yang dilaporkan agent lewat heartbeat; `agent_nodes.desired_state` adalah intent control plane (`active`, `draining`, `drained`, `maintenance`) yang dibaca agent melalui `GET /api/agent/v1/node-state` saat bootstrap. Keduanya sengaja dipisah: perubahan desired state harus tersimpan atomik sebelum command `DrainNode`/`ResumeNode` dibuat, sedangkan status hanya ditulis oleh heartbeat.
+`agent_nodes.status` adalah state yang dilaporkan agent lewat heartbeat; `agent_nodes.desired_state` adalah intent control plane (`active`, `draining`, `drained`, `maintenance`) yang dibaca agent melalui `GET /api/agent/v1/node-state` saat bootstrap. Keduanya sengaja dipisah: `ChangeAgentNodeLifecycleAction` mengunci node dan menulis desired state dalam transaction yang sama dengan pembuatan `DrainNode`/`ResumeNode`, sedangkan status hanya ditulis oleh heartbeat — kecuali `offline`, yang diturunkan `agent:mark-offline-nodes` (lock per node, dilewati bila heartbeat masuk di antara scan dan lock) memakai index `(status, last_seen_at)` yang sudah ada. Index `agent_node_control_requests (agent_node_id, action)` dan `(actor_type, actor_id)` mengikuti pola `project_control_requests`.
 
 `agent_nodes.protocol_version` diambil dari `metadata.protocol_version` heartbeat dan dibandingkan dengan `sakala.agent.supported_protocol_versions`. Node dengan revisi yang tidak didukung (atau belum pernah heartbeat) tetap bisa online tetapi tidak eligible menerima command. Tidak ada index tambahan untuk kedua kolom ini: jumlah node pada pilot kecil dan pemilihan node sudah memakai index `(status, last_seen_at)`.
 

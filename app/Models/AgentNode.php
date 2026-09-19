@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
+use Carbon\CarbonImmutable;
 use Database\Factories\AgentNodeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -20,6 +21,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property AgentNodeStatus $status
  * @property AgentNodeDesiredState $desired_state
  * @property int|null $protocol_version
+ * @property CarbonImmutable|null $registered_at
+ * @property CarbonImmutable|null $last_seen_at
  * @property array<int, string>|null $capabilities
  */
 #[Fillable([
@@ -51,6 +54,10 @@ class AgentNode extends Model
             if (! isset($node->attributes['status'])) {
                 $node->status = AgentNodeStatus::Offline;
             }
+
+            if (! isset($node->attributes['desired_state'])) {
+                $node->desired_state = AgentNodeDesiredState::Active;
+            }
         });
     }
 
@@ -64,6 +71,12 @@ class AgentNode extends Model
     public function commands(): HasMany
     {
         return $this->hasMany(AgentCommand::class);
+    }
+
+    /** @return HasMany<AgentNodeControlRequest, $this> */
+    public function controlRequests(): HasMany
+    {
+        return $this->hasMany(AgentNodeControlRequest::class);
     }
 
     /** @return array<string, string> */
