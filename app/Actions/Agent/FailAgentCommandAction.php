@@ -9,7 +9,6 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\DeploymentStatus;
-use App\Enums\ProjectInspectionStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
@@ -17,6 +16,7 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Deployment\DeploymentFailureClassifier;
+use App\Services\Project\ProjectInspectionOutcomeService;
 use Illuminate\Support\Facades\DB;
 
 final class FailAgentCommandAction
@@ -28,6 +28,7 @@ final class FailAgentCommandAction
     public function __construct(
         private readonly DeploymentFailureClassifier $failureClassifier,
         private readonly TransitionDeploymentAction $transitionDeploymentAction,
+        private readonly ProjectInspectionOutcomeService $inspectionOutcome,
     ) {}
 
     /**
@@ -102,21 +103,10 @@ final class FailAgentCommandAction
                 }
             }
 
-            if ($command->type === AgentCommandType::InspectProject && $command->project_id !== null) {
-                // A newer inspection supersedes this one; only the latest
-                // command may write the project's preview state.
-                $isStale = AgentCommand::query()
-                    ->where('project_id', $command->project_id)
-                    ->where('type', AgentCommandType::InspectProject)
-                    ->where('created_at', '>', $command->created_at)
-                    ->exists();
-
-                if (! $isStale) {
-                    Project::query()->whereKey($command->project_id)->update([
-                        'inspection_status' => ProjectInspectionStatus::Failed->value,
-                        'inspection_error_code' => $errorCode,
-                    ]);
-                }
+            if ($command->type === AgentCommandType::InspectProject) {
+                // Locks the project before the stale check so a newer
+                // inspection can never be overwritten by this late failure.
+                $this->inspectionOutcome->recordFailure($command, $errorCode);
             }
 
             if ($command->type === AgentCommandType::ResumeNode) {
