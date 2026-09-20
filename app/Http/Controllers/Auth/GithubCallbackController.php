@@ -24,7 +24,7 @@ final class GithubCallbackController extends Controller
         GithubAppOAuthService $oauth,
     ): RedirectResponse {
         if ($request->query('error') !== null) {
-            return $this->redirectToLoginError(
+            return $this->redirectToOAuthError(
                 $consoleAuthenticationRedirect,
                 $request->query('error') === 'access_denied'
                     ? GithubOAuthFailure::AccessDenied
@@ -36,14 +36,14 @@ final class GithubCallbackController extends Controller
             $identity = $oauth->identityFromCallback($request);
             $user = $syncGithubOAuthIdentity->handle($identity);
         } catch (GithubOAuthIdentityException $exception) {
-            return $this->redirectToLoginError(
+            return $this->redirectToOAuthError(
                 $consoleAuthenticationRedirect,
                 $exception->failure,
             );
         } catch (Throwable $exception) {
             report($exception);
 
-            return $this->redirectToLoginError(
+            return $this->redirectToOAuthError(
                 $consoleAuthenticationRedirect,
                 GithubOAuthFailure::ProviderFailure,
             );
@@ -52,13 +52,13 @@ final class GithubCallbackController extends Controller
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
-        return redirect()->away($consoleAuthenticationRedirect->dashboard());
+        return redirect()->away($consoleAuthenticationRedirect->githubOAuthCallback());
     }
 
-    private function redirectToLoginError(
+    private function redirectToOAuthError(
         ConsoleAuthenticationRedirect $consoleAuthenticationRedirect,
         GithubOAuthFailure $failure,
     ): RedirectResponse {
-        return redirect()->away($consoleAuthenticationRedirect->loginError($failure));
+        return redirect()->away($consoleAuthenticationRedirect->githubOAuthCallbackError($failure));
     }
 }

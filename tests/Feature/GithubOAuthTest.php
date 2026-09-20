@@ -10,6 +10,7 @@ use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpFoundation\Cookie;
 
 uses(LazilyRefreshDatabase::class);
 
@@ -53,25 +54,56 @@ test('GitHub App callback creates a user and starts a console session', function
 
     $this->withSession(['github_app_oauth_state' => $state])
         ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => $state]))
-        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback');
 
     $user = User::query()->sole();
     $this->assertAuthenticatedAs($user, 'web');
+    $this->getJson(route('api.v1.auth.user'))
+        ->assertOk()
+        ->assertJsonPath('data.id', $user->id)
+        ->assertJsonMissingPath('data.token')
+        ->assertJsonMissingPath('token');
+
     $account = OAuthAccount::query()->sole();
     expect($account->access_token)->toBe('ghu_test_token')
         ->and($account->refresh_token)->toBe('ghr_test_token')
         ->and($account->token_expires_at)->not->toBeNull();
 });
 
+test('successful GitHub callback rotates the session identifier', function (): void {
+    $redirectResponse = $this->get(route('auth.github.redirect'));
+    $oldSessionCookie = $redirectResponse->getCookie((string) config('session.cookie'));
+
+    expect($oldSessionCookie)->toBeInstanceOf(Cookie::class);
+
+    if (! $oldSessionCookie instanceof Cookie) {
+        return;
+    }
+
+    fakeGithubAppIdentity();
+    $state = (string) session('github_app_oauth_state');
+
+    $callbackResponse = $this->withCookie($oldSessionCookie->getName(), $oldSessionCookie->getValue())
+        ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => $state]))
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback');
+    $newSessionCookie = $callbackResponse->getCookie((string) config('session.cookie'), false);
+
+    expect($newSessionCookie)->toBeInstanceOf(Cookie::class);
+
+    if ($newSessionCookie instanceof Cookie) {
+        expect($newSessionCookie->getValue())->not->toBe($oldSessionCookie->getValue());
+    }
+});
+
 test('GitHub App callback rejects invalid state', function (): void {
     $this->withSession(['github_app_oauth_state' => 'expected'])
         ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'wrong']))
-        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_invalid_state');
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback?error=github_invalid_state');
 });
 
 test('GitHub App callback rejects missing state even when both values are absent', function (): void {
     $this->get(route('auth.github.callback', ['code' => 'oauth-code']))
-        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_invalid_state');
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback?error=github_invalid_state');
 });
 
 test('a returning GitHub identity uses its existing user without creating duplicates', function (): void {
@@ -84,7 +116,7 @@ test('a returning GitHub identity uses its existing user without creating duplic
 
     $this->withSession(['github_app_oauth_state' => 'state'])
         ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'state']))
-        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback');
 
     $this->assertAuthenticatedAs($user, 'web');
     expect(User::query()->count())->toBe(1)
@@ -98,15 +130,18 @@ test('a GitHub email cannot silently link an existing account without its provid
 
     $this->withSession(['github_app_oauth_state' => 'state'])
         ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'state']))
-        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_email_conflict');
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback?error=github_email_conflict');
 
     $this->assertGuest('web');
     expect(OAuthAccount::query()->count())->toBe(0);
 });
 
 test('a denied GitHub consent returns a safe recovery redirect', function (): void {
-    $this->get(route('auth.github.callback', ['error' => 'access_denied']))
-        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_access_denied');
+    $this->get(route('auth.github.callback', [
+        'error' => 'access_denied',
+        'error_description' => 'private provider details',
+        'access_token' => 'ghu-sensitive-token',
+    ]))->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback?error=github_access_denied');
 
     $this->assertGuest('web');
 });
@@ -120,7 +155,21 @@ test('GitHub App callback requires a verified primary email', function (): void 
 
     $this->withSession(['github_app_oauth_state' => 'state'])
         ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'state']))
-        ->assertRedirect('http://app.sakala.localhost:5173/login?error=github_email_unavailable');
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback?error=github_email_unavailable');
+});
+
+test('GitHub callback hides unexpected provider failures', function (): void {
+    Http::fake([
+        'https://github.com/login/oauth/access_token' => Http::response([
+            'message' => 'private provider details',
+        ], 500),
+    ]);
+
+    $this->withSession(['github_app_oauth_state' => 'state'])
+        ->get(route('auth.github.callback', ['code' => 'oauth-code', 'state' => 'state']))
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback?error=github_provider_failure');
+
+    $this->assertGuest('web');
 });
 
 test('an expired GitHub App user token is refreshed before it is used', function (): void {
@@ -198,7 +247,7 @@ test('GitHub App callback retries with another username when generated username 
             'code' => 'oauth-code',
             'state' => 'state',
         ]))
-        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback');
 
     $user = User::query()
         ->where('email', 'builder@example.test')
@@ -236,7 +285,7 @@ test('GitHub App callback retries user creation after a username collision', fun
             'code' => 'oauth-code',
             'state' => 'state',
         ]))
-        ->assertRedirect('http://app.sakala.localhost:5173/dashboard');
+        ->assertRedirect('http://app.sakala.localhost:5173/auth/github/callback');
 
     $user = User::query()
         ->where('email', 'builder@example.test')
@@ -261,7 +310,7 @@ test('GitHub App callback does not retry when email already exists', function ()
             'state' => 'state',
         ]))
         ->assertRedirect(
-            'http://app.sakala.localhost:5173/login?error=github_email_conflict'
+            'http://app.sakala.localhost:5173/auth/github/callback?error=github_email_conflict'
         );
 
     expect(User::query()->count())->toBe(1)

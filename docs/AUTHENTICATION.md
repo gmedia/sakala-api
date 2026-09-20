@@ -84,7 +84,8 @@ Flow browser:
 5. Jika identitas belum ada, API membuat user baru dari email GitHub yang terverifikasi dan membuat `OAuthAccount`.
 6. Jika email sudah dipakai user lain tanpa identity GitHub yang sama, API tidak melakukan account linking otomatis.
 7. Laravel membuat session baru dan meregenerasi session ID.
-8. API mengarahkan browser kembali ke Console tanpa credential pada URL.
+8. API mengarahkan browser kembali ke `SAKALA_CONSOLE_URL/auth/github/callback`
+   tanpa credential pada URL.
 9. Console mengambil user melalui `GET /api/v1/auth/user`.
 
 GitHub App tidak memakai OAuth scope URL. Permission user dan repository
@@ -123,8 +124,9 @@ halaman Configure GitHub yang sesuai untuk akun personal atau organisasi. Saat
 GitHub mengirim setup callback setelah perubahan, API kembali memverifikasi
 akses user sebelum memperbarui relasi installation.
 
-Callback yang gagal selalu mengarahkan user ke halaman login Console dengan
-kode error non-sensitif: `github_access_denied`, `github_invalid_state`,
+Callback yang gagal selalu mengarahkan user ke
+`SAKALA_CONSOLE_URL/auth/github/callback` dengan query `error` berisi kode
+error non-sensitif: `github_access_denied`, `github_invalid_state`,
 `github_email_unavailable`, `github_email_conflict`, atau
 `github_provider_failure`. Kegagalan tidak mengembalikan bearer token,
 personal access token, detail provider, maupun credential pada URL.

@@ -13,6 +13,16 @@ final class ConsoleAuthenticationRedirect
         return $this->url('/dashboard');
     }
 
+    public function githubOAuthCallback(): string
+    {
+        return $this->url('/auth/github/callback');
+    }
+
+    public function githubOAuthCallbackError(BackedEnum $failure): string
+    {
+        return $this->url('/auth/github/callback', ['error' => (string) $failure->value]);
+    }
+
     public function emailVerificationSuccess(): string
     {
         return $this->url('/email-verified', ['status' => 'success']);
