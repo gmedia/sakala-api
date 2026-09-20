@@ -4,7 +4,9 @@ Kontrak machine protocol antara `sakala-api` dan `sakala-agent`. Dokumen ini
 menjelaskan apa yang **diimplementasikan API**; wire type normatif berada di
 `sakala-agent` (`crates/sakala-agent-protocol`, `docs/AGENT_API.md`,
 `docs/COMMAND_LIFECYCLE.md`, `docs/COMPATIBILITY.md`). Target kompatibilitas
-saat ini adalah **sakala-agent v0.1.0, protocol revision 4**.
+saat ini adalah **sakala-agent v0.2.0, protocol revision 4** (revisi
+protocol tidak berubah dari v0.1.0; v0.2.0 mengadopsi kemampuan API yang
+sebelumnya opsional).
 
 Machine protocol berada di `/api/agent/v1/*`, sebuah route family yang
 diversikan terpisah dari app API `/api/v1/*`. `v1` pada URL adalah versi
@@ -49,7 +51,7 @@ Lihat [Autentikasi](AUTHENTICATION.md) untuk provisioning, rotasi, dan revoke.
 | `POST` | `/commands/{id}/complete` | Command selesai sukses. |
 | `POST` | `/commands/{id}/fail` | Command gagal. |
 
-`{id}` adalah UUID `agent_commands.id`. Pada agent v0.1.0 hanya `node-state`
+`{id}` adalah UUID `agent_commands.id`. Pada agent v0.2.0 hanya `node-state`
 yang memiliki urutan tetap: dipanggil sekali saat bootstrap dan harus berhasil
 sebelum worker apa pun dimulai. Setelah itu heartbeat worker dan command
 poller berjalan berkala dan **independen** — tidak ada jaminan request
@@ -63,13 +65,17 @@ revoke, drain, resume, cleanup, stop, suspend, reconcile) dijelaskan di
 
 ### Heartbeat
 
-Body divalidasi sesuai payload yang dikirim binary v0.1.0 (`status`,
-`hostname`, `runtime_network`, `capabilities`, `metadata.*`, `sent_at`);
-`metadata.detail_counts` (ditambahkan agent setelah v0.1.0) dan
-`startup_reconciliation.compatibility_issues` bersifat opsional tetapi
-divalidasi bila ada. Batas body 256 KiB → `413`. Response
-`AgentHeartbeatResource`; agent tidak membaca body. Payload v0.1.0 direplay
-apa adanya oleh test dari `tests/Fixtures/agent-protocol-v4/heartbeat/`.
+Body divalidasi sesuai payload yang dikirim binary v0.2.0 (`status`,
+`hostname`, `runtime_network`, `capabilities`, `metadata.*`, `sent_at`).
+`metadata.detail_counts` (selalu dikirim sejak v0.2.0; v0.1.0 tidak
+mengirimnya) dan `startup_reconciliation.compatibility_issues` bersifat
+opsional tetapi divalidasi bila ada. Item `startup_reconciliation.stale_routes`
+divalidasi per field: `path` wajib, `project_id` dan `deployment_id` UUID
+nullable (`deployment_id` dikirim sejak v0.2.0, `null` untuk route legacy tanpa
+identitas deployment; v0.1.0 tidak mengirim field ini). Batas body 256 KiB →
+`413`. Response `AgentHeartbeatResource`; agent tidak membaca body. Payload
+v0.2.0 direplay apa adanya oleh test dari
+`tests/Fixtures/agent-protocol-v4/heartbeat/`.
 
 API menyimpan `metadata.protocol_version` ke kolom `agent_nodes.protocol_version`
 dan membandingkannya dengan `sakala.agent.supported_protocol_versions`. Node
@@ -244,6 +250,12 @@ aksi mutatif dari state.
   supaya `restore_route` tidak pernah menunjuk container lama. Result completion (`desired_state`,
   `actual_state`, `in_sync`, `drift_reason`, `actions_applied`) dicatat ke
   audit `project.reconcile_completed`; tidak ada command lanjutan otomatis.
+  Aksi `restart_log_follower` memasang follower di bawah identitas
+  `DeployProject` asli milik workload, bukan command reconcile: item
+  `actions_applied` membawa `command_id` deploy tersebut, dan log setelahnya
+  masuk ke `POST /commands/{deploy-id}/logs` — yaitu timeline deployment dari
+  command `DeployProject` yang sudah `Succeeded` (lihat "Events dan logs").
+  Audit menyimpan daftar ini sebagai `log_follower_command_ids`.
 - `POST /api/agent/v1/agents/{agent}/cleanup` → `CleanupRuntime` node-level
   dengan payload `{ "approved": true, "targets": [stale_workspaces|
   stale_images|stale_routes] }`. `approved` hanya ditulis control plane dan
@@ -326,9 +338,31 @@ transaction yang sama.
 
 ### Events dan logs
 
-Menerima satu objek (yang dipakai agent) atau batch `{ "events": [...] }` /
-`{ "logs": [...] }`. Aturan idempotency, redaction, bounds (`413`/`422`), dan
+Menerima satu objek atau batch `{ "events": [...] }` / `{ "logs": [...] }`.
+Agent v0.2.0 **hanya** mengirim bentuk batch dengan header `Idempotency-Key`
+(UUID v4 per request, dipakai ulang saat retry); bentuk satu objek tetap
+diterima untuk v0.1.0. Aturan idempotency, redaction, bounds (`413`/`422`), dan
 budget kumulatif log dijelaskan di [Konvensi API](API_CONVENTIONS.md).
+
+Response `200` **wajib** membawa acknowledgement penuh
+`{ "data": { "accepted_count", "duplicate_count", "first_sequence",
+"last_sequence" } }` dengan `accepted_count == jumlah item batch`,
+`duplicate_count <= accepted_count`, dan `last_sequence >= first_sequence`.
+Perlakuan agent v0.2.0 terhadap response report:
+
+- `200` dengan acknowledgement valid, atau `204` tanpa body: terkirim.
+- Kegagalan transport atau body-read, `408`, `429`, `5xx`: retry dengan
+  `Idempotency-Key` yang sama (backoff terbatas). Bila response pertama
+  hilang setelah API mempersist batch, retry ini dijawab
+  `duplicate_count == accepted_count` dengan sequence yang sama.
+- `200` yang body-nya terbaca tetapi parsial atau tidak sesuai kontrak
+  (`InvalidReportAcknowledgement`): batch dianggap *tidak terkirim* dan
+  delivery log command tersebut **dihentikan tanpa retry**.
+- `409`, `422`, `413`: delivery log command tersebut dihentikan tanpa retry.
+
+Batch kosong ditolak `422` sebelum acknowledgement apa pun dibentuk.
+Fixture body batch dari v0.2.0 direplay oleh
+`tests/Feature/Api/V1/Agent/AgentReportBatchTest.php`.
 
 Untuk command yang memiliki `deployment_id`, report masuk ke timeline
 deployment (`deployment_events`/`deployment_logs`) dan dibroadcast. Untuk
@@ -367,6 +401,8 @@ dengan `409`.
 
 `status` adalah `AgentCommandStatus` saat ini; `terminal_at` adalah
 `completed_at` untuk `Succeeded`, `failed_at` untuk `Failed`, selain itu `null`.
+Agent v0.2.0 membaca `terminal_at` bila ada dan menyertakannya dalam pesan
+konflik terminal; `null` ditoleransi, sehingga field ini adalah bagian kontrak.
 Payload command dan credential tidak pernah dipantulkan. Konflik
 `Idempotency-Key` pada report memakai `{ "message": "…" }` dengan `409`.
 
@@ -414,96 +450,39 @@ dilihat console (`failure.category`):
 ## Fixture
 
 `tests/Fixtures/agent-protocol-v4/` berisi payload wire dari `sakala-agent`
-v0.1.0: `commands/*.json` disalin dari `examples/commands/`, sedangkan
-`heartbeat/*.json` diambil dari contoh dokumentasi dan output builder heartbeat
-pada tag tersebut. Test mereplay payload ini apa adanya (poll harus menyajikan
-bentuk yang sama; heartbeat harus diterima) tanpa Agent atau Docker sungguhan.
-Lihat README di folder tersebut.
+v0.2.0: `commands/*.json` disalin dari `examples/commands/`, `heartbeat/*.json`
+diambil dari contoh dokumentasi dan output builder heartbeat pada tag tersebut
+(termasuk `detail_counts` dan `stale_routes[].deployment_id`), dan
+`reports/*.json` adalah body batch `events`/`logs` dari dokumentasi tag. Test
+mereplay payload ini apa adanya (poll harus menyajikan bentuk yang sama;
+heartbeat harus diterima; batch harus di-ack penuh dan retry-nya diduplikasi)
+tanpa Agent atau Docker sungguhan. Lihat README di folder tersebut.
 
 ## Belum tersedia pada API
 
 Seluruh kontrak protocol v4 yang diperlukan #55 telah diimplementasikan. Belum
-tersedia: `desired_state = maintenance` (agent v0.1.0 hanya mencapainya lewat
+tersedia: `desired_state = maintenance` (agent v0.2.0 hanya mencapainya lewat
 bootstrap), endpoint re-inspect project, dan migrasi workload lintas node.
 
 ## Catatan sinkronisasi untuk sakala-agent
 
-Bagian ini mencatat di mana API sudah lebih maju dari agent v0.1.0, atau di
-mana dokumentasi agent perlu dikoreksi, supaya rilis agent berikutnya dapat
-menyesuaikan. Tidak ada yang memblokir kompatibilitas v0.1.0.
+Bagian ini mencatat keadaan sinkronisasi pada agent v0.2.0. Seluruh catatan
+sinkronisasi yang ditujukan ke v0.1.0 (batch report + `Idempotency-Key`,
+`terminal_at`, `Claimed -> Running`, lease, offline, pinning, log setelah
+`complete`, sanitasi `fail`, `stale_routes[].deployment_id`, dan koreksi
+dokumentasi agent) telah diadopsi atau diputuskan oleh agent di v0.2.0
+(`CHANGELOG.md` `[0.2.0]`, `docs/COMPATIBILITY.md`). Tidak ada yang memblokir
+kompatibilitas v0.2.0.
 
-Sudah dikerjakan agent di `main`, tinggal rilis tag:
+Keputusan agent yang tetap berlaku:
 
-1. `metadata.detail_counts` pada heartbeat (agent commit `320b6a6`, #48,
-   mengikuti batas 256 KiB API). API menerimanya sebagai opsional dan
-   memvalidasi lengkap bila ada. `CHANGELOG.md` `[Unreleased]` agent belum
-   mencatat #48; `docs/AGENT_API.md` agent perlu memuat shape-nya bila
-   dianggap bagian kontrak.
-
-Kemampuan API yang belum dipakai agent (opsional, disarankan diadopsi):
-
-2. Batch report `{ "events": [...] }` / `{ "logs": [...] }` dengan header
-   `Idempotency-Key` per request (HMAC per item), acknowledgement
-   `{ "data": { "accepted_count", "duplicate_count", "first_sequence",
-   "last_sequence" } }`, dan retry aman. Agent mengirim satu objek per
-   request tanpa retry; `support/retry.rs` (`exponential_delay`) sudah ada
-   tetapi tidak dipakai client. Retry dengan key yang sama aman terhadap
-   command yang sudah terminal (duplikat tetap di-ack).
-3. Response `claim` membawa resource command penuh (termasuk payload yang
-   sudah dimaterialisasi). Agent mengabaikan body; kelak dapat dipakai untuk
-   materialisasi secret tanpa pinning di sisi poll.
-4. Body `409` membawa `terminal_at` (ISO-8601) selain `status`.
-
-Semantik control plane yang perlu diketahui agent:
-
-5. `Claimed -> Running` dilakukan API pada report pertama dari node pemilik;
-   agent tidak perlu memanggil apa pun.
-6. Lease: `lease_expires_at = claimed_at + command_timeout_seconds +
-   SAKALA_AGENT_LEASE_GRACE_SECONDS` (60). Setelah lewat, command menjadi
-   `Expired`; `complete`/`fail` berikutnya dijawab `409 {"status":"Expired"}`
-   dan harus diperlakukan sebagai konflik terminal (agent v0.1.0 sudah
-   melakukannya untuk status selain `Succeeded`/`Failed`).
-7. Node diturunkan `offline` bila tidak heartbeat selama
-   `SAKALA_AGENT_OFFLINE_AFTER_SECONDS` (60) dan tidak ditawari command apa
-   pun sampai heartbeat berikutnya. Interval heartbeat agent (10 s) aman.
-8. `DeployProject`/`InspectProject` adalah *pinned command type*: keduanya
-   harus punya node target yang deterministik sebelum ditawarkan atau
-   diklaim. Bila saat dibuat belum ada node eligible, command dibuat dengan
-   `agent_node_id = null`, tidak terlihat oleh node mana pun, dan menunggu
-   penugasan oleh sweep `agent:assign-commands` atau heartbeat node yang
-   menjadi eligible. Payload sensitif (`environment` plaintext) hanya
-   dimaterialisasi untuk node target tersebut. Project yang sudah berjalan
-   di sebuah node hanya dideploy ulang ke node itu.
-9. Log runtime setelah `complete` diterima hanya untuk `DeployProject`
-   (follower `docker logs --follow`), tetap dibatasi `max_total_bytes`
-   (`422` bila habis); event setelah terminal dijawab `409`. Follower yang
-   menerima `422` sebaiknya berhenti tanpa retry, seperti pada `409`.
-10. `error_code` disanitasi ke `[A-Za-z0-9._-]` (≤ 64) dan `error_message`
-    dibersihkan dari control/bidi/zero-width character (≤ 1000). Body report
-    lebih besar dari `SAKALA_LOG_MAX_REQUEST_BYTES` (1 MiB) dijawab `413`.
-11. `payload` command lifecycle selalu `{}` (object), `environment` kosong
-    selalu `{}`, dan `repository_access` selalu dikirim eksplisit.
-12. `ReconcileWorkload` diblokir untuk project suspended (fail-closed);
-    `CleanupRuntime` hanya dibuat atas persetujuan admin dengan
-    `approved: true` yang ditulis API.
-
-Koreksi untuk dokumentasi agent (tag v0.1.0):
-
-13. `docs/AGENT_API.md:185` — heading `## Polling and Claim Semantics` kosong;
-    isinya berada di bawah "Desired versus actual workload state" (`:249-289`).
-14. `docs/AGENT_API.md:205-223` — shape laporan reconciliation
-    (`{project_id, deployment_id, actual_state, reason}`, `actual_state`
-    termasuk `unhealthy`) tidak sama dengan yang dikembalikan kode
-    (`executor/docker.rs:883-948`: `{desired_state, actual_state, in_sync,
-    drift_reason, container_id, actions_applied}`, `actual_state` hanya
-    `running|stopped|missing`). API mengikuti kode.
-15. `docs/AGENT_API.md:338` — `NodeStatus::busy` tidak pernah dikirim builder
-    heartbeat (`heartbeat/worker.rs:77-94`); API tetap menerimanya.
-16. Item `stale_routes` pada heartbeat tidak memuat `deployment_id` walau
-    `RuntimeStaleRoute` memilikinya (`ports/runtime.rs:74-78` vs
-    `worker.rs:160-163`).
-17. Perilaku follower log setelah `complete` hanya ada di `docs/LOGGING.md`
-    dan `docs/RUNTIME_HARDENING.md`; `docs/AGENT_API.md` tidak menyebut bahwa
-    `/logs` dipanggil untuk command yang sudah `Succeeded`.
-18. Contoh heartbeat di `docs/AGENT_API.md:339-404` tidak memuat
-    `startup_reconciliation.compatibility_issues` yang selalu dikirim builder.
+1. Response `claim` yang membawa resource command penuh **tidak diadopsi**:
+   agent tetap memakai record hasil poll sebagai sumber payload
+   (`docs/COMPATIBILITY.md` agent). API tetap mengembalikannya; materialisasi
+   `environment` tetap dilakukan pada poll untuk node target.
+2. `NodeStatus::busy` tidak pernah dikirim builder heartbeat; API tetap
+   menerimanya.
+3. `desired_state = maintenance` hanya dicapai agent lewat bootstrap; API
+   belum mengeksposnya sebagai control request.
+4. Agent menerima `204` tanpa body pada report untuk control plane lama; API
+   selalu menjawab `200` dengan acknowledgement penuh.

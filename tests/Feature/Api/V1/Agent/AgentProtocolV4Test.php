@@ -92,7 +92,7 @@ function storeFixtureCommand(string $name, ?AgentNode $pinnedTo = null): array
 
 // ─── Protocol fixtures ───────────────────────────────────────────────────────
 
-test('poll serialises every v0.1.0 command fixture exactly as the agent expects', function (string $name): void {
+test('poll serialises every v0.2.0 command fixture exactly as the agent expects', function (string $name): void {
     $agent = v4Agent('fixture-token');
     ['command' => $command, 'fixture' => $fixture] = storeFixtureCommand($name, $agent);
 
@@ -117,7 +117,7 @@ test('poll serialises every v0.1.0 command fixture exactly as the agent expects'
     }
 })->with(['cleanup-runtime', 'deploy-project', 'inspect-project', 'reconcile-workload', 'restart-project', 'stop-project']);
 
-test('heartbeat accepts the v0.1.0 wire payload verbatim', function (string $name): void {
+test('heartbeat accepts the v0.2.0 wire payload verbatim', function (string $name): void {
     $agent = v4Agent('hb-fixture-token', ['protocol_version' => null, 'capabilities' => []]);
     $fixture = agentHeartbeatFixture($name);
 
@@ -131,13 +131,14 @@ test('heartbeat accepts the v0.1.0 wire payload verbatim', function (string $nam
         ->and($agent->capabilities)->toBe($fixture['capabilities'])
         ->and($agent->hostname)->toBe($fixture['hostname'])
         ->and($agent->last_seen_at)->not->toBeNull();
-})->with(['docker-ready', 'noop-degraded']);
+})->with(['docker-ready', 'docker-recovered', 'noop-degraded']);
 
 test('heartbeat detail counts are optional but must be complete when sent', function (): void {
     $agent = v4Agent('hb-counts-token');
 
+    // A v0.1.0 agent never sends detail_counts; v0.2.0 always does.
     $withoutCounts = agentHeartbeatFixture('docker-ready');
-    expect($withoutCounts['metadata'])->not->toHaveKey('detail_counts');
+    unset($withoutCounts['metadata']['detail_counts']);
 
     $this->withHeaders(v4Headers($agent, 'hb-counts-token'))
         ->postJson('/api/agent/v1/heartbeat', $withoutCounts)
@@ -524,4 +525,28 @@ test('completing a node-level command records an audit event without echoing the
         ->assertNoContent();
 
     expect(AuditEvent::query()->where('action', 'agent.command.completed')->count())->toBe(1);
+});
+
+test('stale route items are validated with their optional deployment id', function (): void {
+    $agent = v4Agent('stale-route-token');
+
+    $invalid = heartbeatPayload();
+    $invalid['metadata']['startup_reconciliation']['stale_routes'][0]['deployment_id'] = 'not-a-uuid';
+
+    $this->withHeaders(v4Headers($agent, 'stale-route-token'))
+        ->postJson('/api/agent/v1/heartbeat', $invalid)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['metadata.startup_reconciliation.stale_routes.0.deployment_id']);
+
+    // v0.1.0 items have no deployment_id at all; v0.2.0 sends null for legacy routes.
+    $legacy = heartbeatPayload();
+    unset($legacy['metadata']['startup_reconciliation']['stale_routes'][0]['deployment_id']);
+
+    $this->withHeaders(v4Headers($agent, 'stale-route-token'))
+        ->postJson('/api/agent/v1/heartbeat', $legacy)
+        ->assertOk();
+
+    $stored = $agent->fresh()->metadata['startup_reconciliation']['stale_routes'];
+    expect($stored[0])->not->toHaveKey('deployment_id')
+        ->and($stored[1]['deployment_id'])->toBeNull();
 });

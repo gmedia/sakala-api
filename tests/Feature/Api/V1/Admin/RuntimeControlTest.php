@@ -142,7 +142,7 @@ test('an admin can request runtime cleanup and the payload carries the approval 
     expect(AgentNodeControlRequest::query()->where('action', 'cleanup')->sole()->agent_command_id)->toBe($command->id)
         ->and(AuditEvent::query()->where('action', 'agent.node.cleanup_requested')->sole()->metadata['targets'])->toBe(['stale_images', 'stale_workspaces']);
 
-    // Matches the v0.1.0 cleanup-runtime fixture shape on the wire.
+    // Matches the v0.2.0 cleanup-runtime fixture shape on the wire.
     $fixture = agentCommandFixture('cleanup-runtime');
     $item = $this->withHeaders(controlHeaders($node))->getJson('/api/agent/v1/commands')->assertOk()->json('data.0');
     expect(array_keys($item))->toBe(array_keys($fixture))

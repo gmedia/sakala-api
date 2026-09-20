@@ -2,9 +2,11 @@
   "status": "degraded",
   "hostname": "unknown-host",
   "runtime_network": "sakala-runtime",
-  "capabilities": ["noop-runtime"],
+  "capabilities": [
+    "noop-runtime"
+  ],
   "metadata": {
-    "version": "0.1.0",
+    "version": "0.2.0",
     "protocol_version": 4,
     "lifecycle_state": "active",
     "runtime_driver": "noop",
@@ -48,6 +50,14 @@
       "stale_routes": [],
       "stale_images": [],
       "compatibility_issues": []
+    },
+    "detail_counts": {
+      "unhealthy_details": 0,
+      "recovered_workloads": 0,
+      "orphans": 0,
+      "stale_routes": 0,
+      "stale_images": 0,
+      "compatibility_issues": 0
     },
     "runtime_dependencies": null
   },
