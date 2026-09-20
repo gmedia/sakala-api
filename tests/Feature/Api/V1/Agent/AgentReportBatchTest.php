@@ -132,7 +132,7 @@ test('retrying a batch with the same key acknowledges every item as a duplicate'
         ->postJson("/api/agent/v1/commands/{$command->id}/logs", $fixture)
         ->assertOk()->json();
 
-    // Transport retry after a lost response: same key, same body.
+    // Transport retry after a lost response (the only case the agent retries a 200): same key, same body.
     $retry = $this->withHeaders(batchHeaders($node, $key))
         ->postJson("/api/agent/v1/commands/{$command->id}/logs", $fixture)
         ->assertOk()->json();

@@ -347,13 +347,20 @@ budget kumulatif log dijelaskan di [Konvensi API](API_CONVENTIONS.md).
 Response `200` **wajib** membawa acknowledgement penuh
 `{ "data": { "accepted_count", "duplicate_count", "first_sequence",
 "last_sequence" } }` dengan `accepted_count == jumlah item batch`,
-`duplicate_count <= accepted_count`, dan `last_sequence >= first_sequence`;
-agent menganggap body yang parsial atau tidak sesuai kontrak sebagai *tidak
-terkirim* dan mengulang request dengan key yang sama, sehingga retry penuh
-menghasilkan `duplicate_count == accepted_count` dan sequence yang sama.
-Batch kosong ditolak `422` sebelum acknowledgement apa pun dibentuk. Agent
-menghentikan delivery log command tersebut tanpa retry pada `409`, `422`,
-dan `413`; retry hanya untuk kegagalan transport dan `408`/`429`/`5xx`.
+`duplicate_count <= accepted_count`, dan `last_sequence >= first_sequence`.
+Perlakuan agent v0.2.0 terhadap response report:
+
+- `200` dengan acknowledgement valid, atau `204` tanpa body: terkirim.
+- Kegagalan transport atau body-read, `408`, `429`, `5xx`: retry dengan
+  `Idempotency-Key` yang sama (backoff terbatas). Bila response pertama
+  hilang setelah API mempersist batch, retry ini dijawab
+  `duplicate_count == accepted_count` dengan sequence yang sama.
+- `200` yang body-nya terbaca tetapi parsial atau tidak sesuai kontrak
+  (`InvalidReportAcknowledgement`): batch dianggap *tidak terkirim* dan
+  delivery log command tersebut **dihentikan tanpa retry**.
+- `409`, `422`, `413`: delivery log command tersebut dihentikan tanpa retry.
+
+Batch kosong ditolak `422` sebelum acknowledgement apa pun dibentuk.
 Fixture body batch dari v0.2.0 direplay oleh
 `tests/Feature/Api/V1/Agent/AgentReportBatchTest.php`.
 
