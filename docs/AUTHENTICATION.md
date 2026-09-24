@@ -202,6 +202,16 @@ Agent tidak memakai session browser. Kontrak agent menggunakan `Authorization: B
 
 Agent hanya dapat didaftarkan oleh user berstatus **Admin** melalui endpoint POST `/api/agent/v1/agents`. Endpoint ini tertutup dari publik; Sanctum middleware menolak request tanpa authentication yang valid.
 
+Untuk provisioning dari server — termasuk node pertama, ketika belum ada admin yang bisa login — tersedia command setara:
+
+```bash
+php artisan agent:provision "production-runtime-01" \
+  --description="Production runtime node" \
+  --actor=admin@example.com
+```
+
+`--actor` opsional dan hanya menerima user Admin; bila diisi user lain, command ditolak. Output berupa dua baris assignment env (`SAKALA_AGENT_ID`, `SAKALA_AGENT_TOKEN`) agar script provisioning dapat menuliskannya langsung ke file environment agent. Command hanya dapat dijalankan oleh pemegang akses shell server, yang setara dengan akses admin.
+
 Response menyimpan plaintext token sekali saja di body — token tidak disimpan dalam database, tidak masuk log, dan tidak muncul di response berikutnya. Database hanya menyimpan hash HMAC dan 10 karakter awalan (`token_prefix`) untuk keperluan identifikasi.
 
 ### Identitas
