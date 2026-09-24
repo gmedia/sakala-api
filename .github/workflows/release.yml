@@ -1,0 +1,68 @@
+name: release
+
+# Production runs immutable images pinned by digest, so a release publishes
+# artifacts here once instead of rebuilding them on the deployment host.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  images:
+    name: Publish container images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      # A production tag must describe reviewed code. Without this a tag on an
+      # unmerged branch would publish an image nobody reviewed.
+      - name: Verify the tag is reachable from main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Tag $GITHUB_REF_NAME does not point at a commit reachable from main."
+            exit 1
+          fi
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+
+      - name: Log in to the registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The API image and its web front end come from the same Dockerfile but
+      # different targets, so they are built as two images from one context.
+      - name: Build and push the PHP-FPM image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: .
+          target: app
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/sakala-api:${{ github.ref_name }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Build and push the web image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: .
+          target: web
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/sakala-api-web:${{ github.ref_name }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=api-web
+          cache-to: type=gha,scope=api-web,mode=max
