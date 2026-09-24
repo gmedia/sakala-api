@@ -20,6 +20,23 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
+
+        // The API is only reachable through the edge proxy chain
+        // (Cloudflare -> host Caddy -> nginx -> PHP-FPM), so without trusting
+        // it every request appears to come from the last internal hop. That
+        // breaks the per-IP rate limiters on login, registration, OAuth, and
+        // email verification, which would then throttle all users together,
+        // and it makes audit logs useless.
+        //
+        // Only private ranges and loopback are trusted: those are the hops we
+        // operate. A forwarded header arriving from anywhere else is ignored,
+        // so a client cannot spoof its own address.
+        $middleware->trustProxies(at: [
+            '127.0.0.1',
+            '10.0.0.0/8',
+            '172.16.0.0/12',
+            '192.168.0.0/16',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

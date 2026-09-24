@@ -53,6 +53,14 @@ asynchronous setelah transaksi commit. Production wajib menggunakan
 digunakan. Jangan menggunakan `QUEUE_CONNECTION=sync` untuk flow email
 verifikasi.
 
+## Reverse Proxy
+
+API selalu berada di belakang rantai proxy (`Cloudflare -> host Caddy -> nginx -> PHP-FPM`). `bootstrap/app.php` mempercayai loopback dan private range sebagai hop internal, sehingga `request()->ip()` mengembalikan alamat client sebenarnya dari `X-Forwarded-For`.
+
+Tanpa ini, seluruh request terlihat berasal dari hop internal terakhir: rate limiter per-IP pada login, registrasi, OAuth, dan verifikasi email akan membatasi semua user sebagai satu IP, dan audit log kehilangan asal request.
+
+Edge wajib menormalkan `X-Forwarded-For` menjadi satu alamat client. Bila edge meneruskan rantai penuh (`client, cloudflare`), hop terakhir yang tidak dipercaya adalah IP Cloudflare dan nilai itulah yang akan terbaca sebagai client. Konfigurasi edge ada di `sakala-deployment`.
+
 ## Browser Authentication
 
 - `SESSION_DOMAIN`: parent domain cookie, misalnya `.sakala.localhost`.
