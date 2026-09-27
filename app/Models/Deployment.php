@@ -30,8 +30,28 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $commit_message
  * @property string|null $image_reference
  * @property string|null $idempotency_key
- * @property array<string, mixed>|null $requested_resources
- * @property array<string, mixed>|null $effective_resources
+ * @property array{
+ *     memory_mb: int|null,
+ *     cpu_millis: int|null,
+ *     pids_limit: int|null
+ * }|null $requested_resources
+ * @property array{
+ *     resources: array{
+ *         memory_mb: int,
+ *         cpu_millis: int,
+ *         pids_limit: int
+ *     },
+ *     timeouts: array{
+ *         build_timeout_seconds: int,
+ *         start_timeout_seconds: int,
+ *         command_timeout_seconds: int
+ *     },
+ *     log_bounds: array{
+ *         max_line_length: int,
+ *         max_batch_lines: int,
+ *         max_total_bytes: int
+ *     }
+ * }|null $effective_resources
  * @property array<string, mixed>|null $applied_resources
  * @property bool $finalization_deferred
  * @property FinalizationDeferredReason|null $finalization_deferred_reason

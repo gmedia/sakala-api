@@ -15,7 +15,11 @@ final readonly class EffectiveRuntimeLimitsData
     ) {}
 
     /**
-     * @return array{memory_mb: int, cpu_millis: int, pids_limit: int}
+     * @return array{
+     *     memory_mb: int,
+     *     cpu_millis: int,
+     *     pids_limit: int
+     * }
      */
     public function toResourcesArray(): array
     {
@@ -27,7 +31,23 @@ final readonly class EffectiveRuntimeLimitsData
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{
+     *     resources: array{
+     *         memory_mb: int,
+     *         cpu_millis: int,
+     *         pids_limit: int
+     *     },
+     *     timeouts: array{
+     *         build_timeout_seconds: int,
+     *         start_timeout_seconds: int,
+     *         command_timeout_seconds: int
+     *     },
+     *     log_bounds: array{
+     *         max_line_length: int,
+     *         max_batch_lines: int,
+     *         max_total_bytes: int
+     *     }
+     * }
      */
     public function toArray(): array
     {

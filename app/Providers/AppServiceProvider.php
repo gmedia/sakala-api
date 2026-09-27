@@ -6,6 +6,10 @@ namespace App\Providers;
 
 use App\Support\Domains\ProjectDomainGenerator;
 use App\Support\Slug\ReservedSlug;
+use Dedoc\Scramble\Scramble;
+use Dedoc\Scramble\Support\Generator\OpenApi;
+use Dedoc\Scramble\Support\Generator\Types\MixedType;
+use Dedoc\Scramble\Support\Generator\Types\ObjectType;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
@@ -42,6 +46,18 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Scramble::afterOpenApiGenerated(static function (OpenApi $openApi): OpenApi {
+            $schema = $openApi->components->schemas['DeploymentEventResource'] ?? null;
+
+            if ($schema?->type instanceof ObjectType) {
+                $schema->type->properties['metadata'] = (new ObjectType)
+                    ->additionalProperties(new MixedType)
+                    ->nullable(true);
+            }
+
+            return $openApi;
+        });
+
         Model::shouldBeStrict(! $this->app->isProduction());
 
         Gate::define(

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Support\Scramble\DeploymentEventPropertyTypeExtension;
+use App\Support\Scramble\DeploymentPropertyTypeExtension;
 use Dedoc\Scramble\Http\Middleware\RestrictedDocsAccess;
 
 return [
@@ -152,7 +154,10 @@ return [
         RestrictedDocsAccess::class,
     ],
 
-    'extensions' => [],
+    'extensions' => [
+        DeploymentPropertyTypeExtension::class,
+        DeploymentEventPropertyTypeExtension::class,
+    ],
 
     /*
      * Automatically document API security (OpenAPI `security` / `securitySchemes`) based on route
