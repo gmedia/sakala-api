@@ -53,9 +53,9 @@ final class DeploymentResource extends JsonResource
      *         }
      *     }|null,
      *     applied_resources: array{
-     *         memory_mb: int,
-     *         cpu_millis: int,
-     *         pids_limit: int
+     *         memory_mb: int|null,
+     *         cpu_millis: int|null,
+     *         pids_limit: int|null
      *     }|null,
      *     finalization_deferred: bool,
      *     finalization_deferred_reason: FinalizationDeferredReason|null,

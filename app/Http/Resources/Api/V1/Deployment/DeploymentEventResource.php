@@ -18,7 +18,7 @@ final class DeploymentEventResource extends JsonResource
      * @return array{
      *     sequence: int,
      *     level: DeploymentEventLevel,
-     *     type: string,
+     *     type: string|null,
      *     message: string,
      *     metadata: array<string, mixed>|null,
      *     occurred_at: string|null,

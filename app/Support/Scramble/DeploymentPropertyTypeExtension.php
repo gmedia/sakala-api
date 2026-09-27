@@ -125,15 +125,15 @@ final class DeploymentPropertyTypeExtension implements PropertyTypeExtension
         return new KeyedArrayType([
             new ArrayItemType_(
                 'memory_mb',
-                new IntegerType,
+                $this->nullable(new IntegerType),
             ),
             new ArrayItemType_(
                 'cpu_millis',
-                new IntegerType,
+                $this->nullable(new IntegerType),
             ),
             new ArrayItemType_(
                 'pids_limit',
-                new IntegerType,
+                $this->nullable(new IntegerType),
             ),
         ]);
     }
