@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-FROM php:8.5-fpm-alpine AS php-base
+# Pin patch version (CVE-2026-109618/109619): floating tags can be served stale from build cache.
+FROM php:8.5.12-fpm-alpine AS php-base
 
 RUN apk add --no-cache icu-libs libpq libzip \
     && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS icu-dev libpq-dev libzip-dev linux-headers \
