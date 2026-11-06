@@ -8,6 +8,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 - `sakala.email_delivery_enabled` (`SAKALA_EMAIL_DELIVERY_ENABLED`), which follows `mail.default` when unset, and `503 EMAIL_DELIVERY_UNAVAILABLE` on register, forgot-password, resend verification, and email change while it is off. Adding an SMTP provider needs env only.
 - Public `GET /api/v1/auth/options` with `email_delivery_enabled` and `providers.github` / `providers.google`.
+- `projects:purge-deleted`, run daily, permanently deletes a project `SAKALA_DELETED_PROJECT_RETENTION_DAYS` days (default 30) after its soft delete. Secrets go on time even while a node still has to stop the workload, and purged slugs stay reserved in `retired_project_slugs`.
 - Laravel API-only control plane foundation.
 - Sanctum, Socialite, Reverb, Sail, Pest, Pint, Larastan, and Scramble tooling.
 - Versioned API status endpoint using Action, immutable DTO, and API Resource boundaries.

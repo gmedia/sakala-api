@@ -6,6 +6,7 @@ namespace App\Actions\Project;
 
 use App\Data\Project\ProjectIdentity;
 use App\Models\Project;
+use App\Models\RetiredProjectSlug;
 use App\Support\Domains\ProjectDomainGenerator;
 use App\Support\Slug\GenerateSlug;
 use App\Support\Slug\ReservedSlug;
@@ -26,7 +27,7 @@ class GenerateProjectIdentity
 
         $candidateSlug = Str::limit($slug, $maxLength, '');
 
-        if (! Project::withTrashed()->where('slug', $candidateSlug)->exists()) {
+        if (! $this->isTaken($candidateSlug)) {
             return $candidateSlug;
         }
 
@@ -43,13 +44,19 @@ class GenerateProjectIdentity
 
             $candidateSlug = $base.$suffix;
             $counter++;
-        } while (
-            Project::withTrashed()
-                ->where('slug', $candidateSlug)
-                ->exists()
-        );
+        } while ($this->isTaken($candidateSlug));
 
         return $candidateSlug;
+    }
+
+    /**
+     * Projects first: a purge moves the slug to the retired list in one commit,
+     * so reading in this order cannot miss it in both places.
+     */
+    private function isTaken(string $slug): bool
+    {
+        return Project::withTrashed()->where('slug', $slug)->exists()
+            || RetiredProjectSlug::query()->whereKey($slug)->exists();
     }
 
     public function handle(string $projectName): ProjectIdentity

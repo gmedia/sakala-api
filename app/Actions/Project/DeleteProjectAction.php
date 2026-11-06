@@ -23,6 +23,8 @@ use Illuminate\Support\Facades\DB;
  * The project disappears from the API at once, whether or not a node is online.
  * The StopProject has no deadline, so with the node offline the workload keeps
  * serving until that node polls again and receives the command.
+ *
+ * The data stays until {@see PurgeDeletedProjectsAction} removes it for good.
  */
 final class DeleteProjectAction
 {

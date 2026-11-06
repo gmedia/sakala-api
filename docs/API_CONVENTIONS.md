@@ -222,6 +222,12 @@ Filter `GET /api/v1/app/projects?filter=` menerima `7_days`, `30_days`, `90_days
 
 `StopProject` tidak punya batas waktu. Saat node offline, workload tetap melayani sampai node itu kembali dan menerima command-nya, jadi penghapusan di API bukan bukti container sudah berhenti. Slug project yang dihapus tidak pernah dipakai ulang, jadi route lama tidak bisa melayani project baru.
 
+Data project dihapus permanen `SAKALA_DELETED_PROJECT_RETENTION_DAYS` hari setelah dihapus (default 30 hari) oleh `projects:purge-deleted`, yang berjalan sekali sehari. Selama masa itu tidak ada endpoint untuk memulihkan project. Yang dihapus: baris project, deployment, log, event, agent command (termasuk salinan environment variable terenkripsi di payload `DeployProject`), environment variable, dan notifikasi project itu.
+
+Kalau node belum menyelesaikan pekerjaannya saat masa itu habis, baris project menunggu node tersebut, karena baris itulah satu-satunya jalan untuk menyuruh node menghentikan container. Environment variable dan salinannya tetap dihapus tepat waktu, karena menghentikan container tidak membutuhkannya. `StopProject` yang gagal atau kedaluwarsa dikirim ulang sekali sehari. Node yang di-revoke tidak bisa menerima command lagi, jadi tidak menahan penghapusan; container di node itu harus dibereskan operator. Perintah ini mencatat jumlah project yang menunggu, dan log aplikasi menyebut ID-nya.
+
+Yang sengaja tetap ada: slug di `retired_project_slugs`, supaya alamat lama tidak bisa diambil orang lain; `audit_events`, yang hanya berisi ID dan bukan isi project; `feedbacks` milik user, dengan `project_id` dan `deployment_id` menjadi `null`; dan `usage_signal_records`, yang punya retensi sendiri. Image hasil build di node juga tidak disentuh, karena itu urusan `CleanupRuntime`. Tidak ada secret per project yang disimpan di cache aplikasi, jadi tidak ada yang perlu dibersihkan di sana.
+
 ### Environment Variable
 
 `POST` menerima `is_secret` (default `true`). `PATCH .../environment-variables/{id}` menerima `value` dan `is_secret`, keduanya opsional. `value` ada di response hanya untuk variabel non-secret; variabel secret tidak punya key itu dan tetap dibaca lewat `GET .../value`. `POST` dan `PATCH` menyertakan `redeploy_required`, karena deployment berjalan memakai nilai saat ia dibuat.
