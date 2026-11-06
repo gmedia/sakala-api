@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $commit_sha
  * @property string|null $commit_message
  * @property string|null $image_reference
+ * @property int|null $container_port
  * @property string|null $idempotency_key
  * @property array{
  *     memory_mb: int|null,
@@ -57,9 +58,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property FinalizationDeferredReason|null $finalization_deferred_reason
  * @property string|null $failure_code
  * @property string|null $failure_summary
+ * @property string|null $failure_detail
+ * @property DeploymentStatus|null $failure_stage
  * @property CarbonImmutable|null $started_at
  * @property CarbonImmutable|null $finished_at
  * @property CarbonImmutable|null $cancelled_at
+ * @property CarbonImmutable|null $cancel_requested_at
+ * @property CarbonImmutable|null $crash_notified_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -77,6 +82,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'commit_sha',
     'commit_message',
     'image_reference',
+    'container_port',
     'requested_resources',
     'effective_resources',
     'applied_resources',
@@ -84,14 +90,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'finalization_deferred_reason',
     'failure_code',
     'failure_summary',
+    'failure_detail',
+    'failure_stage',
     'started_at',
     'finished_at',
     'cancelled_at',
+    'cancel_requested_at',
+    'crash_notified_at',
 ])]
 class Deployment extends Model
 {
     /** @use HasFactory<DeploymentFactory> */
     use HasFactory, HasUuids;
+
+    /** Bound (in characters) of the failure detail shown to the console. */
+    public const MAX_FAILURE_DETAIL_LENGTH = 500;
 
     /** @return BelongsTo<Project, $this> */
     public function project(): BelongsTo
@@ -154,14 +167,18 @@ class Deployment extends Model
             'status' => DeploymentStatus::class,
             'realtime_sequence' => 'integer',
             'trigger' => DeploymentTrigger::class,
+            'container_port' => 'integer',
             'requested_resources' => 'array',
             'effective_resources' => 'array',
             'applied_resources' => 'array',
             'finalization_deferred' => 'boolean',
             'finalization_deferred_reason' => FinalizationDeferredReason::class,
+            'failure_stage' => DeploymentStatus::class,
             'started_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',
             'cancelled_at' => 'immutable_datetime',
+            'cancel_requested_at' => 'immutable_datetime',
+            'crash_notified_at' => 'immutable_datetime',
         ];
     }
 }

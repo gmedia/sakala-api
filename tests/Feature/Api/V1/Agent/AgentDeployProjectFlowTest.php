@@ -193,7 +193,7 @@ test('agent phase events move the deployment forward and capture the built image
     ]))->assertOk();
 
     $deployment->refresh();
-    expect($deployment->status)->toBe(DeploymentStatus::Routing)
+    expect($deployment->status)->toBe(DeploymentStatus::Deploying)
         ->and($deployment->image_reference)->toBe('sakala/student-demo:0123456')
         ->and($deployment->started_at?->equalTo($startedAt))->toBeTrue()
         ->and($deployment->finished_at)->toBeNull();
@@ -201,6 +201,85 @@ test('agent phase events move the deployment forward and capture the built image
     // The agent's own timeline is the timeline: no synthetic phase rows.
     expect($deployment->events()->where('type', 'deployment.cloning')->exists())->toBeFalse()
         ->and($deployment->events()->where('type', 'deployment.checkout.started')->count())->toBe(2);
+});
+
+test('a current agent walks every status in order, and it stays forward-only', function (): void {
+    $node = flowNode('sequence-token');
+    ['deployment' => $deployment, 'command' => $command] = deployThroughConsole();
+    $headers = flowHeaders($node, 'sequence-token');
+    $url = "/api/agent/v1/commands/{$command->id}/events";
+
+    $this->withHeaders($headers)->postJson("/api/agent/v1/commands/{$command->id}/claim", [])->assertOk();
+
+    foreach ([
+        'deployment.checkout.started' => DeploymentStatus::Cloning,
+        'deployment.analysis.started' => DeploymentStatus::Analyzing,
+        'deployment.build.started' => DeploymentStatus::Building,
+        'deployment.container.started' => DeploymentStatus::Deploying,
+        'deployment.health.started' => DeploymentStatus::HealthChecking,
+        'deployment.route.started' => DeploymentStatus::Routing,
+    ] as $event => $status) {
+        $this->withHeaders($headers)->postJson($url, phaseEvent($event))->assertOk();
+        expect($deployment->fresh()->status)->toBe($status);
+    }
+
+    // A late health event must not undo routing; runtime.ready changes nothing.
+    $this->withHeaders($headers)->postJson($url, phaseEvent('deployment.health.started'))->assertOk();
+    $this->withHeaders($headers)->postJson($url, phaseEvent('deployment.runtime.ready', ['image' => 'sakala/app:1']))->assertOk();
+
+    expect($deployment->fresh()->status)->toBe(DeploymentStatus::Routing)
+        ->and($deployment->fresh()->image_reference)->toBe('sakala/app:1');
+
+    $this->withHeaders($headers)->postJson("/api/agent/v1/commands/{$command->id}/complete", ['result' => null])->assertNoContent();
+
+    expect($deployment->fresh()->status)->toBe(DeploymentStatus::Succeeded);
+});
+
+test('a Dockerfile build skips analyzing and still moves forward', function (): void {
+    $node = flowNode('dockerfile-token');
+    ['deployment' => $deployment, 'command' => $command] = deployThroughConsole();
+    $headers = flowHeaders($node, 'dockerfile-token');
+    $url = "/api/agent/v1/commands/{$command->id}/events";
+
+    $this->withHeaders($headers)->postJson("/api/agent/v1/commands/{$command->id}/claim", [])->assertOk();
+    $this->withHeaders($headers)->postJson($url, phaseEvent('deployment.checkout.started'))->assertOk();
+    $this->withHeaders($headers)->postJson($url, phaseEvent('deployment.build.started'))->assertOk();
+
+    expect($deployment->fresh()->status)->toBe(DeploymentStatus::Building);
+});
+
+test('an older agent skips the new statuses and its completion still succeeds', function (): void {
+    $node = flowNode('older-token');
+    ['project' => $project, 'deployment' => $deployment, 'command' => $command] = deployThroughConsole();
+    $headers = flowHeaders($node, 'older-token');
+    $url = "/api/agent/v1/commands/{$command->id}/events";
+
+    $this->withHeaders($headers)->postJson("/api/agent/v1/commands/{$command->id}/claim", [])->assertOk();
+
+    foreach (['deployment.checkout.started', 'deployment.build.started', 'deployment.container.started'] as $event) {
+        $this->withHeaders($headers)->postJson($url, phaseEvent($event))->assertOk();
+    }
+
+    $this->withHeaders($headers)->postJson($url, phaseEvent('deployment.runtime.ready', ['image' => 'sakala/app:1']))->assertOk();
+
+    expect($deployment->fresh()->status)->toBe(DeploymentStatus::Deploying);
+
+    $this->withHeaders($headers)->postJson("/api/agent/v1/commands/{$command->id}/complete", ['result' => null])->assertNoContent();
+
+    expect($deployment->fresh()->status)->toBe(DeploymentStatus::Succeeded)
+        ->and($project->fresh()->active_deployment_id)->toBe($deployment->id);
+});
+
+test('an unknown event is stored without changing status', function (): void {
+    $node = flowNode('unknown-token');
+    ['deployment' => $deployment, 'command' => $command] = deployThroughConsole();
+    $headers = flowHeaders($node, 'unknown-token');
+
+    $this->withHeaders($headers)->postJson("/api/agent/v1/commands/{$command->id}/claim", [])->assertOk();
+    $this->withHeaders($headers)->postJson("/api/agent/v1/commands/{$command->id}/events", phaseEvent('deployment.something.new'))->assertOk();
+
+    expect($deployment->fresh()->status)->toBe(DeploymentStatus::Queued)
+        ->and($deployment->events()->where('type', 'deployment.something.new')->count())->toBe(1);
 });
 
 test('completion is authoritative and stores the applied resources', function (): void {

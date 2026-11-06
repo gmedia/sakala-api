@@ -144,6 +144,17 @@ final class ExpireAgentCommandsAction
             return;
         }
 
+        // The owner already asked to stop this attempt; the node going away does
+        // not turn that into a failure.
+        if ($deployment->cancel_requested_at !== null) {
+            $this->transitionDeployment->handleWithinTransaction(
+                deployment: $deployment,
+                nextStatus: DeploymentStatus::Cancelled,
+            );
+
+            return;
+        }
+
         $this->transitionDeployment->handleWithinTransaction(
             deployment: $deployment,
             nextStatus: DeploymentStatus::Failed,

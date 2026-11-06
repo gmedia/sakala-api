@@ -83,7 +83,7 @@ test('project owner can view deployment failure details', function (): void {
         )
         ->assertJsonPath(
             'data.failure.recovery_hint',
-            'Periksa konfigurasi build dan dependency aplikasi.',
+            'Buka log deployment untuk melihat error-nya, perbaiki di repository (dependency, script build, atau Dockerfile), lalu commit dan deploy ulang.',
         );
 });
 

@@ -20,8 +20,8 @@ final class GetDeploymentLogAction
     ): CursorPaginator {
         return DeploymentLog::query()
             ->whereBelongsTo($deployment)
-            ->orderBy('sequence')
-            ->orderBy('id')
+            ->orderBy('sequence', $data->newestFirst ? 'desc' : 'asc')
+            ->orderBy('id', $data->newestFirst ? 'desc' : 'asc')
             ->cursorPaginate(
                 perPage: $data->perPage,
                 cursor: $data->cursor

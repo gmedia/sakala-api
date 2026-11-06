@@ -8,6 +8,7 @@ use App\Actions\Agent\ClaimAgentCommandAction;
 use App\Actions\Agent\CompleteAgentCommandAction;
 use App\Actions\Agent\FailAgentCommandAction;
 use App\Actions\Agent\GetAgentNodeStateAction;
+use App\Actions\Agent\GetCancelRequestedCommandsAction;
 use App\Actions\Agent\HeartbeatAgentAction;
 use App\Actions\Agent\LeaseRepositoryCredentialAction;
 use App\Actions\Agent\PollAgentCommandsAction;
@@ -158,14 +159,21 @@ final class AgentController extends Controller
      * @scramble-return AgentCommandResource[]
      */
     public function pollCommands(
-        PollAgentCommandsAction $pollAgentCommands
+        PollAgentCommandsAction $pollAgentCommands,
+        GetCancelRequestedCommandsAction $getCancelRequested,
     ): AnonymousResourceCollection {
         /** @var AgentNode $agent */
         $agent = request()->input('agent');
 
         $commands = $pollAgentCommands->handle($agent);
 
-        return AgentCommandResource::collection($commands);
+        $cancelRequested = $getCancelRequested->handle($agent);
+
+        // Absent while empty, so the body stays byte-identical for an agent
+        // that predates cancellation.
+        return AgentCommandResource::collection($commands)->additional(
+            $cancelRequested === [] ? [] : ['cancel_requested' => $cancelRequested],
+        );
     }
 
     /**

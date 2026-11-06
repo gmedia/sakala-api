@@ -19,6 +19,7 @@ final class GetDeploymentCollectionAction
         GetDeploymentCollectionData $data
     ): LengthAwarePaginator {
         $query = Deployment::query()
+            ->with(['project', 'agentNode'])
             ->whereBelongsTo($project)
             ->when(
                 filled($data->search),

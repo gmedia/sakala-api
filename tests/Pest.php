@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Tests\TestCase;
 
 /*
@@ -23,6 +24,21 @@ pest()->extend(TestCase::class)
 // Multi-session PostgreSQL tests: no RefreshDatabase, schema recreated per
 // test, excluded from the default run (see composer test / test:concurrency).
 pest()->group('concurrency')->in('Feature/Concurrency');
+
+// Commands become visible at `available_at <= now()`, to the second. A wall clock
+// that steps backwards between creating and polling (WSL2 steps about 1.4 seconds
+// every 31 seconds) hid them for a moment and failed whichever test was running.
+// These suites control the clock instead; `travel()` still moves it.
+pest()->beforeEach(function (): void {
+    $this->freezeTime();
+})->in('Feature/Api', 'Feature/Console', 'Feature/Jobs', 'Unit/Actions', 'Unit/Services', 'Unit/PilotRuntimeLimitServiceTest.php');
+
+// Those tests commit rows on purpose. When a plain `pest` run includes them, the
+// RefreshDatabase tests that follow must start from a fresh schema again instead
+// of inheriting the committed rows through the shared "already migrated" flag.
+pest()->afterEach(function (): void {
+    RefreshDatabaseState::$migrated = false;
+})->in('Feature/Concurrency');
 
 /*
 |--------------------------------------------------------------------------

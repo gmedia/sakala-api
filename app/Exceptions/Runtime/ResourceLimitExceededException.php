@@ -20,10 +20,10 @@ final class ResourceLimitExceededException extends RuntimeException
         $msg = $message !== ''
             ? $message
             : sprintf(
-                'Requested %s (%d) exceeds the maximum allowed pilot limit (%d).',
+                'Nilai %s yang diminta (%d) tidak bisa dipakai. Selama fase pilot, nilainya harus lebih dari 0 dan paling besar %d.',
                 $resource,
                 $requested,
-                $maximum
+                $maximum,
             );
 
         parent::__construct($msg);

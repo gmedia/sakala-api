@@ -9,6 +9,7 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\GithubInstallationStatus;
 use App\Enums\RepositoryAccess;
+use App\Enums\RepositoryAccessState;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
@@ -16,6 +17,7 @@ use App\Models\AuditEvent;
 use App\Models\GithubInstallation;
 use App\Models\Project;
 use App\Services\GitHub\GithubInstallationTokenService;
+use App\Services\GitHub\GithubRepositoryAccessService;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,6 +29,8 @@ final class LeaseRepositoryCredentialAction
 
     public function __construct(
         private readonly GithubInstallationTokenService $installationTokens,
+        private readonly GithubRepositoryAccessService $repositoryAccess,
+        private readonly FailAgentCommandAction $failCommand,
     ) {}
 
     /**
@@ -49,6 +53,9 @@ final class LeaseRepositoryCredentialAction
     public function handle(AgentNode $agent, string $commandId): RepositoryCredentialData
     {
         $binding = DB::transaction(fn (): array => $this->authorise($agent, $commandId));
+
+        // Outside the transaction: this can reach GitHub.
+        $this->assertOwnerStillHasAccess($agent, $commandId, $binding['project']);
 
         $lease = $this->installationTokens->forRepository($binding['installation'], $binding['repository_id']);
 
@@ -83,6 +90,38 @@ final class LeaseRepositoryCredentialAction
             token: $lease->token,
             expiresAt: $lease->expiresAt,
         );
+    }
+
+    /**
+     * The installation pivot only says the owner had access when connecting. The
+     * command is failed here, with the real reason, because the agent reports any
+     * refused lease as `repository_credential_unavailable`; its later `fail` is
+     * then an idempotent repeat that keeps this code.
+     */
+    private function assertOwnerStillHasAccess(AgentNode $agent, string $commandId, Project $project): void
+    {
+        [$code, $message] = match ($this->repositoryAccess->forOwner($project)) {
+            RepositoryAccessState::Granted => [null, null],
+            RepositoryAccessState::Revoked => [
+                'repository_access_revoked',
+                'Pemilik project tidak lagi punya akses ke repository ini di GitHub.',
+            ],
+            RepositoryAccessState::Unknown => [
+                'repository_access_check_failed',
+                'Sakala tidak bisa memeriksa akses repository ke GitHub saat ini.',
+            ],
+        };
+
+        if ($code === null) {
+            return;
+        }
+
+        $this->failCommand->handle($agent, $commandId, $code, (string) $message);
+
+        throw new HttpResponseException(response()->json([
+            'message' => $message,
+            'code' => $code,
+        ], 409));
     }
 
     /**

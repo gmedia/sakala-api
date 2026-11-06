@@ -23,6 +23,7 @@ use App\Services\Agent\AgentCommandProgressService;
 use App\Services\Agent\AgentCommandReportRecorder;
 use App\Services\Agent\AgentReportBoundsService;
 use App\Services\Agent\AgentReportIdempotencyService;
+use App\Services\Security\ProjectSecretValues;
 use App\Services\Security\SecretRedactionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -33,6 +34,7 @@ final class ReportDeploymentEventAction
         private readonly AgentReportBoundsService $bounds,
         private readonly AgentReportIdempotencyService $idempotency,
         private readonly SecretRedactionService $redaction,
+        private readonly ProjectSecretValues $projectSecrets,
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateRealtimeSequence,
         private readonly AgentCommandProgressService $progress,
         private readonly AgentCommandReportRecorder $commandReports,
@@ -68,6 +70,9 @@ final class ReportDeploymentEventAction
                 throw new CommandConflictException($command);
             }
 
+            // Read once per batch; the idempotency hash stays on the raw payload.
+            $knownSecrets = $this->projectSecrets->forProject($deployment->project_id);
+
             $prepared = [];
             $keys = [];
 
@@ -78,7 +83,7 @@ final class ReportDeploymentEventAction
                 $prepared[] = [
                     'item' => $item,
                     'raw' => $rawPayload,
-                    'stored' => $this->storedPayload($rawPayload),
+                    'stored' => $this->storedPayload($rawPayload, $knownSecrets),
                     'key' => $key,
                 ];
 
@@ -219,14 +224,15 @@ final class ReportDeploymentEventAction
 
     /**
      * @param  array<string, mixed>  $payload
+     * @param  list<string>  $knownSecrets
      * @return array<string, mixed>
      */
-    private function storedPayload(array $payload): array
+    private function storedPayload(array $payload, array $knownSecrets): array
     {
         return [
             ...$payload,
-            'message' => $this->redaction->redactString((string) $payload['message']),
-            'metadata' => $this->redaction->redactArray($payload['metadata']),
+            'message' => $this->redaction->redactString((string) $payload['message'], $knownSecrets),
+            'metadata' => $this->redaction->redactArray($payload['metadata'], $knownSecrets),
         ];
     }
 

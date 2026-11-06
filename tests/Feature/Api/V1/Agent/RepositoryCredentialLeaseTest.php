@@ -9,6 +9,7 @@ use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
 use App\Enums\DeploymentStatus;
 use App\Enums\GithubInstallationStatus;
+use App\Enums\RepositoryAccessState;
 use App\Models\AgentCommand;
 use App\Models\AgentCommandReport;
 use App\Models\AgentNode;
@@ -16,9 +17,12 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\DeploymentLog;
 use App\Models\GithubInstallation;
+use App\Models\OAuthAccount;
 use App\Models\Project;
 use App\Models\User;
+use App\Services\GitHub\GithubRepositoryAccessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -56,6 +60,8 @@ beforeEach(function (): void {
 function fakeInstallationTokenMint(int $status = 201, ?callable $whileMinting = null): void
 {
     Http::fake([
+        // The project owner can still read the repository.
+        'api.github.com/repositories/*' => Http::response(['id' => 4242]),
         'api.github.com/app/installations/*/access_tokens' => function () use ($status, $whileMinting) {
             if ($whileMinting !== null) {
                 $whileMinting();
@@ -111,6 +117,8 @@ function leaseContext(
     $installation = GithubInstallation::factory()->create(
         $installationId === null ? [] : ['github_installation_id' => $installationId],
     );
+
+    OAuthAccount::factory()->for($user)->create(['provider' => 'github', 'access_token' => 'owner-user-token']);
 
     if ($linkUser) {
         $installation->users()->attach($user, ['last_verified_at' => now()]);
@@ -277,7 +285,8 @@ test('a credential minted while the command finished is never handed out', funct
         ->assertStatus(409)
         ->assertJsonPath('status', 'Failed');
 
-    Http::assertSentCount(1);
+    // One access check and one mint; the minted token is discarded.
+    Http::assertSentCount(2);
     expect($response->getContent())->not->toContain(LEASED_TOKEN)
         ->and(AuditEvent::query()->where('action', 'agent.repository_credential_leased')->exists())->toBeFalse();
 });
@@ -382,6 +391,7 @@ test('a private project deploys end to end through the credential lease', functi
     $user = User::factory()->create();
     $installation = GithubInstallation::factory()->create(['github_installation_id' => 555]);
     $installation->users()->attach($user, ['last_verified_at' => now()]);
+    OAuthAccount::factory()->for($user)->create(['provider' => 'github', 'access_token' => 'owner-user-token']);
     $project = Project::factory()->create([
         'user_id' => $user->id,
         'branch' => 'main',
@@ -422,4 +432,136 @@ test('a private project deploys end to end through the credential lease', functi
 
     expect(Deployment::query()->findOrFail($deploymentId)->status)->toBe(DeploymentStatus::Succeeded)
         ->and(json_encode(DB::table('agent_commands')->where('id', $command->id)->first()))->not->toContain(LEASED_TOKEN);
+});
+
+// ─── Owner access is rechecked on GitHub ─────────────────────────────────────
+
+function fakeOwnerAccess(mixed $answer): void
+{
+    // Earlier stubs win, so start over from what leaseContext() faked.
+    Http::swap(new HttpFactory);
+    Http::fake([
+        'api.github.com/repositories/*' => $answer,
+        'api.github.com/app/installations/*/access_tokens' => Http::response([
+            'token' => LEASED_TOKEN,
+            'expires_at' => now()->addHour()->toIso8601String(),
+        ], 201),
+    ]);
+}
+
+test('a collaborator removed on GitHub is refused and the deployment says why', function (int $status): void {
+    ['agent' => $agent, 'command' => $command] = leaseContext();
+    fakeOwnerAccess(Http::response(['message' => 'Not Found'], $status));
+
+    $response = $this->withHeaders(leaseHeaders($agent, 'lease-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertConflict()
+        ->assertJsonPath('code', 'repository_access_revoked');
+
+    expect($response->getContent())->not->toContain(LEASED_TOKEN);
+
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/access_tokens'));
+
+    expect($command->fresh()->status)->toBe(AgentCommandStatus::Failed)
+        ->and($command->fresh()->error_code)->toBe('repository_access_revoked')
+        ->and($command->deployment->fresh()->status)->toBe(DeploymentStatus::Failed)
+        ->and($command->deployment->fresh()->failure_code)->toBe('repository_access_revoked');
+
+    // The agent's generic follow-up fail does not overwrite the real reason.
+    $this->withHeaders(leaseHeaders($agent, 'lease-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/fail", [
+            'error_code' => 'repository_credential_unavailable',
+            'error_message' => 'could not obtain temporary repository credential',
+        ])
+        ->assertNoContent();
+
+    expect($command->deployment->fresh()->failure_code)->toBe('repository_access_revoked');
+})->with([404, 403]);
+
+test('an owner with no GitHub link left is refused', function (): void {
+    ['agent' => $agent, 'project' => $project, 'command' => $command] = leaseContext();
+    OAuthAccount::query()->where('user_id', $project->user_id)->delete();
+
+    $this->withHeaders(leaseHeaders($agent, 'lease-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertConflict()
+        ->assertJsonPath('code', 'repository_access_revoked');
+});
+
+test('a still authorised owner is unaffected, and GitHub is asked once within the window', function (): void {
+    ['agent' => $agent, 'command' => $command] = leaseContext();
+
+    foreach ([1, 2] as $ignored) {
+        $this->withHeaders(leaseHeaders($agent, 'lease-token'))
+            ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+            ->assertOk();
+    }
+
+    Http::assertSentCount(3); // One access check and two token mints.
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), '/repositories/4242')
+        && $request->header('Authorization') === ['Bearer owner-user-token']);
+});
+
+test('access restored on GitHub works again after the short refusal window', function (): void {
+    ['agent' => $agent, 'project' => $project, 'command' => $command] = leaseContext();
+    fakeOwnerAccess(Http::sequence()->push(['message' => 'Not Found'], 404)->push(['id' => 4242]));
+
+    expect(app(GithubRepositoryAccessService::class)->forOwner($project))->toBe(RepositoryAccessState::Revoked);
+
+    $this->travel(61)->seconds();
+
+    expect(app(GithubRepositoryAccessService::class)->forOwner($project))->toBe(RepositoryAccessState::Granted);
+});
+
+test('during a GitHub outage the last grant holds for an hour, then the lease refuses', function (mixed $outage): void {
+    ['agent' => $agent, 'project' => $project, 'command' => $command] = leaseContext();
+    fakeOwnerAccess(Http::sequence()->push(['id' => 4242])->whenEmpty($outage));
+
+    $service = app(GithubRepositoryAccessService::class);
+
+    expect($service->forOwner($project))->toBe(RepositoryAccessState::Granted);
+
+    $this->travel(30)->minutes();
+
+    expect($service->forOwner($project))->toBe(RepositoryAccessState::Granted);
+
+    $this->travel(31)->minutes();
+
+    expect($service->forOwner($project))->toBe(RepositoryAccessState::Unknown);
+
+    $this->withHeaders(leaseHeaders($agent, 'lease-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertConflict()
+        ->assertJsonPath('code', 'repository_access_check_failed');
+
+    expect($command->deployment->fresh()->failure_code)->toBe('repository_access_check_failed');
+})->with([
+    'server error' => [fn () => Http::response(['message' => 'boom'], 500)],
+    'rate limited' => [fn () => Http::response(['message' => 'API rate limit exceeded'], 403, ['X-RateLimit-Remaining' => '0'])],
+]);
+
+test('a manual deploy by a revoked owner is refused up front', function (): void {
+    ['project' => $project] = leaseContext();
+    fakeOwnerAccess(Http::response(['message' => 'Not Found'], 404));
+
+    $project->update(['branch' => 'main']);
+    $commitLookups = fn (): int => Http::recorded(fn ($request): bool => str_contains($request->url(), '/commits'))->count();
+
+    $this->actingAs($project->user, 'web')
+        ->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'main'])
+        ->assertConflict()
+        ->assertJsonPath('code', 'REPOSITORY_ACCESS_REVOKED');
+
+    expect(Deployment::query()->where('project_id', $project->id)->where('sequence', '>', 1)->count())->toBe(0)
+        ->and($commitLookups())->toBe(0);
+});
+
+test('the access token used for the check never reaches the response', function (): void {
+    ['agent' => $agent, 'command' => $command] = leaseContext();
+
+    $response = $this->withHeaders(leaseHeaders($agent, 'lease-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertOk();
+
+    expect($response->getContent())->not->toContain('owner-user-token');
 });

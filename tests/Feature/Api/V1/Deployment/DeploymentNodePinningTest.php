@@ -13,6 +13,7 @@ use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\GithubInstallation;
+use App\Models\OAuthAccount;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -249,6 +250,8 @@ test('installation-backed projects deploy with repository_access temporary_crede
         'github_installation_id' => $installation->id,
         'github_repository_id' => 4242,
     ]);
+    OAuthAccount::factory()->for($user)->create(['provider' => 'github', 'access_token' => 'owner-user-token']);
+    Cache::put('github-repository-access:'.$user->id.':4242', ['state' => 'granted', 'checked_at' => now()->getTimestamp()], 3600);
 
     // The branch head is resolved with the (cached) installation token.
     Cache::put(

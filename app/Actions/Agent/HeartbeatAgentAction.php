@@ -12,6 +12,7 @@ final class HeartbeatAgentAction
 {
     public function __construct(
         private readonly AssignPendingCommandsAction $assignPendingCommands,
+        private readonly ReconcileCrashedWorkloadsAction $reconcileCrashedWorkloads,
     ) {}
 
     public function handle(
@@ -33,6 +34,10 @@ final class HeartbeatAgentAction
                 'protocol_version' => $data->protocolVersion,
                 'last_seen_at' => now(),
             ]);
+
+            if ($data->crashedWorkloads !== null) {
+                $this->reconcileCrashedWorkloads->handleWithinTransaction($agent, $data->crashedWorkloads);
+            }
 
             return $agent->refresh();
         });
