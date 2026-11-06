@@ -183,6 +183,7 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 | `auto_deploy` | boolean | `true` membuat push ke branch project membuat deployment baru. Default `false`. Hanya untuk project dari GitHub App; project dari URL publik dijawab `422` karena webhook-nya tidak pernah datang. |
 | `public_url` | string | Alamat publik project untuk instalasi ini, dari `SAKALA_PROJECT_URL_SCHEME` dan `SAKALA_PROJECT_URL_PORT`. Console memakai ini, bukan menyusun sendiri. Ada juga di `GET /api/v1/app/projects`. |
 | `latest_deployment` | object atau `null` | Deployment dengan `sequence` terbesar, apa pun hasilnya, atau `null` bila belum pernah ada. Bisa berbeda dari `active_deployment_id`. Ada juga di `GET /api/v1/app/projects`, jadi daftar project tidak perlu request per kartu. Lihat tabel di bawah. |
+| `suspension` | object atau `null` | Terisi selama `status` bernilai `suspended`, dan `null` di luar itu, termasuk setelah penangguhan dibuka. Ada juga di `GET /api/v1/app/projects`. Lihat "Pemberitahuan dan Membuka Penangguhan". |
 | `redeploy_required` | boolean | `true` bila environment variable atau konfigurasi build berubah setelah deployment aktif dibuat. |
 | `stack` | object atau `null` | Lihat "Inspeksi". |
 
@@ -270,6 +271,15 @@ Endpoint project control menyediakan kontrol runtime yang hanya dapat digunakan 
 ### Pemberitahuan dan Membuka Penangguhan
 
 Suspend baru mengirim notifikasi `project_issue` ke pemilik berisi `reason` apa adanya dan kontak `SAKALA_ABUSE_EMAIL`, juga email bila `sakala.email_delivery_enabled` aktif. Notifikasi ini mengabaikan preferensi kategori, dan tidak dikirim ulang saat request diulang dengan `Idempotency-Key` yang sama. Karena `reason` sampai ke pemilik, jangan menulis identitas pelapor di dalamnya.
+
+Selama ditangguhkan, pemilik dan admin juga membaca alasannya dari `suspension` di `ProjectResource` dan `GET /api/v1/app/projects`. Pengguna lain tetap menerima `403` pada detail project, dan daftar project hanya berisi project miliknya.
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `reason` | string atau `null` | `reason` dari permintaan suspend terbaru, apa adanya. Teks ini ditulis admin dan markup di dalamnya tidak diubah, jadi tampilkan sebagai teks, jangan sebagai HTML. `null` bila catatan permintaannya tidak ada. |
+| `suspended_at` | string ISO 8601 atau `null` | Waktu permintaan suspend terbaru diterima, bukan waktu workload berhenti. `null` bila catatan permintaannya tidak ada. |
+
+`suspension` menjadi `null` begitu penangguhan dibuka. Catatannya tetap ada di `project_control_requests` untuk audit, dan `reason` dari unsuspend, stop, atau reconcile tidak pernah tampil di field ini.
 
 `POST /api/v1/admin/projects/{project}/unsuspend` (admin, body `reason`) menjawab `202 ProjectControlResource` dengan `command: null`. Status menjadi `active` bila project pernah punya deployment `succeeded`, selain itu `draft`. API tidak menjalankan workload lagi: pemilik diberi tahu lalu men-deploy ulang. Ditolak `409` bila project tidak `suspended` atau `SleepProject` masih berjalan, termasuk saat menunggu node yang offline. Idempotency sama dengan operasi control lain, audit event-nya `project.unsuspended`.
 

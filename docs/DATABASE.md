@@ -50,6 +50,7 @@ Index dibuat dari query path yang sudah diketahui:
 - ringkasan runtime user: `(user_id, runtime_status)`;
 - riwayat deployment: `(project_id, created_at)`;
 - deployment terbaru tiap project di daftar project: satu query tambahan per halaman, dengan `(project_id, status)` atau unique `(project_id, sequence)` yang sudah ada, jadi tidak perlu index baru. Lihat [Deployment Terbaru](#deployment-terbaru);
+- alasan penangguhan di daftar project: satu query tambahan per halaman lewat `Project::latestSuspendRequest`, dengan `(project_id, action)` yang sudah ada pada `project_control_requests`, jadi tidak perlu index baru;
 - project yang dilayani sebuah deployment, dipakai heartbeat untuk status crash: `(active_deployment_id)` pada `projects`, bersama `(agent_node_id, status)` pada `deployments`;
 - deployment aktif/bermasalah: `(status, created_at)` dan `(failure_code, created_at)`;
 - cleanup log terminal: `(status, finished_at)` dan `(status, cancelled_at)`;

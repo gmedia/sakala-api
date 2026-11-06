@@ -6,6 +6,7 @@ namespace App\Http\Resources\Api\V1\Project;
 
 use App\Models\Project;
 use App\Support\Project\ProjectPreviewPresenter;
+use App\Support\Project\ProjectSuspensionPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -36,6 +37,13 @@ final class GetCollectionProjectResource extends JsonResource
             'thumbnail_url' => $this->resource->thumbnail_url,
             'public_url' => $this->resource->publicUrl(),
             'runtime_status' => $this->resource->runtime_status,
+            /**
+             * Null unless the project is suspended. `reason` is what the admin wrote, as plain text;
+             * both values are null for a suspended project without a suspend record.
+             *
+             * @var array{reason: string|null, suspended_at: string|null}|null
+             */
+            'suspension' => ProjectSuspensionPresenter::present($this->resource),
             'latest_deployment' => LatestDeploymentResource::fromProject($this->resource),
             'stack' => ProjectPreviewPresenter::stack($this->resource),
             'last_deployed_at' => $this->resource->last_deployed_at !== null

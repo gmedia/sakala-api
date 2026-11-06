@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\ProjectControlAction;
 use App\Enums\ProjectInspectionStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
@@ -204,6 +205,22 @@ class Project extends Model
     public function controlRequests(): HasMany
     {
         return $this->hasMany(ProjectControlRequest::class);
+    }
+
+    /**
+     * The suspension in force while the project is suspended, and the last one
+     * lifted otherwise, so read `status` first. Other control actions carry
+     * reasons for admins only and stay out. The limit applies per project when
+     * eager loaded, as on latestDeployment().
+     *
+     * @return HasOne<ProjectControlRequest, $this>
+     */
+    public function latestSuspendRequest(): HasOne
+    {
+        return $this->hasOne(ProjectControlRequest::class)
+            ->where('action', ProjectControlAction::Suspend)
+            ->orderByDesc('id')
+            ->limit(1);
     }
 
     /** @return array<string, string> */
