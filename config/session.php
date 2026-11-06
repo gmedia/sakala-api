@@ -2,7 +2,17 @@
 
 declare(strict_types=1);
 
+use App\Support\Http\SessionCookieScope;
 use Illuminate\Support\Str;
+
+$sessionCookie = (string) env(
+    'SESSION_COOKIE',
+    Str::slug((string) env('APP_NAME', 'laravel')).'-session'
+);
+
+$hostPrefixed = SessionCookieScope::isHostPrefixed($sessionCookie);
+
+$sessionDomain = env('SESSION_DOMAIN');
 
 return [
 
@@ -129,10 +139,7 @@ return [
     |
     */
 
-    'cookie' => env(
-        'SESSION_COOKIE',
-        Str::slug((string) env('APP_NAME', 'laravel')).'-session'
-    ),
+    'cookie' => $sessionCookie,
 
     /*
     |--------------------------------------------------------------------------
@@ -145,7 +152,7 @@ return [
     |
     */
 
-    'path' => env('SESSION_PATH', '/'),
+    'path' => $hostPrefixed ? '/' : env('SESSION_PATH', '/'),
 
     /*
     |--------------------------------------------------------------------------
@@ -153,12 +160,30 @@ return [
     |--------------------------------------------------------------------------
     |
     | This value determines the domain and subdomains the session cookie is
-    | available to. By default, the cookie will be available to the root
-    | domain without subdomains. Typically, this shouldn't be changed.
+    | available to. Sakala keeps it host-only: a domain that also covers the
+    | tenant applications under SAKALA_PROJECT_DEFAULT_DOMAIN is ignored, and so
+    | is any domain on a `__Host-` cookie. See docs/AUTHENTICATION.md.
     |
     */
 
-    'domain' => env('SESSION_DOMAIN'),
+    'domain' => SessionCookieScope::domain(
+        $sessionCookie,
+        is_string($sessionDomain) ? $sessionDomain : null,
+        (string) env('SAKALA_PROJECT_DEFAULT_DOMAIN', 'run.sakala.dev'),
+    ),
+
+    /*
+    |--------------------------------------------------------------------------
+    | XSRF Cookie Domain
+    |--------------------------------------------------------------------------
+    |
+    | The console reads XSRF-TOKEN through JavaScript from another host, so this
+    | cookie, and only this one, may name a parent domain. SESSION_DOMAIN stays
+    | as a fallback so a deployment that still sets it keeps a working console.
+    |
+    */
+
+    'xsrf_cookie_domain' => env('SAKALA_XSRF_COOKIE_DOMAIN') ?: ($sessionDomain ?: null),
 
     /*
     |--------------------------------------------------------------------------
@@ -171,7 +196,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => $hostPrefixed ? true : env('SESSION_SECURE_COOKIE'),
 
     /*
     |--------------------------------------------------------------------------
