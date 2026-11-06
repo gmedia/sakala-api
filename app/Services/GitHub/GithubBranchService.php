@@ -95,7 +95,7 @@ final class GithubBranchService
 
             if ($response->failed()) {
                 throw new RuntimeException(
-                    'Failed to retrieve branches from GitHub.',
+                    'Sakala belum bisa mengambil daftar branch dari GitHub. Coba lagi beberapa saat lagi.',
                 );
             }
 
@@ -103,7 +103,7 @@ final class GithubBranchService
 
             if (! is_array($branches)) {
                 throw new RuntimeException(
-                    'Invalid branches response from GitHub.',
+                    'Jawaban GitHub soal daftar branch tidak bisa dibaca. Coba lagi beberapa saat lagi.',
                 );
             }
 
@@ -176,7 +176,7 @@ final class GithubBranchService
 
         if ($response->failed()) {
             throw new RuntimeException(
-                'Failed to retrieve branch commit from GitHub.',
+                'Sakala belum bisa mengambil commit terbaru dari GitHub. Coba lagi beberapa saat lagi.',
             );
         }
 
@@ -200,7 +200,7 @@ final class GithubBranchService
 
         if ($response->failed()) {
             throw new RuntimeException(
-                'Failed to retrieve branch commit from GitHub.',
+                'Sakala belum bisa mengambil commit terbaru dari GitHub. Coba lagi beberapa saat lagi.',
             );
         }
 
@@ -228,7 +228,7 @@ final class GithubBranchService
     private function throwRepositoryAccessRemoved(): never
     {
         throw new HttpResponseException(response()->json([
-            'message' => 'GitHub App no longer has access to this repository. Reconnect GitHub or choose another repository.',
+            'message' => 'GitHub App Sakala tidak lagi punya akses ke repository ini. Hubungkan ulang GitHub atau pilih repository lain.',
         ], 409));
     }
 }

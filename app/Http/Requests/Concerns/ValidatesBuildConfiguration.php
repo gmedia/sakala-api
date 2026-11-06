@@ -36,7 +36,7 @@ trait ValidatesBuildConfiguration
                 'boolean',
                 function (string $attribute, mixed $value, Closure $fail): void {
                     if (filter_var($value, FILTER_VALIDATE_BOOLEAN) && ! $this->receivesPushWebhooks()) {
-                        $fail('Auto-deploy hanya tersedia untuk repository yang dipilih lewat akun GitHub yang terhubung. Project dari URL publik tidak menerima notifikasi push, jadi deploy dari URL publik dilakukan manual.');
+                        $fail('Auto-deploy hanya tersedia untuk repository yang dipilih lewat akun GitHub yang terhubung. Proyek dari URL publik tidak menerima notifikasi push, jadi deploy dari URL publik dilakukan manual.');
                     }
                 },
             ],

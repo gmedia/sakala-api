@@ -198,7 +198,7 @@ return [
         'name' => 'nama',
         'password' => 'kata sandi',
         'password_confirmation' => 'konfirmasi kata sandi',
-        'project_id' => 'project',
+        'project_id' => 'proyek',
         'root_directory' => 'direktori root',
         'start_command' => 'perintah start',
         'token' => 'token',

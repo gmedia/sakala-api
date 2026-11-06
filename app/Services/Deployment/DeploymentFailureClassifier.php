@@ -56,7 +56,7 @@ final class DeploymentFailureClassifier
             'repository_access_revoked' => $this->userFixable(
                 $errorCode,
                 Category::Checkout,
-                'Pemilik project tidak lagi punya akses ke repository ini di GitHub.',
+                'Pemilik proyek tidak lagi punya akses ke repository ini di GitHub.',
                 'Minta pemilik repository memulihkan akses kamu, lalu deploy ulang. Kalau aksesnya sudah benar, masuk ulang dengan GitHub supaya Sakala bisa memeriksanya lagi.',
             ),
 
@@ -64,7 +64,7 @@ final class DeploymentFailureClassifier
                 $errorCode,
                 Category::Checkout,
                 'Commit yang mau di-deploy sudah tidak ada di repository, biasanya karena force push.',
-                'Deploy ulang supaya Sakala mengambil commit terbaru dari branch project.',
+                'Deploy ulang supaya Sakala mengambil commit terbaru dari branch proyek.',
             ),
 
             'repository_credential_expired' => $this->platform(
@@ -99,8 +99,8 @@ final class DeploymentFailureClassifier
             'runtime_root_directory_invalid' => $this->userFixable(
                 $errorCode,
                 Category::Build,
-                'Direktori root project tidak menunjuk folder yang bisa dipakai di repository.',
-                'Buka pengaturan project, lalu isi direktori root dengan folder yang ada di branch ini, misalnya apps/web, atau kosongkan untuk memakai root repository. Setelah itu deploy ulang.',
+                'Direktori root proyek tidak menunjuk folder yang bisa dipakai di repository.',
+                'Buka pengaturan proyek, lalu isi direktori root dengan folder yang ada di branch ini, misalnya apps/web, atau kosongkan untuk memakai root repository. Setelah itu deploy ulang.',
             ),
 
             'runtime_app_crashed' => $this->userFixable(
@@ -113,8 +113,8 @@ final class DeploymentFailureClassifier
             'runtime_port_conflict' => $this->userFixable(
                 $errorCode,
                 Category::Start,
-                'Environment variable `PORT` di project ini berbeda dengan port yang dipakai Sakala untuk aplikasimu.',
-                'Hapus environment variable `PORT` di pengaturan project, karena Sakala sudah mengisinya otomatis, atau samakan nilainya dengan port yang tertulis di detail kegagalan. Lalu deploy ulang.',
+                'Environment variable `PORT` di proyek ini berbeda dengan port yang dipakai Sakala untuk aplikasimu.',
+                'Hapus environment variable `PORT` di pengaturan proyek, karena Sakala sudah mengisinya otomatis, atau samakan nilainya dengan port yang tertulis di detail kegagalan. Lalu deploy ulang.',
             ),
 
             'runtime_execution_failed',
@@ -176,7 +176,7 @@ final class DeploymentFailureClassifier
                 $errorCode,
                 Category::Resource,
                 'Aplikasi dihentikan karena memakai memory melebihi batas.',
-                'Batas memory project tertulis di detail kegagalan. Kurangi pemakaian memory aplikasi, misalnya jumlah worker atau ukuran cache, lalu deploy ulang.',
+                'Batas memory proyek tertulis di detail kegagalan. Kurangi pemakaian memory aplikasi, misalnya jumlah worker atau ukuran cache, lalu deploy ulang.',
             ),
 
             'runtime_capacity_exceeded' => $this->platform(

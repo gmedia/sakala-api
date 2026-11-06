@@ -104,7 +104,7 @@ final class LeaseRepositoryCredentialAction
             RepositoryAccessState::Granted => [null, null],
             RepositoryAccessState::Revoked => [
                 'repository_access_revoked',
-                'Pemilik project tidak lagi punya akses ke repository ini di GitHub.',
+                'Pemilik proyek tidak lagi punya akses ke repository ini di GitHub.',
             ],
             RepositoryAccessState::Unknown => [
                 'repository_access_check_failed',
@@ -202,7 +202,7 @@ final class LeaseRepositoryCredentialAction
     private function throwRepositoryAccessRemoved(): never
     {
         throw new HttpResponseException(response()->json([
-            'message' => 'GitHub App no longer has access to this repository. Reconnect GitHub or choose another repository.',
+            'message' => 'GitHub App Sakala tidak lagi punya akses ke repository ini. Hubungkan ulang GitHub atau pilih repository lain.',
         ], 409));
     }
 }

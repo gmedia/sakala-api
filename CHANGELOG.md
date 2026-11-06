@@ -41,6 +41,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Changed
 
+- User-visible API messages, failure hints, and validation attributes now say `proyek` and `kamu`, and admin and GitHub errors that were still English are Indonesian. Codes and keys did not change.
 - Deployment status follows `deployment.analysis.started`, `deployment.health.started`, and `deployment.route.started`. `health_checking` now ranks before `routing`, and `deployment.runtime.ready` no longer changes status. Older agents skip these statuses and still succeed.
 - `InspectProject` sends `root_directory` when set, and `stack` is null until the current directory has been inspected. Added failure code `runtime_root_directory_invalid`.
 - The default limit for authenticated API routes is 240 requests per minute (`SAKALA_API_RATE_LIMIT`); guests stay at 60 (`SAKALA_API_GUEST_RATE_LIMIT`).

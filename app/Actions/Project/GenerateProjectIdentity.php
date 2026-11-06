@@ -67,7 +67,7 @@ class GenerateProjectIdentity
         // Tolak jika reserved word
         if ($this->reservedSlug->isReserved($baseSlug)) {
             throw ValidationException::withMessages([
-                'name' => 'Nama project tersebut tidak dapat digunakan karena menghasilkan slug yang dicadangkan sistem. Silakan gunakan nama lain.',
+                'name' => 'Nama proyek ini menghasilkan alamat yang dicadangkan Sakala, jadi tidak bisa dipakai. Pakai nama lain.',
             ]);
         }
 

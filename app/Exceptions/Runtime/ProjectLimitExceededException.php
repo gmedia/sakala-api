@@ -18,7 +18,7 @@ final class ProjectLimitExceededException extends RuntimeException
     ) {
         $msg = $message !== ''
             ? $message
-            : sprintf('Kamu sudah mencapai batas %d project selama fase pilot. Hapus project yang tidak dipakai untuk membuat project baru.', $limit);
+            : sprintf('Kamu sudah mencapai batas %d proyek selama fase pilot. Hapus proyek yang tidak dipakai untuk membuat proyek baru.', $limit);
 
         parent::__construct($msg);
     }

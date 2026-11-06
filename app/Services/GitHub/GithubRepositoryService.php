@@ -95,7 +95,7 @@ final class GithubRepositoryService
 
         if (! is_array($repositoriesResponse)) {
             throw new RuntimeException(
-                'Invalid repository response from GitHub.',
+                'Jawaban GitHub soal repository ini tidak bisa dibaca. Coba lagi beberapa saat lagi.',
             );
         }
 
@@ -151,7 +151,7 @@ final class GithubRepositoryService
 
         if (! is_array($items)) {
             throw new RuntimeException(
-                'Invalid repository response from GitHub.',
+                'Jawaban GitHub soal repository ini tidak bisa dibaca. Coba lagi beberapa saat lagi.',
             );
         }
 
@@ -239,7 +239,7 @@ final class GithubRepositoryService
 
         if ($response->failed()) {
             throw new RuntimeException(
-                'Failed to retrieve repository from GitHub.',
+                'Sakala belum bisa mengambil data repository dari GitHub. Coba lagi beberapa saat lagi.',
             );
         }
 
@@ -247,7 +247,7 @@ final class GithubRepositoryService
 
         if (! is_array($repository)) {
             throw new RuntimeException(
-                'Invalid repository response from GitHub.',
+                'Jawaban GitHub soal repository ini tidak bisa dibaca. Coba lagi beberapa saat lagi.',
             );
         }
 

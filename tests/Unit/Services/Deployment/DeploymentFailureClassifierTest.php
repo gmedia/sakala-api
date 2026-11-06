@@ -216,5 +216,5 @@ test('an invalid root directory points at the project setting', function () {
 
     expect($failure->category)->toBe(DeploymentFailureCategory::Build)
         ->and($failure->recoveryHint)->toContain('direktori root')
-        ->and($failure->recoveryHint)->toContain('pengaturan project');
+        ->and($failure->recoveryHint)->toContain('pengaturan proyek');
 });

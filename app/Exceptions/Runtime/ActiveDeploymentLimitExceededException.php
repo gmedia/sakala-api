@@ -21,7 +21,7 @@ final class ActiveDeploymentLimitExceededException extends RuntimeException
             ? $message
             : sprintf(
                 $scope === 'project'
-                    ? 'Project ini sudah punya %d deployment yang berjalan, dan itu batas selama fase pilot. Tunggu sampai selesai, lalu deploy lagi.'
+                    ? 'Proyek ini sudah punya %d deployment yang berjalan, dan itu batas selama fase pilot. Tunggu sampai selesai, lalu deploy lagi.'
                     : 'Kamu sudah punya %d deployment yang berjalan, dan itu batas selama fase pilot. Tunggu salah satunya selesai, lalu deploy lagi.',
                 $limit,
             );

@@ -13,7 +13,7 @@ final class RepositoryAccessRevokedException extends RuntimeException
 {
     public function __construct()
     {
-        parent::__construct('Pemilik project tidak lagi punya akses ke repository ini di GitHub, jadi project ini belum bisa di-deploy. Minta akses dipulihkan, atau masuk ulang dengan GitHub bila akses sudah benar.');
+        parent::__construct('Pemilik proyek tidak lagi punya akses ke repository ini di GitHub, jadi proyek ini belum bisa di-deploy. Minta akses dipulihkan, atau masuk ulang dengan GitHub bila akses sudah benar.');
     }
 
     public function render(Request $request): JsonResponse

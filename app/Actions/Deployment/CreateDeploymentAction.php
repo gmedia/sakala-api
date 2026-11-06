@@ -59,7 +59,7 @@ final class CreateDeploymentAction
 
         if ($existing->branch !== $data->branch || $existing->requested_resources !== $requestedResources) {
             throw new ConflictHttpException(
-                'The idempotency key has already been used for a different deployment.'
+                'Idempotency key ini sudah dipakai untuk deployment lain. Pakai key baru.'
             );
         }
 
@@ -121,7 +121,7 @@ final class CreateDeploymentAction
         if ($data->branch !== $project->branch) {
             throw ValidationException::withMessages([
                 'branch' => [
-                    'Branch yang dipilih berbeda dengan branch project. Pilih branch yang terdaftar di project ini.',
+                    'Branch yang dipilih berbeda dengan branch proyek. Pilih branch yang terdaftar di proyek ini.',
                 ],
             ]);
         }

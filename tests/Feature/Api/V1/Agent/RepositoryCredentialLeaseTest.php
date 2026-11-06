@@ -250,7 +250,7 @@ test('a lease is refused when repository access has been withdrawn', function ()
     $this->withHeaders(leaseHeaders($unlinkedAgent, 'unlinked-token'))
         ->postJson("/api/agent/v1/commands/{$unlinked->id}/repository-credential", [])
         ->assertStatus(409)
-        ->assertJsonPath('message', 'GitHub App no longer has access to this repository. Reconnect GitHub or choose another repository.');
+        ->assertJsonPath('message', 'GitHub App Sakala tidak lagi punya akses ke repository ini. Hubungkan ulang GitHub atau pilih repository lain.');
 
     ['agent' => $detachedAgent, 'command' => $detached, 'project' => $project] = leaseContext('detached-token');
     $project->update(['github_installation_id' => null, 'github_repository_id' => null]);

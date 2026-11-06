@@ -34,7 +34,7 @@ test('project quota returns a stable code and an Indonesian message', function (
         ])
         ->assertUnprocessable()
         ->assertExactJson([
-            'message' => 'Kamu sudah mencapai batas 1 project selama fase pilot. Hapus project yang tidak dipakai untuk membuat project baru.',
+            'message' => 'Kamu sudah mencapai batas 1 proyek selama fase pilot. Hapus proyek yang tidak dipakai untuk membuat proyek baru.',
             'code' => 'PROJECT_LIMIT_EXCEEDED',
             'limit' => 1,
             'current' => 1,
@@ -52,7 +52,7 @@ test('the active deployment limit per project returns a stable code and an Indon
         ->assertUnprocessable()
         ->assertJsonPath('code', 'ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED')
         ->assertJsonPath('scope', 'project')
-        ->assertJsonPath('message', 'Project ini sudah punya 1 deployment yang berjalan, dan itu batas selama fase pilot. Tunggu sampai selesai, lalu deploy lagi.');
+        ->assertJsonPath('message', 'Proyek ini sudah punya 1 deployment yang berjalan, dan itu batas selama fase pilot. Tunggu sampai selesai, lalu deploy lagi.');
 });
 
 test('the active deployment limit per user names the user scope in Indonesian', function (): void {
@@ -98,7 +98,7 @@ test('the owner of a suspended project learns why it cannot deploy', function ()
         ->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'main'])
         ->assertConflict()
         ->assertExactJson([
-            'message' => 'Project ini sedang ditangguhkan oleh admin, jadi belum bisa di-deploy. Hubungi admin Sakala untuk membukanya kembali.',
+            'message' => 'Proyek ini sedang ditangguhkan oleh admin, jadi belum bisa di-deploy. Hubungi admin Sakala untuk membukanya kembali.',
             'code' => 'PROJECT_SUSPENDED',
         ]);
 
@@ -171,7 +171,7 @@ test('a branch that differs from the project branch is explained in Indonesian',
     $this->actingAs($user, 'web')
         ->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'develop'])
         ->assertUnprocessable()
-        ->assertJsonPath('errors.branch.0', 'Branch yang dipilih berbeda dengan branch project. Pilih branch yang terdaftar di project ini.');
+        ->assertJsonPath('errors.branch.0', 'Branch yang dipilih berbeda dengan branch proyek. Pilih branch yang terdaftar di proyek ini.');
 });
 
 test('every framework validation rule has an Indonesian line', function (): void {

@@ -87,7 +87,7 @@ final class CreatePushDeploymentsAction
         } catch (RepositoryAccessRevokedException) {
             $this->skip($project, 'repository_access_revoked', $commit, 'Kamu tidak lagi punya akses ke repository ini di GitHub, jadi push terbaru tidak di-deploy.');
         } catch (ProjectSuspendedException) {
-            $this->skip($project, 'project_suspended', $commit, 'Project ini sedang ditangguhkan, jadi push terbaru tidak di-deploy.');
+            $this->skip($project, 'project_suspended', $commit, 'Proyek ini sedang ditangguhkan, jadi push terbaru tidak di-deploy.');
         }
     }
 

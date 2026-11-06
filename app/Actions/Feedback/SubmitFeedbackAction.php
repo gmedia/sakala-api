@@ -40,7 +40,7 @@ final class SubmitFeedbackAction
         if ($data->projectId !== null && $data->deploymentId !== null) {
             if ($deployment !== null && $deployment->project_id !== $data->projectId) {
                 throw ValidationException::withMessages([
-                    'deployment_id' => ['Deployment yang dipilih bukan milik project ini. Pilih deployment dari project yang sama.'],
+                    'deployment_id' => ['Deployment yang dipilih bukan milik proyek ini. Pilih deployment dari proyek yang sama.'],
                 ]);
             }
         }

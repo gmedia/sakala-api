@@ -68,7 +68,7 @@ final class SuspendProjectAction
         ) {
             abort(
                 409,
-                'Idempotency key has already been used for a different request.',
+                'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.',
             );
         }
     }
@@ -127,11 +127,11 @@ final class SuspendProjectAction
             $existingCommand = $this->findExistingCommand($data);
 
             if ($existingCommand !== null) {
-                abort(409, 'Idempotency key has already been used for a different request.');
+                abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
             }
 
             if ($lockedProject->status === ProjectStatus::Suspended) {
-                abort(409, 'Project is already suspended');
+                abort(409, 'Proyek ini sudah ditangguhkan.');
             }
 
             $pendingSuspendCommand = $this->findPendingSuspendCommand(
@@ -139,7 +139,7 @@ final class SuspendProjectAction
             );
 
             if ($pendingSuspendCommand !== null) {
-                abort(409, 'A suspended command is already in progress for this project.');
+                abort(409, 'Command penangguhan proyek ini masih berjalan. Tunggu sampai selesai.');
             }
 
             $deployment = Deployment::query()

@@ -56,7 +56,7 @@ Gunakan method dan status code sesuai semantik HTTP. Validation error memakai `4
 
 ## Error Bisnis
 
-Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk dibaca mesin dan `message` berbahasa Indonesia untuk ditampilkan ke pengguna. Console memilih perilaku dari `code`, bukan dari isi `message`, karena teksnya boleh berubah.
+Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk dibaca mesin dan `message` berbahasa Indonesia untuk ditampilkan ke pengguna. Console memilih perilaku dari `code`, bukan dari isi `message`, karena teksnya boleh berubah. Pesan menyapa pengguna dengan `kamu` dan menyebut `proyek`, sedangkan istilah teknis seperti `deployment`, `repository`, dan `branch` tetap bahasa Inggris.
 
 | `code` | HTTP | Kapan | Field tambahan |
 | --- | --- | --- | --- |

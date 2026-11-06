@@ -33,7 +33,7 @@ final class GithubInstallationService
         $installation = $this->installationForUser($accessToken, $githubInstallationId);
 
         if (! is_array($installation) || ! is_array($installation['account'] ?? null)) {
-            throw new AuthorizationException('GitHub installation is not available to this user.');
+            throw new AuthorizationException('Instalasi GitHub ini tidak tersedia untuk akunmu.');
         }
 
         $githubInstallation = GithubInstallation::query()->updateOrCreate(
@@ -188,7 +188,7 @@ final class GithubInstallationService
             $page++;
         } while ($repositories !== [] && $page <= (int) ceil(((int) ($payload['total_count'] ?? 0)) / 100));
 
-        throw new AuthorizationException('GitHub repository is not available to this user.');
+        throw new AuthorizationException('Repository GitHub ini tidak tersedia untuk akunmu.');
     }
 
     private function ensureActive(GithubInstallation $installation): void
@@ -198,7 +198,7 @@ final class GithubInstallationService
         }
 
         throw new HttpResponseException(response()->json([
-            'message' => 'GitHub installation is no longer active. Reconnect GitHub and try again.',
+            'message' => 'Instalasi GitHub ini sudah tidak aktif. Hubungkan ulang GitHub, lalu coba lagi.',
         ], 409));
     }
 
