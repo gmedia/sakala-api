@@ -9,4 +9,5 @@ enum ProjectControlAction: string
     case Stop = 'stop';
     case Suspend = 'suspend';
     case Reconcile = 'reconcile';
+    case Unsuspend = 'unsuspend';
 }

@@ -31,7 +31,12 @@ final class ProjectInspectionOutcomeService
         $project = $this->lockUnlessSuperseded($command);
 
         $project?->update([
-            'inspection' => $result->toArray(),
+            // Which directory this describes: the agent does not echo it, and
+            // the project's value can change after the inspection.
+            'inspection' => [
+                ...$result->toArray(),
+                'root_directory' => $command->payload['root_directory'] ?? null,
+            ],
             'inspection_status' => ProjectInspectionStatus::Succeeded,
             'inspection_error_code' => null,
             'inspected_at' => now(),

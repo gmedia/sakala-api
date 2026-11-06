@@ -53,10 +53,30 @@ test('authenticated user can view pilot limits and current quota usage', functio
                     'max_total_bytes',
                     'max_request_bytes',
                 ],
+                'deleted_project_retention_days',
             ],
         ])
         ->assertJsonPath('data.quotas.current_projects_count', 1)
         ->assertJsonPath('data.quotas.current_active_deployments_count', 1);
+});
+
+test('pilot limits state the retention the purge actually uses', function () {
+    $this->actingAs(User::factory()->create(), 'web')
+        ->getJson('/api/v1/app/pilot-limits')
+        ->assertJsonPath('data.deleted_project_retention_days', 30);
+
+    config(['sakala.project.deleted_retention_days' => 7]);
+
+    $this->getJson('/api/v1/app/pilot-limits')
+        ->assertJsonPath('data.deleted_project_retention_days', 7);
+
+    $withinWindow = Project::factory()->create(['deleted_at' => now()->subDays(6)]);
+    $pastWindow = Project::factory()->create(['deleted_at' => now()->subDays(8)]);
+
+    $this->artisan('projects:purge-deleted')->assertSuccessful();
+
+    expect(Project::withTrashed()->find($withinWindow->id))->not->toBeNull()
+        ->and(Project::withTrashed()->find($pastWindow->id))->toBeNull();
 });
 
 test('guest cannot access pilot limits endpoint', function () {

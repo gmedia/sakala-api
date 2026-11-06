@@ -137,7 +137,7 @@ test('repository discovery uses the user access token and user-scoped installati
 test('installation setup rejects missing state', function (): void {
     $this->actingAs(User::factory()->create(), 'web')
         ->get(route('auth.github.setup', ['installation_id' => 100]))
-        ->assertForbidden();
+        ->assertRedirect(config('sakala.console_url').'/projects/new?github_installation=error&error=github_invalid_state');
 });
 
 test('user can configure their personal GitHub App installation', function (): void {
@@ -192,7 +192,7 @@ test('user cannot configure another user GitHub App installation', function (): 
 
     $this->actingAs(User::factory()->create(), 'web')
         ->get(route('auth.github.installations.configure', $installation))
-        ->assertForbidden();
+        ->assertRedirect(config('sakala.console_url').'/projects/new?github_installation=error&error=github_access_denied');
 });
 
 test('installation setup accepts a configuration callback for the intended installation', function (): void {
@@ -212,11 +212,11 @@ test('installation setup accepts a configuration callback for the intended insta
 
     $this->actingAs($user, 'web')->withSession(['github_app_configure_installation_id' => 100])
         ->get(route('auth.github.setup', ['installation_id' => 100]))
-        ->assertRedirect(config('sakala.console_url').'/dashboard?github_installation=connected');
+        ->assertRedirect(config('sakala.console_url').'/projects/new?github_installation=connected');
 });
 
 test('installation setup rejects a configuration callback for a different installation', function (): void {
     $this->actingAs(User::factory()->create(), 'web')->withSession(['github_app_configure_installation_id' => 100])
         ->get(route('auth.github.setup', ['installation_id' => 200]))
-        ->assertForbidden();
+        ->assertRedirect(config('sakala.console_url').'/projects/new?github_installation=error&error=github_invalid_state');
 });

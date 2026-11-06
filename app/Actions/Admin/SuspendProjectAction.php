@@ -9,6 +9,7 @@ use App\Data\Admin\ProjectControlResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
+use App\Enums\NotificationCategory;
 use App\Enums\ProjectControlAction;
 use App\Enums\ProjectStatus;
 use App\Enums\UsageSignalType;
@@ -18,14 +19,18 @@ use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\ProjectControlRequest;
 use App\Models\User;
+use App\Notifications\Project\ProjectSuspendedNotification;
+use App\Services\Notification\UserNotifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 final class SuspendProjectAction
 {
     public function __construct(
         private readonly CreateSleepProjectCommandAction $createSleepProjectCommandAction,
         private readonly RecordUsageSignalAction $recordAction,
+        private readonly UserNotifier $notifier,
     ) {}
 
     private function findExistingRequest(
@@ -68,7 +73,7 @@ final class SuspendProjectAction
         ) {
             abort(
                 409,
-                'Idempotency key has already been used for a different request.',
+                'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.',
             );
         }
     }
@@ -127,11 +132,11 @@ final class SuspendProjectAction
             $existingCommand = $this->findExistingCommand($data);
 
             if ($existingCommand !== null) {
-                abort(409, 'Idempotency key has already been used for a different request.');
+                abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
             }
 
             if ($lockedProject->status === ProjectStatus::Suspended) {
-                abort(409, 'Project is already suspended');
+                abort(409, 'Proyek ini sudah ditangguhkan.');
             }
 
             $pendingSuspendCommand = $this->findPendingSuspendCommand(
@@ -139,7 +144,7 @@ final class SuspendProjectAction
             );
 
             if ($pendingSuspendCommand !== null) {
-                abort(409, 'A suspended command is already in progress for this project.');
+                abort(409, 'Command penangguhan proyek ini masih berjalan. Tunggu sampai selesai.');
             }
 
             $deployment = Deployment::query()
@@ -210,11 +215,45 @@ final class SuspendProjectAction
                 tags: ['action_code' => 'manual_suspend'],
             );
 
+            $this->notifyOwner($lockedProject, $data->reason);
+
             return new ProjectControlResultData(
                 project: $lockedProject->refresh(),
                 command: $command,
                 responseContext: $responseContext,
             );
+        });
+    }
+
+    /**
+     * Only on a new suspension, so a retried request tells nobody twice. The
+     * reason reaches the owner as the admin wrote it, so it must not name whoever
+     * reported the project. The notice ignores notification preferences.
+     */
+    private function notifyOwner(Project $project, string $reason): void
+    {
+        $owner = $project->user;
+        $contact = (string) config('sakala.contact.abuse_email');
+
+        $this->notifier->send(
+            $owner,
+            NotificationCategory::ProjectIssue,
+            'Proyek ditangguhkan',
+            "{$project->name} ditangguhkan oleh admin Sakala, jadi trafiknya diputus dan belum bisa di-deploy. Alasannya: {$reason} Kalau menurutmu keputusan ini keliru, kirim email ke {$contact}.",
+            $project->id,
+            mandatory: true,
+        );
+
+        if (! config('sakala.email_delivery_enabled')) {
+            return;
+        }
+
+        DB::afterCommit(static function () use ($owner, $project, $reason): void {
+            try {
+                $owner?->notify(new ProjectSuspendedNotification($project->name, $reason));
+            } catch (Throwable $exception) {
+                report($exception);
+            }
         });
     }
 }

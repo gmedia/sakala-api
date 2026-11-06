@@ -11,6 +11,7 @@ use App\Data\Agent\ProjectInspectionResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
+use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
@@ -132,26 +133,40 @@ final class CompleteAgentCommandAction
                 ]);
             }
 
+            if ($command->project_id !== null && in_array($command->type, [
+                AgentCommandType::RestartProject,
+                AgentCommandType::WakeProject,
+            ], true)) {
+                // A deleted project still has to record that its workload stopped.
+                $project = Project::withTrashed()
+                    ->lockForUpdate()
+                    ->findOrFail($command->project_id);
+
+                if ($project->status !== ProjectStatus::Suspended && $this->isCurrentWorkload($project, $command)) {
+                    $project->update([
+                        'runtime_status' => RuntimeStatus::Running,
+                        'active_deployment_id' => $command->deployment_id,
+                    ]);
+                }
+            }
+
             if (in_array($command->type, [
                 AgentCommandType::StopProject,
                 AgentCommandType::SleepProject,
             ], true)) {
-                $project = Project::query()
+                // A deleted project still has to record that its workload stopped.
+                $project = Project::withTrashed()
                     ->lockForUpdate()
                     ->findOrFail($command->project_id);
 
-                $currentDeployment = Deployment::query()
-                    ->where('project_id', $project->id)
-                    ->where('status', DeploymentStatus::Succeeded)
-                    ->whereNotNull('agent_node_id')
-                    ->orderByDesc('sequence')
-                    ->first();
-
-                $isCurrentWorkload = $command->deployment_id !== null && $currentDeployment?->id === $command->deployment_id;
+                $isCurrentWorkload = $this->isCurrentWorkload($project, $command);
 
                 if ($isCurrentWorkload) {
+                    // Nothing serves anymore; a later crash report or failed
+                    // redeploy must not read as if a deployment were live.
                     $project->update([
                         'runtime_status' => RuntimeStatus::Stopped,
+                        'active_deployment_id' => null,
                     ]);
                 }
 
@@ -177,6 +192,27 @@ final class CompleteAgentCommandAction
 
         // Reached here only if not already Succeeded (idempotent path returns early)
         return true;
+    }
+
+    /**
+     * Whether the command targets the newest deployment that succeeded. A
+     * stale stop or restart of a superseded workload must not change the
+     * state of the project.
+     */
+    private function isCurrentWorkload(Project $project, AgentCommand $command): bool
+    {
+        if ($command->deployment_id === null) {
+            return false;
+        }
+
+        $currentDeploymentId = Deployment::query()
+            ->where('project_id', $project->id)
+            ->where('status', DeploymentStatus::Succeeded)
+            ->whereNotNull('agent_node_id')
+            ->orderByDesc('sequence')
+            ->value('id');
+
+        return $currentDeploymentId === $command->deployment_id;
     }
 
     private function completeInspection(AgentNode $agent, AgentCommand $command, ProjectInspectionResultData $result): void

@@ -11,8 +11,12 @@ use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RepositoryAccess;
+use App\Enums\RepositoryAccessState;
 use App\Enums\UsageSignalType;
+use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
+use App\Exceptions\Runtime\ProjectSuspendedException;
+use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\AgentCommand;
@@ -22,6 +26,7 @@ use App\Models\Project;
 use App\Models\User;
 use App\Services\Agent\AgentNodeSchedulerService;
 use App\Services\GitHub\GithubBranchService;
+use App\Services\GitHub\GithubRepositoryAccessService;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -54,7 +59,7 @@ final class CreateDeploymentAction
 
         if ($existing->branch !== $data->branch || $existing->requested_resources !== $requestedResources) {
             throw new ConflictHttpException(
-                'The idempotency key has already been used for a different deployment.'
+                'Idempotency key ini sudah dipakai untuk deployment lain. Pakai key baru.'
             );
         }
 
@@ -78,7 +83,52 @@ final class CreateDeploymentAction
         private readonly PilotRuntimeLimitService $runtimeLimitService,
         private readonly RecordUsageSignalAction $recordAction,
         private readonly AgentNodeSchedulerService $scheduler,
+        private readonly GithubRepositoryAccessService $repositoryAccess,
     ) {}
+
+    /**
+     * While GitHub rate limits us a known commit is a safe target: the deployment
+     * shows exactly which commit it runs. GithubPublicReader already falls back to
+     * its last answer; this covers an empty cache and installation projects.
+     *
+     * @return array{sha: string, message: string|null}
+     */
+    private function resolveBranchHead(Project $project, string $branch): array
+    {
+        try {
+            return $this->githubBranchService->getBranchCommit($project, $branch, revalidate: true);
+        } catch (GithubRateLimitedException $exception) {
+            $known = Deployment::query()
+                ->where('project_id', $project->id)
+                ->where('branch', $branch)
+                ->whereNotNull('commit_sha')
+                ->orderByDesc('sequence')
+                ->first();
+
+            if ($known === null) {
+                throw $exception;
+            }
+
+            return ['sha' => (string) $known->commit_sha, 'message' => $known->commit_message];
+        }
+    }
+
+    /**
+     * Whoever wrote the commit controls this text, and it can be any length. It
+     * stays plain text, with markup left as written: only the first line, without
+     * control characters (PostgreSQL refuses NUL), within the column.
+     */
+    private function commitSubject(?string $message): ?string
+    {
+        if ($message === null) {
+            return null;
+        }
+
+        $firstLine = Str::before(str_replace("\r", "\n", trim(mb_scrub($message, 'UTF-8'))), "\n");
+        $subject = trim((string) preg_replace('/\p{Cc}+/u', ' ', $firstLine));
+
+        return $subject === '' ? null : mb_substr($subject, 0, Deployment::MAX_COMMIT_MESSAGE_LENGTH);
+    }
 
     public function handle(
         Project $project,
@@ -88,7 +138,7 @@ final class CreateDeploymentAction
         if ($data->branch !== $project->branch) {
             throw ValidationException::withMessages([
                 'branch' => [
-                    'The selected branch does not match the project branch.',
+                    'Branch yang dipilih berbeda dengan branch proyek. Pilih branch yang terdaftar di proyek ini.',
                 ],
             ]);
         }
@@ -99,10 +149,19 @@ final class CreateDeploymentAction
             return $existing;
         }
 
-        $commit = $this->githubBranchService->getBranchCommit(
-            project: $project,
-            branch: $data->branch,
-        );
+        // Early and clear for the owner. The lease checks again, and is also what
+        // decides when GitHub cannot answer here.
+        if ($project->github_installation_id !== null
+            && $project->github_repository_id !== null
+            && $this->repositoryAccess->forOwner($project) === RepositoryAccessState::Revoked) {
+            throw new RepositoryAccessRevokedException;
+        }
+
+        // A push webhook already names the commit; only a manual deployment has
+        // to ask GitHub for the branch head.
+        $commit = $data->commit_sha !== null
+            ? ['sha' => $data->commit_sha, 'message' => $data->commit_message]
+            : $this->resolveBranchHead($project, $data->branch);
 
         $created = false;
 
@@ -138,7 +197,7 @@ final class CreateDeploymentAction
                 }
 
                 if ($lockedProject->status === ProjectStatus::Suspended) {
-                    abort(409, 'Project is suspended.');
+                    throw new ProjectSuspendedException;
                 }
 
                 // Enforce active deployment limits under user and project lock
@@ -176,7 +235,9 @@ final class CreateDeploymentAction
                     'trigger' => $data->trigger,
                     'branch' => $data->branch,
                     'commit_sha' => $commit['sha'],
-                    'commit_message' => $commit['message'],
+                    'commit_message' => $this->commitSubject($commit['message']),
+                    // Fixed at creation: a later port change only affects the next deployment.
+                    'container_port' => $lockedProject->effectivePort(),
                     'requested_resources' => $data->requested_resources?->toArray(),
                     'effective_resources' => $effectiveLimits->toArray(),
                 ]);
@@ -190,7 +251,7 @@ final class CreateDeploymentAction
                         ? RepositoryAccess::Public->value
                         : RepositoryAccess::TemporaryCredential->value,
                     'domain' => $lockedProject->default_domain,
-                    'container_port' => $lockedProject->detected_port ?? 3000,
+                    'container_port' => $deployment->container_port,
                     'builder' => 'auto',
                     'environment' => $lockedProject->environmentVariables
                         ->mapWithKeys(fn (EnvironmentVariable $env): array => [
@@ -205,6 +266,12 @@ final class CreateDeploymentAction
                     'resources' => $effectiveLimits->toResourcesArray(),
                     'timeouts' => $effectiveLimits->timeouts->toArray(),
                     'log_bounds' => $effectiveLimits->log_bounds->toArray(),
+                    // Optional additions to protocol revision 4; absent unless set.
+                    ...array_filter([
+                        'build_command' => $lockedProject->build_command,
+                        'start_command' => $lockedProject->start_command,
+                        'root_directory' => $lockedProject->root_directory,
+                    ], static fn (?string $value): bool => $value !== null),
                 ];
 
                 AgentCommand::create([

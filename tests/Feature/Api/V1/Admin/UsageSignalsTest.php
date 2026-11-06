@@ -169,3 +169,22 @@ test('signals are ordered by collected_at descending', function (): void {
     expect($signals[0]['collected_at'])->toMatch('/2026-09-14T11/');
     expect($signals[1]['collected_at'])->toMatch('/2026-09-14T09/');
 });
+
+test('empty signal tags stay a JSON object', function (): void {
+    $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+    UsageSignalRecord::factory()->create([
+        'signal_type' => 'deployment_attempt',
+        'count' => 1,
+        'scope' => 'global',
+        'scope_id' => null,
+        'tags' => [],
+        'collected_at' => now(),
+    ]);
+
+    $query = http_build_query(['from' => now()->subDay()->toDateString(), 'to' => now()->addDay()->toDateString()]);
+
+    $body = $this->actingAs($admin, 'web')->getJson("/api/v1/admin/signals?{$query}")->assertOk()->getContent();
+
+    expect($body)->toContain('"tags":{}');
+});

@@ -35,7 +35,9 @@ enum DeploymentStatus: string
 
     /**
      * Position in the forward lifecycle. Terminal states share the highest
-     * rank so they are never "behind" an active state.
+     * rank so they are never "behind" an active state. Health comes before
+     * routing because the agent only activates the route for an app that
+     * answered its probe.
      */
     public function order(): int
     {
@@ -45,8 +47,8 @@ enum DeploymentStatus: string
             self::Analyzing => 2,
             self::Building => 3,
             self::Deploying => 4,
-            self::Routing => 5,
-            self::HealthChecking => 6,
+            self::HealthChecking => 5,
+            self::Routing => 6,
             self::Succeeded,
             self::Failed,
             self::Cancelled => 7,
@@ -57,15 +59,24 @@ enum DeploymentStatus: string
      * Map a DeployProject event reported by the agent to the deployment
      * phase it announces. `succeeded` is never derived from an event; only
      * the command completion is authoritative for that. Events that carry no
-     * phase (resources resolved, command claimed, ...) return null.
+     * phase (resources resolved, command claimed, ...) return null, and so do
+     * unknown ones: they are stored on the timeline without changing status.
+     * `deployment.runtime.ready` is such an event: it says the route is live
+     * and cleanup finished, not that routing began.
+     *
+     * Older agents do not send the analysis, health, and route events, so a
+     * deployment may skip those statuses. Transitions only move forward, and
+     * completion is valid from any active status.
      */
     public static function fromAgentEventType(string $type): ?self
     {
         return match ($type) {
             'deployment.checkout.started' => self::Cloning,
+            'deployment.analysis.started' => self::Analyzing,
             'deployment.build.started' => self::Building,
             'deployment.container.started' => self::Deploying,
-            'deployment.runtime.ready' => self::Routing,
+            'deployment.health.started' => self::HealthChecking,
+            'deployment.route.started' => self::Routing,
             default => null,
         };
     }

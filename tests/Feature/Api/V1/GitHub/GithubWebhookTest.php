@@ -69,3 +69,34 @@ test('removed installations cannot mint an installation token', function (): voi
         expect($exception->getResponse()->status())->toBe(409);
     }
 });
+
+test('a signed webhook whose delivery id is not a uuid is refused before it reaches the database', function (string $deliveryId): void {
+    config()->set('services.github_app.webhook_secret', 'webhook-secret');
+    $body = '{"action":"created"}';
+
+    $this->call('POST', route('api.v1.webhooks.github'), [], [], [], [
+        'HTTP_X_GITHUB_DELIVERY' => $deliveryId,
+        'HTTP_X_GITHUB_EVENT' => 'installation',
+        'HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $body, 'webhook-secret'),
+        'CONTENT_TYPE' => 'application/json',
+    ], $body)
+        ->assertUnprocessable()
+        ->assertExactJson(['message' => 'Invalid GitHub webhook delivery.']);
+
+    expect(GithubWebhookDelivery::query()->count())->toBe(0);
+})->with([
+    'plain text' => ['not-a-uuid'],
+    'almost a uuid' => ['f47ac10b-58cc-4372-a567-0e02b2c3d47'],
+    'injection attempt' => ["f47ac10b-58cc-4372-a567-0e02b2c3d479' OR 1=1"],
+]);
+
+test('an unsigned webhook is still told about the signature, not the delivery id', function (): void {
+    config()->set('services.github_app.webhook_secret', 'webhook-secret');
+
+    $this->call('POST', route('api.v1.webhooks.github'), [], [], [], [
+        'HTTP_X_GITHUB_DELIVERY' => 'not-a-uuid',
+        'HTTP_X_GITHUB_EVENT' => 'installation',
+        'HTTP_X_HUB_SIGNATURE_256' => 'sha256=wrong',
+        'CONTENT_TYPE' => 'application/json',
+    ], '{}')->assertUnauthorized();
+});

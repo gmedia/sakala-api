@@ -26,7 +26,8 @@ final class UsageSignalsResource extends JsonResource
                 'count' => $signal['count'],
                 'scope' => $signal['scope'],
                 'scope_id' => $signal['scope_id'],
-                'tags' => $signal['tags'],
+                // A map: empty tags must be `{}`, not a JSON `[]`.
+                'tags' => (object) $signal['tags'],
                 'collected_at' => $signal['collected_at']->toIso8601String(),
             ])->toArray(),
         ];

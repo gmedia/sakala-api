@@ -21,5 +21,6 @@ final readonly class AgentHeartbeatData
         public AgentNodeStatus $status,
         public int $protocolVersion,
         public CarbonImmutable $sentAt,
+        public ?CrashedWorkloadsData $crashedWorkloads = null,
     ) {}
 }

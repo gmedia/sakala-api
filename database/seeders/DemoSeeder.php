@@ -133,6 +133,8 @@ class DemoSeeder extends Seeder
                 ],
             );
 
+            $portfolio->update(['active_deployment_id' => $successfulDeployment->id]);
+
             $inspection = [
                 'repository_url' => $portfolio->repository_url,
                 'commit_sha' => 'c7b0db9ab9e887c73a8f9e14e35d5786f48068b2',

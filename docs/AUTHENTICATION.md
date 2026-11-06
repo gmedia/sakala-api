@@ -11,6 +11,37 @@ Endpoint Console hanya menerima session dari guard `web`. Bearer token yang
 nantinya dipakai agent atau machine client tidak dapat mengakses endpoint
 Console.
 
+### Cookie dan Aplikasi Pengguna
+
+Aplikasi pengguna berjalan di `*.run.sakala.dev`, yaitu server milik orang lain pada site yang sama dengan API dan Console. Dua hal mengikuti dari sana: cookie yang memakai `Domain=.sakala.dev` ikut terkirim ke server mereka, dan `SameSite=Lax` tidak menghalangi halaman mereka mengirim request ke API, karena bagi browser itu bukan lintas site.
+
+| Cookie | Scope | Sampai ke aplikasi pengguna? | Isi |
+| --- | --- | --- | --- |
+| `__Host-sakala-api-session` | Host API saja, `Secure`, `HttpOnly`, `Path=/`, `SameSite=Lax` | Tidak | ID session terenkripsi |
+| `XSRF-TOKEN` | `SAKALA_XSRF_COOKIE_DOMAIN`, `Secure`, terbaca JavaScript, `SameSite=Lax` | Ya | Token CSRF terenkripsi |
+
+Console tetap mengirim session cookie, karena fetch dari `app.` ke `api.` adalah same-site dan cookie host-only milik `api.` ikut pada request ke `api.`. Prefix `__Host-` membuat browser menolak cookie dengan nama itu yang dipasang dari subdomain lain, sehingga aplikasi pengguna tidak bisa menanamkan session-nya ke browser korban.
+
+**`XSRF-TOKEN` memang masih sampai ke aplikasi pengguna, dan ini sudah dinilai tidak berbahaya.** Nilainya terenkripsi dengan `APP_KEY`. Untuk dipakai, nilai itu harus dikirim sebagai header `X-XSRF-TOKEN`, sedangkan CORS tidak mengizinkan origin aplikasi pengguna mengirim header itu. Sebagai `_token` di form, nilainya tidak cocok, karena `_token` dibandingkan dengan token mentah yang tidak pernah mereka lihat.
+
+**Halaman aplikasi pengguna tidak bisa bertindak dengan session.** Setiap route punya penjaganya:
+
+| Route | Penjaga | Hasil dari halaman aplikasi pengguna |
+| --- | --- | --- |
+| `/api/v1/*`, `/api/agent/v1/agents/*` | Sanctum hanya memulai session bila `Referer` atau `Origin` ada di `SANCTUM_STATEFUL_DOMAINS` | `401`, walaupun cookie ikut terkirim |
+| `POST /broadcasting/auth` | `EnsureFirstPartyOrigin`, karena Laravel mendaftarkan route ini tanpa pemeriksaan CSRF | `403 ORIGIN_NOT_ALLOWED` |
+| `GET /auth/*` | Hanya `GET`. Callback OAuth dan setup GitHub butuh `state` yang tersimpan di session | Tanpa `state` yang benar, tidak ada yang berubah |
+
+`PreventRequestForgery::allowSameSite` sengaja tetap mati: request same-site dari `app.` ke `api.` tetap wajib membawa token.
+
+**Cookie yang ditanam aplikasi pengguna gagal dengan aman.** `XSRF-TOKEN` palsu menghasilkan `419`, tidak ada yang berubah, dan response API berikutnya menimpanya. Yang tersisa adalah gangguan: aplikasi pengguna bisa memasang `XSRF-TOKEN` dengan `Path` yang lebih panjang untuk sebagian halaman Console, yang lalu gagal `419` sampai cookie itu kedaluwarsa atau dihapus. Pengunjung harus membuka aplikasi itu lebih dulu, dan tidak ada data yang bisa diambil lewat cara ini.
+
+**Migrasi.** Cookie `sakala-api-session` lama di `.sakala.dev` diabaikan setelah nama berganti. Nilainya juga tidak bisa dipakai di bawah nama baru, karena nilai cookie terenkripsi terikat pada namanya. Pengguna perlu login lagi, dan cookie lama hilang sendiri paling lambat setelah `SESSION_LIFETIME`.
+
+**Lokal.** Lokal berjalan di HTTP, sehingga prefix `__Host-` tidak dipakai. `sakala-api-session` host-only di `api.sakala.localhost`, dan `XSRF-TOKEN` di `.sakala.localhost`. Chromium memang menyimpan cookie `__Host-` dari `http://api.sakala.localhost`, tetapi itu perlakuan khusus untuk `localhost`, jadi lokal tidak bergantung padanya. Tanpa prefix, aplikasi lokal bisa menanamkan `sakala-api-session` di `.sakala.localhost`, yang menimpa session dan membuat request berikutnya `401`. Ini hanya berlaku lokal, dan itulah alasan production memakai `__Host-`.
+
+**Risiko yang tersisa.** Selama aplikasi pengguna berada di bawah `sakala.dev`, keduanya tetap same-site, sehingga pertahanan ini bergantung pada konfigurasi `SANCTUM_STATEFUL_DOMAINS` dan CORS yang benar. Arah jangka panjang ada di ADR-016: aplikasi pengguna pindah ke registrable domain terpisah yang masuk Public Suffix List. Perpindahan itu lebih dari sekadar env dan DNS: `SAKALA_PROJECT_DEFAULT_DOMAIN` hanya menentukan domain proyek baru. `projects.default_domain` proyek lama tersimpan per baris dan dikirim ke agent saat deploy, sehingga perlu diubah lalu di-deploy ulang, dan blok `*.run.sakala.dev` di Caddyfile `sakala-deployment` juga perlu diganti.
+
 ### Session Foundation
 
 Endpoint berikut tersedia untuk Console:
@@ -18,9 +49,37 @@ Endpoint berikut tersedia untuk Console:
 | Endpoint | Kegunaan |
 | --- | --- |
 | `GET /sanctum/csrf-cookie` | Menetapkan cookie CSRF sebelum request state-changing. |
+| `GET /api/v1/auth/options` | Publik. Pilihan masuk yang tersedia; lihat "Pilihan Masuk". |
 | `POST /api/v1/auth/login` | Membuat session browser dari email/password yang valid dan terverifikasi. |
 | `GET /api/v1/auth/user` | Mengembalikan user dari session browser yang aktif. |
 | `POST /api/v1/auth/logout` | Mengakhiri session browser aktif. |
+
+### Pilihan Masuk
+
+`GET /api/v1/auth/options` bersifat publik, tidak menyentuh database, dan memberi tahu Console pilihan yang benar-benar bisa dipakai:
+
+```json
+{ "data": { "email_delivery_enabled": false, "providers": { "github": true, "google": false } } }
+```
+
+`providers.github` dan `providers.google` bernilai `true` hanya bila `client_id`, `client_secret`, dan `redirect` provider itu terisi.
+
+### Pengiriman Email
+
+`config('sakala.email_delivery_enabled')` menentukan apakah email bisa terkirim; cara mengisinya ada di [Configuration](CONFIGURATION.md#pengiriman-email). Saat `false`, endpoint berikut menjawab `503` dengan body yang sama sebelum validasi dijalankan, sehingga tidak bisa dipakai untuk menebak email terdaftar:
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/forgot-password`
+- `POST /api/v1/auth/email/verification-notification`
+- `POST /api/v1/auth/email/change`, setelah session diperiksa
+
+```json
+{ "code": "EMAIL_DELIVERY_UNAVAILABLE", "message": "Sakala belum bisa mengirim email untuk saat ini, jadi pendaftaran, reset kata sandi, verifikasi, dan ganti email lewat email belum tersedia. Kalau belum punya akun, masuk lewat GitHub atau hubungi admin Sakala." }
+```
+
+Yang tetap berjalan: login kata sandi untuk akun terverifikasi, login GitHub dan Google yang terkonfigurasi, ganti kata sandi (pemberitahuannya lewat notifikasi in-app, bukan email), dan `POST /api/v1/auth/reset-password` untuk tautan yang sudah terlanjur diterima.
+
+Akun yang belum terverifikasi tetap menerima `403 email_not_verified`, dengan `message` yang tidak lagi menyuruh membuka tautan atau mengirim ulang. Login GitHub dengan alamat email yang sama tetap ditolak `github_email_conflict`, karena API tidak menautkan akun secara otomatis. Akun seperti ini perlu bantuan admin sampai SMTP terpasang.
 
 ### Registrasi dan Verifikasi Email
 
@@ -33,8 +92,15 @@ tersedia:
 | `POST /api/v1/auth/email/verification-notification` | Mengantrekan ulang email verifikasi dengan response generik. |
 | `GET /auth/email/verify/{user}/{hash}` | Memproses temporary signed URL dari email dan mengarahkan browser ke Console. |
 
-Request register menerima `name`, `email`, `password`, dan
-`password_confirmation`. Email dinormalisasi menjadi lowercase setelah
+`POST /api/v1/auth/register` selalu menjawab `202` dengan body yang sama
+(`name`, `email`, `verification_required`), baik email itu baru maupun sudah
+terdaftar, sehingga endpoint ini tidak bisa dipakai untuk menebak email terdaftar.
+Bila sudah terdaftar, tidak ada akun baru: pemilik akun menerima email yang
+memberi tahu hal itu, paling banyak sekali per jam per email.
+
+Request register menerima `name`, `email`, `password`,
+`password_confirmation`, `accept_terms`, `terms_version`, dan
+`acceptable_use_version` (lihat [Persetujuan Dokumen](#persetujuan-dokumen)). Email dinormalisasi menjadi lowercase setelah
 trim. User baru mendapat role `user`, username unik yang dibuat dari nama,
 dan `email_verified_at` bernilai `null`.
 
@@ -42,6 +108,21 @@ Setelah link verifikasi berhasil, API mengarahkan browser ke
 `SAKALA_CONSOLE_URL/email-verified?status=success`. Link yang tidak valid,
 kedaluwarsa, atau tidak cocok diarahkan ke URL yang sama dengan
 `status=error`. User yang belum terverifikasi tetap tidak dapat login.
+
+Login dengan kata sandi yang benar untuk email yang belum diverifikasi dijawab
+`403` dengan body berikut, tanpa membuat session:
+
+```json
+{ "code": "email_not_verified", "message": "Email kamu belum diverifikasi. Buka tautan verifikasi yang kami kirim ke email kamu, atau minta kirim ulang tautannya." }
+```
+
+Console memakai `code` untuk menawarkan kirim ulang lewat
+`POST /api/v1/auth/email/verification-notification` dengan email yang sama;
+endpoint itu tidak memerlukan session. Kata sandi salah dan email yang tidak
+terdaftar tetap dijawab `401` generik yang sama persis, termasuk untuk akun yang
+belum diverifikasi. Jadi `email_not_verified` hanya terlihat oleh orang yang
+sudah tahu kata sandinya dan tidak bisa dipakai untuk menebak email terdaftar.
+Rate limiter login berlaku untuk semua hasil ini.
 
 Response resend selalu berbentuk response generik sehingga tidak membedakan
 email yang tidak terdaftar, sudah terverifikasi, atau berhasil diproses.
@@ -56,7 +137,7 @@ Flow session lokal:
 
 1. Console memanggil `GET /sanctum/csrf-cookie` dengan credentials.
 2. Console mengirim `POST /api/v1/auth/login` dengan `email` dan `password`, menggunakan origin first-party yang diizinkan.
-3. API hanya membuat session untuk user dengan password valid dan email terverifikasi. Respons sukses berisi `UserResource` dan tidak berisi bearer token.
+3. API hanya membuat session untuk user dengan password valid dan email terverifikasi. Respons sukses berisi `UserResource` dan tidak berisi bearer token. Password valid dengan email belum terverifikasi menghasilkan `403 email_not_verified`.
 4. Setelah authentication berhasil, Console dapat memanggil `GET /api/v1/auth/user` untuk bootstrap user.
 5. Saat keluar, Console memanggil `POST /api/v1/auth/logout`.
 6. Request `GET /api/v1/auth/user` berikutnya akan menghasilkan `401`.
@@ -64,6 +145,65 @@ Flow session lokal:
 Endpoint login memiliki rate limiter khusus yang default-nya mengizinkan 5
 percobaan per menit untuk setiap kombinasi email ternormalisasi dan IP. Limiter
 ini berjalan sebagai tambahan dari limiter API global.
+
+### Keamanan Akun
+
+| Endpoint | Akses | Kegunaan |
+| --- | --- | --- |
+| `PUT /api/v1/auth/password` | Session | Mengganti kata sandi dengan `current_password`, `password`, `password_confirmation`. Akun OAuth tanpa kata sandi (`has_password = false`) cukup mengirim dua yang terakhir. Mengembalikan `UserResource`. |
+| `POST /api/v1/auth/email/change` | Session | Meminta ganti email dengan `email` dan `current_password`. Menjawab `202` dengan `pending_email`. |
+| `GET /auth/email/change/{user}/{hash}` | Signed URL | Link di email baru. Menerapkan email lalu mengarahkan ke `/email-changed?status=success` atau `status=error` di console. |
+| `POST /api/v1/auth/forgot-password` | Tamu | Mengirim link reset dengan `email`. Selalu `202` dengan body yang sama. |
+| `POST /api/v1/auth/reset-password` | Tamu | Menerapkan `token`, `email`, `password`, `password_confirmation`. `204`, atau `422 invalid_reset_token`. |
+
+Mengganti atau mereset kata sandi mengakhiri session lain pada request berikutnya, lewat middleware `AuthenticateSession` Sanctum yang membandingkan hash kata sandi di session, dan mencabut personal access token. Session yang melakukan perubahan tetap login. Akun OAuth yang baru membuat kata sandi pertama tidak mengakhiri session lain, karena sebelumnya tidak ada hash untuk dibandingkan.
+
+Ganti email berlaku hanya setelah link di alamat baru dibuka, dan alamat lama diberi tahu saat diminta dan saat diterapkan. Permintaan baru mengganti `pending_email`, sehingga link lama mati, dan link hanya bisa dipakai sekali. Alamat yang sudah dipakai akun lain dijawab sama tanpa mengirim email apa pun. Akun tanpa kata sandi harus membuatnya dulu.
+
+Link reset mengarah ke `SAKALA_CONSOLE_URL/reset-password?token=&email=`, memakai password broker Laravel (berlaku 60 menit, jeda 60 detik per akun). Email yang tidak dikenal dan permintaan yang terkena jeda dijawab sama. Reset yang berhasil juga menandai email terverifikasi, karena link itu membuktikan pemilik kotak surat, sehingga akun yang tertahan `email_not_verified` bisa login. Tamu dibatasi `SAKALA_PASSWORD_RESET_RATE_LIMIT` per email dan IP; endpoint ber-session dibatasi `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT` per user.
+
+### Persetujuan Dokumen
+
+Versi yang berlaku ada di `config/sakala.php`, dan `GET /api/v1/auth/options` mengirimnya:
+
+```json
+{ "data": { "legal": { "terms_version": "syarat-v1", "acceptable_use_version": "penggunaan-wajar-v1", "privacy_notice_version": "privasi-v1" } } }
+```
+
+Formulir punya satu kotak centang wajib, yaitu `accept_terms`, untuk satu pernyataan: "Saya berusia minimal 18 tahun atau sudah mendapat persetujuan orang tua atau wali, dan menyetujui Syarat Layanan dan Kebijakan Penggunaan Wajar." Bersamanya Console mengirim `terms_version` dan `acceptable_use_version` yang ditampilkannya, supaya persetujuan tidak tercatat untuk versi yang tidak pernah dilihat orang itu. Versi lama dijawab `422`.
+
+Pemberitahuan privasi tidak punya kotak centang, karena pemrosesan tidak berdasar pada persetujuan atas dokumen itu. Saat formulir dikirim, API mencatatnya sebagai `acknowledged`.
+
+| Jalur | Cara |
+| --- | --- |
+| `POST /api/v1/auth/register` | Tiga field di atas wajib. Baris dicatat hanya bila akun benar-benar dibuat, jadi jawabannya tetap sama untuk email yang sudah terdaftar. |
+| Login pertama lewat GitHub atau Google, dan setelah versi berganti | `GET /api/v1/auth/user` menjawab `legal_acceptance_required: true`. Console meminta persetujuan lalu memanggil `POST /api/v1/auth/legal-acceptance` dengan `accept_terms`, `terms_version`, `acceptable_use_version`, dan menerima `UserResource`. |
+
+Tabel `legal_acceptances` menyimpan satu baris per user, dokumen, dan versi, dengan `action`, `source`, dan `occurred_at`. Tabel ini tidak menyimpan alamat IP, dan ikut terhapus bersama akun.
+
+`legal_acceptance_required` melihat Syarat Layanan dan Kebijakan Penggunaan Wajar saja. Saat keduanya belum disetujui pada versi terbaru, membuat proyek, inspeksi ulang, dan deploy dijawab `403 LEGAL_ACCEPTANCE_REQUIRED`, dan auto-deploy dari push dilewati dengan notifikasi `project_issue`. Yang tetap jalan: membaca, membatalkan deployment, menghapus proyek, ekspor data, dan menghapus akun, supaya tidak ada yang harus setuju dulu untuk pergi. Mengganti versi privasi tidak meminta apa pun. Akun yang sudah ada sebelum fitur ini diperlakukan sama: diminta sekali, tanpa kehilangan data.
+
+### Menghapus Akun
+
+`DELETE /api/v1/auth/account` hanya menerima session dan menjawab `204`. Body: `email` (harus email akun itu, diketik ulang) dan `current_password`. Akun tanpa kata sandi tidak mengirim `current_password`, tetapi harus sudah login lewat provider-nya pada session yang sama dalam `SAKALA_OAUTH_REAUTHENTICATION_MINUTES` terakhir; bila belum, jawabannya `403 REAUTHENTICATION_REQUIRED`, dan Console mengarahkannya login ulang. Tindakan ini tidak bisa dibatalkan, dan dibatasi `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT`.
+
+| Yang terjadi | Keterangan |
+| --- | --- |
+| Proyek | Lewat jalur [Menghapus Project](API_CONVENTIONS.md#menghapus-project): workload dihentikan, attempt dibatalkan, baris menunggu `projects:purge-deleted`. Selama menunggu, `projects.user_id` bernilai `null`. Environment variable dan salinannya dihapus saat itu juga, tidak menunggu masa simpan. |
+| Dihapus saat itu juga | Baris user, OAuth account dan tokennya, feedback, notifikasi, persetujuan dokumen, personal access token, semua session, token reset kata sandi, relasi GitHub installation, dan avatar. `pending_email` hilang bersama baris user, jadi tautan ganti email dan verifikasi yang lama menjadi tidak berlaku. |
+| GitHub installation | Baris installation ikut dihapus bila tidak ada user lain atau proyek milik user lain yang memakainya. Akses GitHub App di sisi GitHub dicabut sendiri oleh pengguna. |
+| Yang tetap ada | `audit_events` berisi ID, termasuk event `account.deleted` tanpa email; `retired_project_slugs`; `usage_signal_records` sampai masa simpannya habis; `deployments` milik proyek sampai purge dengan `requested_by` kosong. |
+| Email konfirmasi | Dikirim ke alamat lama bila `sakala.email_delivery_enabled` aktif. Penghapusan tidak bergantung pada email ini. |
+
+Akun admin dijawab `409 ADMIN_ACCOUNT_CANNOT_BE_DELETED`: peran admin dicabut dulu, supaya tidak ada deployment yang kehilangan satu-satunya admin. Proses bisa diulang kalau terputus, karena setiap langkahnya aman dijalankan lagi. Bila proyek baru terus muncul selama proses, jawabannya `409 ACCOUNT_DELETION_CONFLICT`; foreign key `projects.user_id` tetap `RESTRICT`, sehingga proyek yang masih hidup tidak bisa kehilangan pemilik.
+
+### Ekspor Data
+
+`GET /api/v1/auth/account/export` hanya menerima session, dengan `Cache-Control: no-store`. Isinya data milik akun itu dalam `data`: `account` (termasuk `legal_acceptances`, `oauth_accounts`, `github_installations`), `projects` (termasuk yang masih dalam masa simpan setelah dihapus), `deployments`, `environment_variables`, `notifications`, dan `feedback`.
+
+Environment variable hanya berisi nama, `is_secret`, dan `project_id`, tidak pernah nilainya, juga untuk variabel non-secret. Token OAuth dan hash kata sandi tidak pernah ikut. Log deployment dan jejak audit tidak termasuk.
+
+Setiap koleksi dibatasi `SAKALA_ACCOUNT_EXPORT_MAX_ITEMS` item terbaru, dan `truncated` menyebut koleksi yang terpotong. Ekspor dibatasi `SAKALA_ACCOUNT_EXPORT_RATE_LIMIT` per jam per user.
 
 ### GitHub App
 

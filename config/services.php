@@ -15,6 +15,11 @@ return [
         'webhook_secret' => env('GITHUB_APP_WEBHOOK_SECRET'),
     ],
 
+    'github' => [
+        // Optional read-only token for public repositories. Server side only.
+        'public_api_token' => env('GITHUB_PUBLIC_API_TOKEN'),
+    ],
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),

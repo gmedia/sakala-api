@@ -2,9 +2,15 @@
 
 declare(strict_types=1);
 
+use App\Exceptions\GitHub\GithubRateLimitedException;
+use App\Http\Middleware\EnsureFirstPartyOrigin;
+use App\Http\Middleware\PreventRequestForgery;
+use App\Services\Auth\ConsoleAuthenticationRedirect;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery as FrameworkPreventRequestForgery;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -16,10 +22,20 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withBroadcasting(
         __DIR__.'/../routes/channels.php',
-        ['middleware' => ['web', 'auth:web']],
+        ['middleware' => ['web', EnsureFirstPartyOrigin::class, 'auth:web']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
+
+        // Same checks as the framework's, with XSRF-TOKEN on its own domain.
+        $middleware->web(replace: [
+            FrameworkPreventRequestForgery::class => PreventRequestForgery::class,
+        ]);
+
+        // Browser routes (GitHub App install) have no login page of their own.
+        $middleware->redirectGuestsTo(
+            static fn (): string => app(ConsoleAuthenticationRedirect::class)->login(),
+        );
 
         // The API is only reachable through the edge proxy chain
         // (Cloudflare -> host Caddy -> nginx -> PHP-FPM), so without trusting
@@ -41,5 +57,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*', 'broadcasting/auth'),
+        );
+
+        // Calls that use ->throw() still answer honestly when GitHub limits us.
+        $exceptions->map(
+            RequestException::class,
+            static fn (RequestException $exception): Throwable => GithubRateLimitedException::fromResponse($exception->response) ?? $exception,
         );
     })->create();

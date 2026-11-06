@@ -51,6 +51,7 @@ final class PilotLimitsResource extends JsonResource
                 'max_total_bytes' => (int) config('sakala.pilot_limits.log_bounds.max_total_bytes', 10 * 1024 * 1024),
                 'max_request_bytes' => (int) config('sakala.pilot_limits.log_bounds.max_request_bytes', 1024 * 1024),
             ],
+            'deleted_project_retention_days' => (int) config('sakala.project.deleted_retention_days', 30),
         ];
     }
 }

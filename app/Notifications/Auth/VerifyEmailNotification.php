@@ -31,11 +31,11 @@ final class VerifyEmailNotification extends VerifyEmail implements ShouldQueueAf
         $expiration = (int) config('auth.verification.expire', 60);
 
         return (new MailMessage)
-            ->subject('Verifikasi alamat email Sakala')
+            ->subject('Verifikasi email akun Sakala')
             ->greeting("Halo {$notifiable->name},")
-            ->line('Silakan klik tombol berikut untuk memverifikasi alamat email Anda.')
-            ->action('Verifikasi alamat email', $this->verificationUrl($notifiable))
-            ->line("Link verifikasi ini berlaku selama {$expiration} menit.")
-            ->line('Jika Anda tidak membuat akun Sakala, Anda dapat mengabaikan email ini.');
+            ->line('Klik tombol di bawah untuk memverifikasi email kamu. Setelah itu kamu bisa masuk ke Sakala.')
+            ->action('Verifikasi email', $this->verificationUrl($notifiable))
+            ->line("Tautan ini berlaku selama {$expiration} menit. Kalau sudah lewat, minta tautan baru dari halaman login.")
+            ->line('Kalau bukan kamu yang mendaftar, abaikan email ini.');
     }
 }

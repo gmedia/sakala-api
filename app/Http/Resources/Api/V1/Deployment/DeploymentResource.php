@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Deployment;
 
+use App\Enums\DeploymentQueueState;
+use App\Enums\DeploymentStatus;
 use App\Enums\FinalizationDeferredReason;
 use App\Models\Deployment;
+use App\Services\Agent\AgentCommandEligibilityService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -60,6 +63,9 @@ final class DeploymentResource extends JsonResource
      *     finalization_deferred: bool,
      *     finalization_deferred_reason: FinalizationDeferredReason|null,
      *     agent_node_id: string|null,
+     *     is_active: bool,
+     *     cancel_requested_at: string|null,
+     *     queue_state: string|null,
      *     started_at: string|null,
      *     finished_at: string|null,
      *     cancelled_at: string|null,
@@ -69,7 +75,10 @@ final class DeploymentResource extends JsonResource
      *         code: string,
      *         category: string,
      *         summary: string,
-     *         recovery_hint: string
+     *         recovery_hint: string,
+     *         user_fixable: bool,
+     *         detail: string|null,
+     *         stage: string|null
      *     }|null,
      *     created_at: string|null,
      *     updated_at: string|null
@@ -82,6 +91,7 @@ final class DeploymentResource extends JsonResource
                 ->classify($this->resource->failure_code)
             : null;
 
+        // These are maps: an empty one reads as null, never as a JSON `[]`.
         /**
          * @var array{
          *     memory_mb: int|null,
@@ -89,7 +99,7 @@ final class DeploymentResource extends JsonResource
          *     pids_limit: int|null
          * }|null $requestedResources
          */
-        $requestedResources = $this->resource->requested_resources;
+        $requestedResources = $this->resource->requested_resources ?: null;
 
         /**
          * @var array{
@@ -110,7 +120,7 @@ final class DeploymentResource extends JsonResource
          *     }
          * }|null $effectiveResources
          */
-        $effectiveResources = $this->resource->effective_resources;
+        $effectiveResources = $this->resource->effective_resources ?: null;
 
         /**
          * @var array{
@@ -119,7 +129,7 @@ final class DeploymentResource extends JsonResource
          *     pids_limit: int|null
          * }|null $appliedResources
          */
-        $appliedResources = $this->resource->applied_resources;
+        $appliedResources = $this->resource->applied_resources ?: null;
 
         /** @var string|null $startedAt */
         $startedAt = $this->resource->started_at
@@ -152,6 +162,11 @@ final class DeploymentResource extends JsonResource
             'finalization_deferred' => $this->resource->finalization_deferred,
             'finalization_deferred_reason' => $this->resource->finalization_deferred_reason,
             'agent_node_id' => $this->resource->agent_node_id,
+            'is_active' => $this->resource->project?->active_deployment_id === $this->resource->id,
+            /** @var string|null */
+            'cancel_requested_at' => $this->resource->cancel_requested_at?->toAtomString(),
+            /** @var 'assigned'|'waiting_for_node'|null */
+            'queue_state' => $this->queueState()?->value,
             'started_at' => $startedAt,
             'finished_at' => $finishedAt,
             'cancelled_at' => $cancelledAt,
@@ -162,6 +177,12 @@ final class DeploymentResource extends JsonResource
                 'category' => $failure->category->value,
                 'summary' => $failure->summary,
                 'recovery_hint' => $failure->recoveryHint,
+                /** @var bool */
+                'user_fixable' => $failure->userFixable,
+                /** @var string|null */
+                'detail' => $this->resource->failure_detail,
+                /** @var 'queued'|'cloning'|'analyzing'|'building'|'deploying'|'routing'|'health_checking'|null */
+                'stage' => $this->resource->failure_stage?->value,
             ],
             'created_at' => $this->resource->created_at
                 ? $this->resource->created_at->toAtomString()
@@ -170,5 +191,23 @@ final class DeploymentResource extends JsonResource
                 ? $this->resource->updated_at->toAtomString()
                 : null,
         ];
+    }
+
+    /**
+     * Why a queued deployment has not started. Only a node that can take
+     * workload right now counts: a pinned node that went offline or is
+     * draining leaves the deployment waiting all the same.
+     */
+    private function queueState(): ?DeploymentQueueState
+    {
+        if ($this->resource->status !== DeploymentStatus::Queued) {
+            return null;
+        }
+
+        $node = $this->resource->agentNode;
+
+        return $node !== null && app(AgentCommandEligibilityService::class)->nodeAcceptsWorkload($node)
+            ? DeploymentQueueState::Assigned
+            : DeploymentQueueState::WaitingForNode;
     }
 }

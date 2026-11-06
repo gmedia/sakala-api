@@ -26,7 +26,7 @@ final class GithubInstallationController extends Controller
     {
         abort_unless($installation->users()->whereKey($request->user()->id)->exists(), 403);
 
-        return GithubResource::collection($service->repositories($request->user(), $installation, $request->integer('page', 1), $request->integer('per_page', 30)));
+        return GithubResource::collection($service->repositories($request->user(), $installation, $request->integer('page', 1), $request->integer('per_page', 30), $request->string('search')->toString()));
     }
 
     public function branches(IndexGithubInstallationBranchRequest $request, GithubInstallation $installation, int $repositoryId, GithubInstallationService $service): AnonymousResourceCollection

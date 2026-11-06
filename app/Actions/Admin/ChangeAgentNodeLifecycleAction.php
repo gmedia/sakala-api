@@ -65,11 +65,11 @@ final class ChangeAgentNodeLifecycleAction
             // flow; refuse deterministically instead of hitting the unique index.
             if ($data->idempotencyKey !== null
                 && AgentCommand::query()->where('idempotency_key', $data->idempotencyKey)->exists()) {
-                abort(409, 'Idempotency key has already been used for a different request.');
+                abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
             }
 
             if ($locked->auth_status !== AgentAuthStatus::Active) {
-                abort(409, 'Agent node is not active.');
+                abort(409, 'Node ini tidak aktif.');
             }
 
             [$type, $desired] = match ($action) {
@@ -79,11 +79,11 @@ final class ChangeAgentNodeLifecycleAction
             };
 
             if ($this->hasLifecycleCommandInFlight($locked)) {
-                abort(409, 'A node lifecycle command is already in progress.');
+                abort(409, 'Command lifecycle node ini masih berjalan. Tunggu sampai selesai.');
             }
 
             if ($locked->desired_state === $desired) {
-                abort(409, "Agent node desired state is already {$desired->value}.");
+                abort(409, "Desired state node ini sudah {$desired->value}.");
             }
 
             $previousDesiredState = $locked->desired_state->value;
@@ -166,7 +166,7 @@ final class ChangeAgentNodeLifecycleAction
             || $request->actor_type !== User::class
             || $request->actor_id !== (int) $user->id
         ) {
-            abort(409, 'Idempotency key has already been used for a different request.');
+            abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
         }
     }
 

@@ -32,6 +32,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property CarbonImmutable|null $failed_at
  * @property CarbonImmutable|null $expires_at
  * @property CarbonImmutable|null $lease_expires_at
+ * @property CarbonImmutable|null $cancel_requested_at
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable $updated_at
  */
@@ -57,6 +58,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'failed_at',
     'expires_at',
     'lease_expires_at',
+    'cancel_requested_at',
 ])]
 class AgentCommand extends Model
 {
@@ -124,6 +126,7 @@ class AgentCommand extends Model
             'failed_at' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
             'lease_expires_at' => 'immutable_datetime',
+            'cancel_requested_at' => 'immutable_datetime',
         ];
     }
 }

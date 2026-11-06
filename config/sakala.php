@@ -2,20 +2,69 @@
 
 declare(strict_types=1);
 
+$emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
+
 return [
     'console_url' => env('SAKALA_CONSOLE_URL', 'http://localhost:5173'),
 
+    // Whether email can really reach people. When the env is unset or empty it
+    // follows mail.default (same env and default as config/mail.php): the log
+    // and array mailers deliver nothing. Local development sets it to true on
+    // purpose, because it reads the links from the log.
+    'email_delivery_enabled' => $emailDeliveryOverride === null || $emailDeliveryOverride === ''
+        ? ! in_array(env('MAIL_MAILER', 'log'), ['log', 'array'], true)
+        : filter_var($emailDeliveryOverride, FILTER_VALIDATE_BOOLEAN),
+
     'rate_limits' => [
-        'api' => (int) env('SAKALA_API_RATE_LIMIT', 60),
+        'api' => (int) env('SAKALA_API_RATE_LIMIT', 240),
+        'api_guest' => (int) env('SAKALA_API_GUEST_RATE_LIMIT', 60),
         'login' => (int) env('SAKALA_LOGIN_RATE_LIMIT', 5),
         'register' => (int) env('SAKALA_REGISTER_RATE_LIMIT', 5),
         'oauth' => (int) env('SAKALA_OAUTH_RATE_LIMIT', 10),
         'email_verification' => (int) env('SAKALA_EMAIL_VERIFICATION_RATE_LIMIT', 5),
         'feedback' => (int) env('SAKALA_FEEDBACK_RATE_LIMIT', 5),
+        'password_reset' => (int) env('SAKALA_PASSWORD_RESET_RATE_LIMIT', 5),
+        'account_security' => (int) env('SAKALA_ACCOUNT_SECURITY_RATE_LIMIT', 5),
+        'inspection' => (int) env('SAKALA_INSPECTION_RATE_LIMIT', 5),
+        // Per hour, unlike the others: an export is the heaviest read a user can ask for.
+        'account_export' => (int) env('SAKALA_ACCOUNT_EXPORT_RATE_LIMIT', 3),
+    ],
+
+    // Current versions of the published documents, stored per user on acceptance.
+    // A new terms or acceptable use version asks every user to accept again; a new
+    // privacy notice does not, because it is a notice and not what processing rests on.
+    'legal' => [
+        'versions' => [
+            'terms' => env('SAKALA_LEGAL_TERMS_VERSION', 'syarat-v1'),
+            'acceptable_use' => env('SAKALA_LEGAL_ACCEPTABLE_USE_VERSION', 'penggunaan-wajar-v1'),
+            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_VERSION', 'privasi-v1'),
+        ],
+    ],
+
+    'contact' => [
+        'abuse_email' => env('SAKALA_ABUSE_EMAIL', 'abuse@sakala.dev'),
+        'privacy_email' => env('SAKALA_PRIVACY_EMAIL', 'privacy@sakala.dev'),
+    ],
+
+    'account' => [
+        // Most items per collection in one data export.
+        'export_max_items' => (int) env('SAKALA_ACCOUNT_EXPORT_MAX_ITEMS', 1000),
+        // How long after a provider login an account without a password may do
+        // something that asks for re-authentication.
+        'oauth_reauthentication_minutes' => (int) env('SAKALA_OAUTH_REAUTHENTICATION_MINUTES', 15),
+    ],
+
+    'notifications' => [
+        'retention_days' => (int) env('SAKALA_NOTIFICATION_RETENTION_DAYS', 90),
     ],
 
     'project' => [
         'default_domain' => env('SAKALA_PROJECT_DEFAULT_DOMAIN', 'run.sakala.dev'),
+        'url_scheme' => env('SAKALA_PROJECT_URL_SCHEME', 'https'),
+        'url_port' => env('SAKALA_PROJECT_URL_PORT'),
+        // A deleted project is kept this long, then projects:purge-deleted
+        // removes it for good. GET app/pilot-limits gives the console this number.
+        'deleted_retention_days' => (int) env('SAKALA_DELETED_PROJECT_RETENTION_DAYS', 30),
         'reserved_slugs' => [
             'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',
             'support', 'help', 'status', 'mail', 'test', 'run',

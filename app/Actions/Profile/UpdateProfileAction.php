@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Profile;
 
 use App\Data\Profile\ProfileData;
+use App\Exceptions\Runtime\AvatarStorageUnavailableException;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -38,10 +39,14 @@ final class UpdateProfileAction
                 }
 
                 if ($data->avatar !== null) {
-                    $storedAvatarPath = $data->avatar->store('avatars', 'avatars');
+                    // A missing bucket or unreachable store reads as a clear 503.
+                    $storedAvatarPath = rescue(
+                        static fn (): string|false => $data->avatar->store('avatars', 'avatars'),
+                        false,
+                    );
 
                     if ($storedAvatarPath === false) {
-                        throw new RuntimeException('Failed to store avatar');
+                        throw new AvatarStorageUnavailableException;
                     }
 
                     $newAvatarPath = $storedAvatarPath;

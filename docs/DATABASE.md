@@ -12,14 +12,16 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 
 | Tabel | Tanggung jawab |
 | --- | --- |
-| `users` | Identitas console, role, onboarding, dan waktu login terakhir. |
+| `users` | Identitas console, role, onboarding, waktu login terakhir, email yang menunggu konfirmasi (`pending_email`), dan preferensi notifikasi. |
+| `notifications` | Notifikasi in-app (database notification Laravel). `id` UUID, isi di `data`, retensi lewat `notifications:prune`. |
 | `oauth_accounts` | Identitas provider OAuth dan token terenkripsi, terpisah dari user. |
 | `github_installations` | Entity global GitHub App installation, metadata akun GitHub, dan status akses repository. |
 | `github_installation_user` | Relasi user Sakala dengan installation GitHub yang telah diverifikasi. |
 | `github_webhook_deliveries` | Delivery ID webhook GitHub untuk pemrosesan lifecycle yang idempoten. |
-| `projects` | Metadata repository, generated domain, status runtime, dan hasil inspeksi stack terakhir (`inspection`, `inspection_status`, `inspection_error_code`, `inspected_at`). |
+| `projects` | Metadata repository, generated domain, status runtime, deployment yang sedang melayani (`active_deployment_id`), dan hasil inspeksi stack terakhir (`inspection`, `inspection_status`, `inspection_error_code`, `inspected_at`). |
 | `environment_variables` | Key dan value terenkripsi per project. |
-| `deployments` | Satu attempt deployment, snapshot source yang dijalankan, node target, resource yang diterapkan agent, dan status finalisasi. |
+| `retired_project_slugs` | Slug project yang sudah di-purge. Hanya slug dan waktunya, dan tidak pernah dihapus, supaya alamat lama tidak bisa dipakai project lain. |
+| `deployments` | Satu attempt deployment, snapshot source yang dijalankan, node target, resource yang diterapkan agent, status finalisasi, dan keterangan kegagalan (`failure_code`, `failure_summary`, `failure_detail`, `failure_stage`). |
 | `agent_nodes` | Identitas runtime node, token hash, capability, protocol revision, desired lifecycle state, dan heartbeat terakhir. |
 | `agent_commands` | Durable command queue antara API dan agent. |
 | `agent_command_reports` | Event/log append-only untuk command tanpa deployment (InspectProject, CleanupRuntime, DrainNode, ResumeNode). |
@@ -27,6 +29,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `deployment_events` | Timeline state yang dilaporkan agent. |
 | `deployment_logs` | Output redacted dari build/runtime. |
 | `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. |
+| `legal_acceptances` | Versi dokumen yang disetujui atau diketahui tiap user, dengan waktunya. Append-only, unik per user, dokumen, dan versi; index itu juga melayani pembacaan per user. Ikut terhapus bersama user. |
 | `usage_signal_records` | Sinyal agregat penggunaan dan abuse (deployment attempts, agent failures, rejected limits, dll.) untuk observabilitas pilot. Append-only, diproses secara berkala oleh scheduler. |
 
 Project dimiliki langsung oleh user selama MVP. Project dari GitHub App menyimpan installation UUID dan repository ID; project URL publik tidak memerlukan installation. Model workspace/team baru boleh ditambahkan setelah ownership dan policy multi-user disetujui.
@@ -42,8 +45,13 @@ Nilai `AgentCommandType`, `AgentCommandStatus`, `DeploymentEventLevel`, dan `Log
 Index dibuat dari query path yang sudah diketahui:
 
 - daftar project user: `(user_id, status, created_at)`;
+- project yang ikut auto-deploy pada satu repository: `(github_repository_id, auto_deploy)` pada `projects`;
+- daftar notifikasi dan jumlah belum dibaca: `(notifiable_type, notifiable_id, created_at)` dan `(notifiable_type, notifiable_id, read_at)`; retensi: `(created_at)`;
 - ringkasan runtime user: `(user_id, runtime_status)`;
 - riwayat deployment: `(project_id, created_at)`;
+- deployment terbaru tiap project di daftar project: satu query tambahan per halaman, dengan `(project_id, status)` atau unique `(project_id, sequence)` yang sudah ada, jadi tidak perlu index baru. Lihat [Deployment Terbaru](#deployment-terbaru);
+- alasan penangguhan di daftar project: satu query tambahan per halaman lewat `Project::latestSuspendRequest`, dengan `(project_id, action)` yang sudah ada pada `project_control_requests`, jadi tidak perlu index baru;
+- project yang dilayani sebuah deployment, dipakai heartbeat untuk status crash: `(active_deployment_id)` pada `projects`, bersama `(agent_node_id, status)` pada `deployments`;
 - deployment aktif/bermasalah: `(status, created_at)` dan `(failure_code, created_at)`;
 - cleanup log terminal: `(status, finished_at)` dan `(status, cancelled_at)`;
 - polling command: `(status, available_at, created_at)`;
@@ -74,8 +82,37 @@ Jangan menambahkan index untuk setiap kolom. Setiap index menambah biaya write d
 - Status transition tidak boleh dilakukan langsung dari controller; gunakan Action yang memvalidasi state saat ini.
 - `agent_commands.lease_expires_at` diisi saat claim (execution timeout + grace) dan hanya dibaca oleh sweep `agent:expire-commands` lewat index `(status, lease_expires_at)`; `expires_at` tetap berarti batas ketersediaan saat `Pending`. Sweep mengunci command satu per satu dan memeriksa ulang deadline di bawah lock supaya completion yang mendahului tidak ditimpa.
 - Transisi `Claimed -> Running` dilakukan API pada report pertama yang diterima dari node pemilik (agent mengirim event `command.claimed` segera setelah claim dan tidak memanggil endpoint lain). `started_at` diisi sekali di transaction report yang sama.
-- Status deployment pada jalur agent digerakkan oleh event fase (`deployment.checkout.started` → `cloning`, `deployment.build.started` → `building`, `deployment.container.started` → `deploying`, `deployment.runtime.ready` → `routing`) di dalam transaction report yang sama, hanya maju dan tidak pernah mundur, sehingga retry event bersifat idempoten. `succeeded` hanya ditulis oleh `complete`; `failed` oleh `fail` atau control plane. `TransitionDeploymentAction` menerima state terminal dari state aktif mana pun karena laporan agent bersifat otoritatif.
+- Status deployment pada jalur agent digerakkan oleh event fase (`deployment.checkout.started` → `cloning`, `deployment.analysis.started` → `analyzing`, `deployment.build.started` → `building`, `deployment.container.started` → `deploying`, `deployment.health.started` → `health_checking`, `deployment.route.started` → `routing`) di dalam transaction report yang sama, hanya maju dan tidak pernah mundur, sehingga retry event bersifat idempoten. `succeeded` hanya ditulis oleh `complete`; `failed` oleh `fail` atau control plane. `TransitionDeploymentAction` menerima state terminal dari state aktif mana pun karena laporan agent bersifat otoritatif.
+- `projects.active_deployment_id` menunjuk deployment yang sedang melayani. FK nullable ke `deployments` dengan `nullOnDelete`, dan hanya ditulis di bawah row lock project: deployment `succeeded` mengisinya bila sequence-nya tidak lebih lama dari yang sekarang (completion terlambat tidak memundurkan pointer), restart atau wake pada workload terkini mengisinya, dan stop atau sleep yang sukses pada workload terkini mengosongkannya. Deployment gagal tidak menyentuhnya, sehingga redeploy yang gagal tidak menghapus fakta bahwa versi lama masih melayani. Pointer disimpan, bukan diturunkan, karena fakta "sudah dihentikan" tidak bisa dibaca dari status deployment dan daftar deployment serta heartbeat perlu membacanya tanpa query per baris.
+- Heartbeat yang membawa `crashed_details` menyamakan `runtime_status` dalam transaction heartbeat. Pembacaan pertama tanpa lock menentukan apakah ada perubahan; hanya bila ada, deployment lalu project di-lock berurutan menurut `id` dan kondisinya diperiksa ulang. Urutan deployment sebelum project sama dengan `TransitionDeploymentAction`, sehingga heartbeat dan command yang selesai tidak bisa saling deadlock. Laporan yang sama tidak menulis apa pun.
+- Membatalkan deployment mengikuti urutan lock lawannya supaya tidak bisa deadlock. Command `Pending` memakai urutan claim: deployment dikunci dulu, lalu `UPDATE ... WHERE status = 'Pending'` yang kalah bila node sudah mengklaim, dan alurnya turun ke jalur berikut. Command `Claimed`/`Running` memakai urutan complete dan fail: command dulu, lalu deployment, dan hanya menulis `cancel_requested_at` di keduanya. `agent_commands.cancel_requested_at` adalah yang dibaca poll; `deployments.cancel_requested_at` adalah yang dibaca console dan `TransitionDeploymentAction`.
+- `projects.config_changed_at` ditulis saat environment variable atau konfigurasi build berubah. `redeploy_required` membandingkannya dengan `created_at` deployment aktif, karena deployment menyimpan snapshot keduanya saat dibuat. Presisinya detik, jadi nilai yang sama dianggap berubah: anjuran redeploy yang berlebihan lebih murah daripada yang terlewat.
+- Baris project yang di-soft delete tetap dibaca jalur agent (`withTrashed`) supaya `StopProject` dan attempt yang masih berjalan bisa selesai.
+- `projects:purge-deleted` mengunci baris project lalu memeriksa ulang di dalam transaction bahwa tidak ada command yang belum selesai, deployment aktif, atau workload yang belum berhenti. Jalur agent mengunci baris yang sama sebelum mengubah workload, jadi command baru tidak bisa muncul di antara pemeriksaan dan penghapusan. Foreign key menghapus sisanya: `deployment_logs`, `deployment_events`, `agent_command_reports`, `environment_variables`, dan `project_control_requests` ikut terhapus, sedangkan `agent_commands` dan `deployments` yang memakai `restrictOnDelete` dihapus lebih dulu oleh perintah ini. Pencarian kandidat memindai `projects` sekali sehari, dan tabelnya kecil karena kuota per user, jadi `deleted_at` tidak diberi index.
+- `deployment.idempotency_key` untuk push webhook adalah `github-push:{delivery}`, di atas `github_webhook_deliveries` yang sudah mengunci pengiriman ulang.
 - Saat `complete` DeployProject membawa `finalization_deferred = true`, API membuat `StopProject` untuk setiap deployment `succeeded` yang lebih lama pada project dan node yang sama dengan `idempotency_key` deterministik (`deferred-finalization:{baru}:{lama}`), sehingga retry completion tidak menggandakan command dan deployment baru tidak pernah menjadi target.
+
+## Keterangan Kegagalan Deployment
+
+`deployments.failure_detail` (varchar 500, nullable) menyimpan pesan `fail` dari agent setelah dibersihkan, diredaksi, lalu dibatasi. Sebelumnya pesan ini hanya ada di `agent_commands.error_message`. `deployments.failure_stage` (varchar 32, nullable) menyimpan `DeploymentStatus` saat kegagalan terjadi, sebelum status berubah menjadi `failed`; sebelumnya tahap hanya bisa diturunkan dari `deployment_events`. Keduanya berada di `deployments` karena `pilot:prune-logs` menghapus event dan log tetapi tidak menyentuh baris deployment.
+
+Migrasi `2026_11_05_143109` dan `2026_11_05_143110` hanya menambah kolom nullable, jadi kode lama tetap berjalan. Baris lama tidak diisi ulang untuk `failure_detail` dan `failure_stage`, dan API menyajikannya sebagai `null`. Migrasi kedua mengisi `active_deployment_id` dari deployment `succeeded` terbaru tiap project, kecuali project `stopped` atau workload yang punya `StopProject`/`SleepProject` sukses. Project `failed` yang ternyata masih punya deployment yang melayani dikembalikan ke `running`; heartbeat berikutnya mengoreksinya bila keadaan sebenarnya berbeda. Pada SQLite, `down` migrasi itu gagal bila tabel sudah berisi data karena SQLite harus membuat ulang tabel `projects`; `down` ditujukan untuk PostgreSQL.
+
+`deployments.crash_notified_at` mencegah notifikasi ganda untuk crash yang sama dan dikosongkan saat agent berhenti melaporkan workload itu.
+
+`deployments.container_port` menyimpan port yang dikirim ke agent saat deployment dibuat, sumber `serving_port`. Migrasinya mengisi baris lama dari payload `DeployProject`; yang tanpa command tetap `null`.
+
+Migrasi `2026_11_06_00000x` hanya menambah kolom nullable atau berdefault dan satu tabel baru, jadi kode lama tetap berjalan dan tidak ada backfill.
+
+## Deployment Terbaru
+
+`Project::latestDeployment` adalah `hasOne` dengan `orderByDesc('sequence')->limit(1)`. Saat eager load, Laravel mengubah limit itu menjadi `row_number()` per `project_id`, dan yang dibaca hanya deployment milik project di halaman itu, bukan seluruh tabel. Halaman detail membaca satu baris lewat unique `(project_id, sequence)`.
+
+`latestOfMany('sequence')` tidak bisa dipakai karena Laravel selalu menambahkan `MAX(id)` sebagai penentu seri, sedangkan PostgreSQL tidak punya `max(uuid)`. SQLite menerimanya, jadi kesalahan ini hanya terlihat di PostgreSQL.
+
+Diukur dengan `EXPLAIN (ANALYZE, BUFFERS)` di PostgreSQL 18 dengan 258.800 baris deployment: 3 ms untuk 6 project (ukuran maksimal satu halaman) dengan 200 deployment per project, dan 155 ms untuk 6 project dengan 10.000 deployment per project. Biayanya mengikuti riwayat project di halaman itu. Bila riwayat sebesar itu menjadi hal biasa, pilihan berikutnya adalah pointer tersimpan seperti `active_deployment_id`.
+
+`deployments.commit_message` (varchar 500, nullable) menyimpan baris pertama pesan commit dari GitHub, yang didapat saat deployment dibuat, tanpa karakter kontrol. Satu-satunya penulisnya adalah `CreateDeploymentAction`, jadi batasnya berlaku untuk webhook push maupun deploy manual, dan agent tidak dibutuhkan. Baris lama yang pernah menyimpan beberapa baris dari webhook tidak ditulis ulang.
 
 ## Node Lifecycle dan Protocol
 

@@ -9,5 +9,6 @@ final readonly class DeploymentPaginateData
     public function __construct(
         public int $perPage,
         public ?string $cursor = null,
+        public bool $newestFirst = false,
     ) {}
 }

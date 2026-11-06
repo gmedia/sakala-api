@@ -13,5 +13,6 @@ final readonly class DeploymentFailureData
         public DeploymentFailureCategory $category,
         public string $summary,
         public string $recoveryHint,
+        public bool $userFixable = false,
     ) {}
 }

@@ -14,7 +14,7 @@
         "php": "^8.5",
         "dedoc/scramble": "^0.13",
         "firebase/php-jwt": "^7.1",
-        "laravel/framework": "^13.8",
+        "laravel/framework": "^13.30",
         "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.3",
         "laravel/socialite": "^5.28",
@@ -51,7 +51,8 @@
             "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate --ansi",
-            "@php artisan migrate --graceful --ansi"
+            "@php artisan migrate --graceful --ansi",
+            "@php artisan storage:link --ansi"
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",

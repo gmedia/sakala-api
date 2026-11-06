@@ -58,4 +58,14 @@ sail exec -e DB_CONNECTION=pgsql -e DB_HOST=pgsql -e DB_DATABASE=testing \
   -e DB_USERNAME=sail -e DB_PASSWORD=password laravel.test composer test:concurrency
 ```
 
-Output yang benar menampilkan 8 test `passed`; `8 skipped` berarti koneksi PostgreSQL belum terpasang.
+Output yang benar menampilkan semua test `passed`; bila semuanya `skipped` berarti koneksi PostgreSQL belum terpasang.
+
+## Realtime Lokal
+
+`BROADCAST_CONNECTION=log` adalah default yang tidak butuh apa pun, tetapi console tidak menerima event realtime. Untuk realtime, set `BROADCAST_CONNECTION=reverb`, isi `REVERB_APP_ID`, `REVERB_APP_KEY`, dan `REVERB_APP_SECRET`, lalu jalankan `composer reverb` dan `composer queue`. Di console, `PUBLIC_REVERB_PORT` harus sama dengan port yang terbuka di host: `8080` secara default, baik lewat `composer reverb` maupun Sail (`FORWARD_REVERB_PORT`). File `.env` lama yang masih berisi `FORWARD_REVERB_PORT=8081` perlu disamakan.
+
+## Menjalankan Suite di PostgreSQL
+
+`phpunit.xml` menaikkan `memory_limit` test ke 2G, jadi `composer test` tidak lagi berhenti pada batas 128M bawaan PHP. Jalankan suite pada database kosong yang dibuat khusus, bukan database development.
+
+Grup `concurrency` meng-commit baris dan menjalankan `migrate:fresh`. Karena itu `tests/Pest.php` mereset status migrasi setelah tiap test di grup ini, sehingga `pest` tanpa `--exclude-group` tetap aman. Jangan menjalankan dua suite bersamaan pada database yang sama.

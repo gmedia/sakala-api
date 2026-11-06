@@ -44,7 +44,7 @@ final class PilotValidationMetricsRequest extends FormRequest
 
         if ($effectiveFrom->greaterThan($effectiveTo)) {
             throw ValidationException::withMessages([
-                'from' => 'The from date must be before or equal to the effective to date.',
+                'from' => 'Tanggal from harus sebelum atau sama dengan tanggal to.',
             ]);
         }
 

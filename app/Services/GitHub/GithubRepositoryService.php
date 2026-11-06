@@ -21,6 +21,7 @@ final class GithubRepositoryService
         private readonly GithubOAuth $githubOAuth,
         private readonly GithubAPIClient $githubClient,
         private readonly RepositoryParser $repositoryParser,
+        private readonly GithubPublicReader $publicReader,
     ) {}
 
     /**
@@ -39,7 +40,7 @@ final class GithubRepositoryService
         } catch (InvalidArgumentException) {
             throw ValidationException::withMessages([
                 'repository_url' => [
-                    'The repository url is not a valid GitHub repository URL.',
+                    'URL repository harus berupa URL GitHub, misalnya https://github.com/pemilik/nama-repo.',
                 ],
             ]);
         }
@@ -94,7 +95,7 @@ final class GithubRepositoryService
 
         if (! is_array($repositoriesResponse)) {
             throw new RuntimeException(
-                'Invalid repository response from GitHub.',
+                'Jawaban GitHub soal repository ini tidak bisa dibaca. Coba lagi beberapa saat lagi.',
             );
         }
 
@@ -150,7 +151,7 @@ final class GithubRepositoryService
 
         if (! is_array($items)) {
             throw new RuntimeException(
-                'Invalid repository response from GitHub.',
+                'Jawaban GitHub soal repository ini tidak bisa dibaca. Coba lagi beberapa saat lagi.',
             );
         }
 
@@ -222,36 +223,37 @@ final class GithubRepositoryService
 
         $repositoryFullName = $this->parseRepository($url);
 
-        $response = $this->githubClient->get(
+        $response = $this->publicReader->get(
             "/repos/{$repositoryFullName}",
-            null,
+            [],
+            GithubPublicReader::TTL_REPOSITORY_SECONDS,
         );
 
-        if ($response->status() === 404) {
+        if ($response->notFound()) {
             throw ValidationException::withMessages([
                 'repository_url' => [
-                    'Repository not found or inaccessible.',
+                    'Repository tidak ditemukan atau tidak bisa diakses Sakala. Periksa lagi URL-nya dan pastikan repository bersifat publik.',
                 ],
             ]);
         }
 
         if ($response->failed()) {
             throw new RuntimeException(
-                'Failed to retrieve repository from GitHub.',
+                'Sakala belum bisa mengambil data repository dari GitHub. Coba lagi beberapa saat lagi.',
             );
         }
 
-        $repository = $response->json();
+        $repository = $response->json;
 
         if (! is_array($repository)) {
             throw new RuntimeException(
-                'Invalid repository response from GitHub.',
+                'Jawaban GitHub soal repository ini tidak bisa dibaca. Coba lagi beberapa saat lagi.',
             );
         }
 
         if (($repository['private'] ?? false) === true) {
             throw ValidationException::withMessages([
-                'repository_url' => ['Private repositories must be selected from a connected GitHub installation.'],
+                'repository_url' => ['Repository private harus dipilih lewat akun GitHub yang sudah terhubung, bukan lewat URL.'],
             ]);
         }
 

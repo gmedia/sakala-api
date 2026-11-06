@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace App\Actions\Deployment;
 
 use App\Actions\Admin\CreateSleepProjectCommandAction;
+use App\Actions\Admin\CreateStopProjectCommandAction;
 use App\Data\Deployment\DeploymentFailureData;
 use App\Enums\DeploymentEventLevel;
 use App\Enums\DeploymentStatus;
 use App\Enums\LogStream;
+use App\Enums\NotificationCategory;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Events\Deployment\DeploymentUpdated;
 use App\Models\Deployment;
+use App\Models\Project;
+use App\Services\Notification\UserNotifier;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -23,6 +27,8 @@ final class TransitionDeploymentAction
         private readonly CreateDeploymentLogAction $createDeploymentLogAction,
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateDeploymentRealtimeSequenceAction,
         private readonly CreateSleepProjectCommandAction $createSleepProjectCommandAction,
+        private readonly CreateStopProjectCommandAction $createStopProjectCommandAction,
+        private readonly UserNotifier $notifier,
     ) {}
 
     /**
@@ -75,16 +81,47 @@ final class TransitionDeploymentAction
     private function updateProjectRuntime(
         Deployment $deployment,
         DeploymentStatus $status,
+        ?DeploymentFailureData $failureData = null,
     ): void {
+        // A deleted project can still have an attempt in flight; its completion
+        // must be recorded so the workload it started gets stopped.
         $project = $deployment->project()
+            ->withTrashed()
             ->lockForUpdate()
             ->firstOrFail();
 
         if ($status === DeploymentStatus::Succeeded) {
+            $activeDeployment = $this->supersedesActiveDeployment($project, $deployment)
+                ? ['active_deployment_id' => $deployment->id]
+                : [];
+
+            if ($project->trashed()) {
+                $project->update(['runtime_status' => RuntimeStatus::Running, ...$activeDeployment]);
+
+                if ($deployment->agent_node_id !== null) {
+                    $this->createStopProjectCommandAction->handle(
+                        deployment: $deployment,
+                        reason: 'project_deleted',
+                        idempotencyKey: "project-delete:{$project->id}:{$deployment->id}",
+                    );
+                }
+
+                return;
+            }
+
+            $this->notifyOwner(
+                $project,
+                $deployment,
+                NotificationCategory::DeploymentSuccess,
+                'Deployment berhasil',
+                "{$project->name} sudah live dengan commit ".mb_substr((string) $deployment->commit_sha, 0, 7).'.',
+            );
+
             if ($project->status === ProjectStatus::Suspended) {
                 $project->update([
                     'runtime_status' => RuntimeStatus::Running,
                     'last_deployed_at' => now(),
+                    ...$activeDeployment,
                 ]);
 
                 $this->createSleepProjectCommandAction->handle(
@@ -99,15 +136,52 @@ final class TransitionDeploymentAction
                 'runtime_status' => RuntimeStatus::Running,
                 'status' => ProjectStatus::Active,
                 'last_deployed_at' => now(),
+                ...$activeDeployment,
             ]);
 
             return;
         }
 
         if ($status === DeploymentStatus::Failed) {
+            // The agent only cuts over after a healthy start, so a failed
+            // attempt leaves the previous deployment serving. `failed` is
+            // reserved for projects with nothing live; a known crash of the
+            // live workload stays visible until a heartbeat clears it.
             $project->update([
-                'runtime_status' => RuntimeStatus::Failed,
+                'runtime_status' => match (true) {
+                    $project->active_deployment_id === null => RuntimeStatus::Failed,
+                    $project->runtime_status === RuntimeStatus::Crashed => RuntimeStatus::Crashed,
+                    default => RuntimeStatus::Running,
+                },
             ]);
+
+            if (! $project->trashed()) {
+                $this->notifyOwner(
+                    $project,
+                    $deployment,
+                    NotificationCategory::DeploymentFailure,
+                    'Deployment gagal',
+                    $failureData !== null
+                        ? "{$project->name}: {$failureData->summary}"
+                        : "Deployment {$project->name} gagal. Buka log deployment untuk melihat penyebabnya.",
+                );
+            }
+
+            return;
+        }
+
+        if ($status === DeploymentStatus::Cancelled) {
+            // Only undo what this attempt did; a queued attempt never changed
+            // the status, and a crash of the live workload stays visible.
+            if ($project->runtime_status === RuntimeStatus::Deploying) {
+                $project->update([
+                    'runtime_status' => match (true) {
+                        $project->active_deployment_id !== null => RuntimeStatus::Running,
+                        $project->last_deployed_at !== null => RuntimeStatus::Stopped,
+                        default => RuntimeStatus::NotDeployed,
+                    },
+                ]);
+            }
 
             return;
         }
@@ -119,11 +193,40 @@ final class TransitionDeploymentAction
         }
     }
 
+    /**
+     * The highest succeeded sequence is the current workload everywhere else
+     * in the control plane; a late completion of an older attempt must not
+     * move the pointer backwards.
+     */
+    private function supersedesActiveDeployment(Project $project, Deployment $deployment): bool
+    {
+        if ($project->active_deployment_id === null) {
+            return true;
+        }
+
+        $activeSequence = Deployment::query()
+            ->whereKey($project->active_deployment_id)
+            ->value('sequence');
+
+        return $activeSequence === null || (int) $activeSequence <= $deployment->sequence;
+    }
+
+    private function notifyOwner(
+        Project $project,
+        Deployment $deployment,
+        NotificationCategory $category,
+        string $title,
+        string $message,
+    ): void {
+        $this->notifier->send($project->user, $category, $title, $message, $project->id, $deployment->id);
+    }
+
     private function transition(
         Deployment $deployment,
         DeploymentStatus $nextStatus,
         ?DeploymentFailureData $failureData = null,
         bool $recordTimeline = true,
+        ?string $failureDetail = null,
     ): Deployment {
         $deployment = Deployment::query()
             ->whereKey($deployment->id)
@@ -142,9 +245,20 @@ final class TransitionDeploymentAction
             'status' => $nextStatus,
         ];
 
-        if ($nextStatus === DeploymentStatus::Failed && $failureData !== null) {
+        $endedBadly = in_array($nextStatus, [DeploymentStatus::Failed, DeploymentStatus::Cancelled], true);
+
+        if ($endedBadly) {
+            // Persisted on the deployment because the timeline this could be
+            // derived from is pruned after the retention window.
+            $attributes['failure_stage'] = $currentStatus;
+        }
+
+        if ($endedBadly && $failureData !== null) {
             $attributes['failure_code'] = $failureData->code;
             $attributes['failure_summary'] = $failureData->summary;
+            $attributes['failure_detail'] = $failureDetail === null || $failureDetail === ''
+                ? null
+                : mb_substr($failureDetail, 0, Deployment::MAX_FAILURE_DETAIL_LENGTH);
         }
 
         // Every transition leaves Queued behind (forward-only), so the first
@@ -167,18 +281,7 @@ final class TransitionDeploymentAction
 
         DeploymentUpdated::dispatch(
             deploymentId: $deployment->id,
-            payload: [
-                'deployment_id' => $deployment->id,
-                'project_id' => $deployment->project_id,
-                'sequence' => $realtimeSequence,
-                'status' => $deployment->status->value,
-                'trigger' => $deployment->trigger->value,
-                'branch' => $deployment->branch,
-                'commit_sha' => $deployment->commit_sha,
-                'commit_message' => $deployment->commit_message,
-                'started_at' => $deployment->started_at?->toISOString(),
-                'finished_at' => $deployment->finished_at?->toISOString(),
-            ]
+            payload: DeploymentUpdated::payloadFor($deployment, $realtimeSequence),
         );
 
         // When the agent drives the lifecycle it has already reported the
@@ -204,7 +307,8 @@ final class TransitionDeploymentAction
 
         $this->updateProjectRuntime(
             deployment: $deployment,
-            status: $nextStatus
+            status: $nextStatus,
+            failureData: $failureData,
         );
 
         return $deployment->refresh();
@@ -215,12 +319,14 @@ final class TransitionDeploymentAction
         DeploymentStatus $nextStatus,
         ?DeploymentFailureData $failureData = null,
         bool $recordTimeline = true,
+        ?string $failureDetail = null,
     ): Deployment {
         return $this->transition(
             deployment: $deployment,
             nextStatus: $nextStatus,
             failureData: $failureData,
             recordTimeline: $recordTimeline,
+            failureDetail: $failureDetail,
         );
     }
 

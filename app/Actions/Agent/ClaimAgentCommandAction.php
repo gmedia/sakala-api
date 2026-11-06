@@ -203,7 +203,8 @@ final class ClaimAgentCommandAction
         }
 
         if ($command->project_id !== null) {
-            $project = Project::query()
+            // Deleting a project must not strand the StopProject it created.
+            $project = Project::withTrashed()
                 ->whereKey($command->project_id)
                 ->lockForUpdate()
                 ->firstOrFail();

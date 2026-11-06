@@ -309,7 +309,7 @@ test('reconciliation is refused while a newer deployment is in flight', function
             'reason' => 'route check', 'desired_state' => 'running', 'actions' => ['restore_route'],
         ])
         ->assertStatus(409)
-        ->assertJsonPath('message', 'A deployment is in progress; reconcile after it finishes.');
+        ->assertJsonPath('message', 'Masih ada deployment yang berjalan. Jalankan rekonsiliasi setelah selesai.');
 
     expect(AgentCommand::query()->where('type', AgentCommandType::ReconcileWorkload)->exists())->toBeFalse();
 });
@@ -398,12 +398,12 @@ test('an idempotency key already owned by another command is refused determinist
     $this->actingAs($admin, 'sanctum')->withHeaders(['Idempotency-Key' => 'shared-key'])
         ->postJson("/api/agent/v1/agents/{$node->id}/cleanup", ['reason' => 'x', 'targets' => ['stale_images']])
         ->assertStatus(409)
-        ->assertJsonPath('message', 'Idempotency key has already been used for a different request.');
+        ->assertJsonPath('message', 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
 
     $this->actingAs($admin, 'sanctum')->withHeaders(['Idempotency-Key' => 'shared-key'])
         ->postJson("/api/agent/v1/agents/{$node->id}/drain", ['reason' => 'x'])
         ->assertStatus(409)
-        ->assertJsonPath('message', 'Idempotency key has already been used for a different request.');
+        ->assertJsonPath('message', 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
 
     $this->actingAs($admin, 'web')->withHeaders(['Idempotency-Key' => 'shared-key'])
         ->postJson("/api/v1/admin/projects/{$project->id}/reconcile", ['reason' => 'x', 'desired_state' => 'running', 'actions' => []])

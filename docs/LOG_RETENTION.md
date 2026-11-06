@@ -129,6 +129,8 @@ Penyaringan otomatis oleh `SecretRedactionService` mencakup:
 - Pasangan key-value sensitif (case-insensitive, mendukung snake_case, camelCase, kebab-case): `password`, `token`, `secret`, `app_key`, `authorization`, `api_key`, `access_token`, `refresh_token`, `client_secret`, `database_url`.
 - Seluruh key sensitif pada objek bersarang (*nested arrays*) di kolom `metadata`.
 
+Selain pola di atas, API menghapus nilai persis dari environment variable project yang `is_secret = true` (`App\Services\Security\ProjectSecretValues`), sebelum event, log, dan pesan kegagalan disimpan atau dibroadcast. Yang dicocokkan: nilai mentah, tiap barisnya untuk nilai multi-baris, serta bentuk base64, base64url, URL-encoded, hex, dan JSON-escaped. Nilai di bawah 8 byte dan variabel non-secret dilewati, karena mengganti string pendek merusak log tanpa melindungi apa pun. Nilai yang sudah diganti setelah deployment berjalan tidak lagi dikenali, dan potongan atau hasil transformasi lain dari secret tidak tertangkap.
+
 ### Keterbatasan Teknis yang Harus Dipahami
 
 > [!WARNING]
@@ -180,6 +182,7 @@ php artisan pilot:prune-logs --days=7 --batch=500
 
 #### Karakteristik Teknis Action:
 - Menghitung tanggal cutoff: `now()->subDays($days)`.
+- Tidak menyentuh baris `deployments`. Keterangan kegagalan yang dibaca console (`failure_code`, `failure_detail`, `failure_stage`) disimpan di sana, jadi tetap terbaca setelah event dan log terhapus.
 - Mengidentifikasi deployment terminal (`succeeded`, `failed`, `cancelled`) yang waktu terminalnya sebelum tanggal cutoff menggunakan index `(status, finished_at)` atau `(status, cancelled_at)` pada tabel `deployments`. Record legacy tanpa timestamp terminal memakai `created_at` sebagai fallback.
 - Melakukan penghapusan secara bertahap (*chunked batches*) untuk mencegah *table lock escalation* pada PostgreSQL.
 - Scheduler menjalankan command sekali sehari dengan `withoutOverlapping()` dan `onOneServer()`.

@@ -20,9 +20,10 @@ final class ActiveDeploymentLimitExceededException extends RuntimeException
         $msg = $message !== ''
             ? $message
             : sprintf(
-                'Active deployment limit reached. You can only have up to %d active deployment(s) %s during the pilot phase.',
+                $scope === 'project'
+                    ? 'Proyek ini sudah punya %d deployment yang berjalan, dan itu batas selama fase pilot. Tunggu sampai selesai, lalu deploy lagi.'
+                    : 'Kamu sudah punya %d deployment yang berjalan, dan itu batas selama fase pilot. Tunggu salah satunya selesai, lalu deploy lagi.',
                 $limit,
-                $scope === 'project' ? 'for this project' : 'simultaneously'
             );
 
         parent::__construct($msg);
