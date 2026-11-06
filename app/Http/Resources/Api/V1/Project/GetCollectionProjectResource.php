@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Project;
 
 use App\Models\Project;
+use App\Support\Project\ProjectPreviewPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -34,6 +35,7 @@ final class GetCollectionProjectResource extends JsonResource
             'branch' => $this->resource->branch,
             'thumbnail_url' => $this->resource->thumbnail_url,
             'runtime_status' => $this->resource->runtime_status,
+            'stack' => ProjectPreviewPresenter::stack($this->resource),
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()
                 : null,

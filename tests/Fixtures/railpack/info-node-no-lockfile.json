@@ -1,0 +1,15 @@
+{
+  "railpackVersion": "0.23.0",
+  "plan": { "steps": [], "deploy": { "startCmd": "npm start" } },
+  "resolvedPackages": { "node": { "name": "node", "requestedVersion": "22", "resolvedVersion": "22.21.1", "source": "railpack default" } },
+  "metadata": {
+    "providers": "node",
+    "nodeRuntime": "node",
+    "nodePackageManager": "npm",
+    "nodeIsSPA": "false",
+    "nodeSPAFramework": ""
+  },
+  "detectedProviders": ["node"],
+  "logs": [],
+  "success": true
+}

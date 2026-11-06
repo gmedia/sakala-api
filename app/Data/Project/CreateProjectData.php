@@ -15,5 +15,8 @@ final readonly class CreateProjectData
         public ?string $repositoryUrl = null,
         public ?string $githubInstallationId = null,
         public ?int $githubRepositoryId = null,
+        /** @var array<string, int|string|null> */
+        public array $buildConfiguration = [],
+        public bool $autoDeploy = false,
     ) {}
 }

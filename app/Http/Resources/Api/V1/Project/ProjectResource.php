@@ -38,11 +38,30 @@ final class ProjectResource extends JsonResource
             'github_repository_id' => $this->resource->github_repository_id,
             'branch' => $this->resource->branch,
             'default_domain' => $this->resource->default_domain,
+            'public_url' => $this->resource->publicUrl(),
             'status' => $this->resource->status,
             'runtime_status' => $this->resource->runtime_status,
             'detected_port' => $this->resource->detected_port,
+            /** @var int|null */
+            'configured_port' => $this->resource->configured_port,
+            'effective_port' => $this->resource->effectivePort(),
+            /** @var int|null */
+            'serving_port' => $this->resource->servingPort(),
+            /** @var string|null */
+            'build_command' => $this->resource->build_command,
+            /** @var string|null */
+            'start_command' => $this->resource->start_command,
+            /** @var string|null */
+            'root_directory' => $this->resource->root_directory,
+            /** @var bool */
+            'auto_deploy' => (bool) $this->resource->auto_deploy,
+            /** @var bool */
+            'redeploy_required' => $this->resource->requiresRedeploy(),
+            /** @var string|null */
+            'active_deployment_id' => $this->resource->active_deployment_id,
             'preview_status' => ProjectPreviewPresenter::status($this->resource),
             'inspection' => ProjectPreviewPresenter::inspection($this->resource),
+            'stack' => ProjectPreviewPresenter::stack($this->resource),
             'inspection_error_code' => $this->resource->inspection_error_code,
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()

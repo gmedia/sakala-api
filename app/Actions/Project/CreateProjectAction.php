@@ -57,6 +57,8 @@ final class CreateProjectAction
                     ...$attributes,
                     'branch' => $data->branch,
                     'default_domain' => $projectIdentity->defaultDomain,
+                    'auto_deploy' => $data->autoDeploy,
+                    ...$data->buildConfiguration,
                 ]);
             });
 

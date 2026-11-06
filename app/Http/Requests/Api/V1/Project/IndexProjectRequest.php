@@ -31,7 +31,7 @@ final class IndexProjectRequest extends FormRequest
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'between:1,6'],
             'search' => ['sometimes', 'string', 'max:255'],
-            'filter' => ['sometimes', 'in:7_days,30_days,all'],
+            'filter' => ['sometimes', 'in:7_days,30_days,90_days,all'],
         ];
     }
 

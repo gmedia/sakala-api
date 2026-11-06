@@ -8,6 +8,7 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\ProjectInspectionStatus;
 use App\Enums\RepositoryAccess;
+use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Models\AgentCommand;
 use App\Models\Project;
 use App\Services\Agent\AgentNodeSchedulerService;
@@ -15,6 +16,7 @@ use App\Services\GitHub\GithubBranchService;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -26,6 +28,13 @@ use Throwable;
  */
 final class RequestProjectInspectionAction
 {
+    /** @var list<AgentCommandStatus> */
+    private const RETRYABLE = [
+        AgentCommandStatus::Failed,
+        AgentCommandStatus::Cancelled,
+        AgentCommandStatus::Expired,
+    ];
+
     public function __construct(
         private readonly GithubBranchService $branches,
         private readonly AgentNodeSchedulerService $scheduler,
@@ -41,6 +50,10 @@ final class RequestProjectInspectionAction
             return null;
         } catch (HttpResponseException) {
             $this->unavailable($project, 'repository_access_denied');
+
+            return null;
+        } catch (GithubRateLimitedException) {
+            $this->unavailable($project, 'github_rate_limited');
 
             return null;
         } catch (Throwable $exception) {
@@ -59,10 +72,36 @@ final class RequestProjectInspectionAction
 
             $idempotencyKey = "inspect:{$locked->id}:{$commit['sha']}";
 
-            $existing = AgentCommand::query()->where('idempotency_key', $idempotencyKey)->first();
+            // The same commit inspected from another directory is another
+            // question, so it gets its own key and its own attempts.
+            if ($locked->root_directory !== null) {
+                $idempotencyKey .= ':root:'.sha1($locked->root_directory);
+            }
+
+            // The newest attempt for this commit and directory decides: one in
+            // flight or done is reused, one that ended badly can be tried again.
+            $existing = AgentCommand::query()
+                ->where('project_id', $locked->id)
+                ->where('type', AgentCommandType::InspectProject)
+                ->where('idempotency_key', 'like', "inspect:{$locked->id}:{$commit['sha']}%")
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->get()
+                ->first(static fn (AgentCommand $command): bool => ($command->payload['root_directory'] ?? null) === $locked->root_directory);
+
+            if ($existing !== null && ! in_array($existing->status, self::RETRYABLE, true)) {
+                if ($existing->status === AgentCommandStatus::Succeeded && $locked->inspection !== null) {
+                    $locked->update([
+                        'inspection_status' => ProjectInspectionStatus::Succeeded,
+                        'inspection_error_code' => null,
+                    ]);
+                }
+
+                return $existing;
+            }
 
             if ($existing !== null) {
-                return $existing;
+                $idempotencyKey .= ':'.Str::uuid();
             }
 
             $node = $this->scheduler->selectNodeFor(AgentCommandType::InspectProject, $locked);
@@ -79,6 +118,8 @@ final class RequestProjectInspectionAction
                     'repository_access' => $locked->github_installation_id === null
                         ? RepositoryAccess::Public->value
                         : RepositoryAccess::TemporaryCredential->value,
+                    // Optional addition to protocol revision 4; absent unless set.
+                    ...($locked->root_directory !== null ? ['root_directory' => $locked->root_directory] : []),
                 ],
                 'idempotency_key' => $idempotencyKey,
                 'available_at' => now(),

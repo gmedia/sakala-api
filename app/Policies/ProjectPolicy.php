@@ -75,6 +75,15 @@ final class ProjectPolicy
     }
 
     /**
+     * Determine whether the user can cancel a deployment. Unlike deploying, this
+     * stays allowed on a suspended project: it only ever stops work.
+     */
+    public function cancelDeployment(User $user, Project $project): bool
+    {
+        return $user->id === $project->user_id;
+    }
+
+    /**
      * Determine whether the user can stop the project.
      */
     public function stop(User $user, Project $project): bool

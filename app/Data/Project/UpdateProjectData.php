@@ -11,6 +11,9 @@ final readonly class UpdateProjectData
         public ?string $thumbnailUrl = null,
         public ?string $branch = null,
         public bool $thumbnailUrlProvided = false,
+        /** @var array<string, int|string|null> Only the fields the request sent. */
+        public array $buildConfiguration = [],
+        public ?bool $autoDeploy = null,
     ) {}
 
     /**
@@ -29,6 +32,10 @@ final readonly class UpdateProjectData
             $data['thumbnail_url'] = $this->thumbnailUrl;
         }
 
-        return $data;
+        if ($this->autoDeploy !== null) {
+            $data['auto_deploy'] = $this->autoDeploy;
+        }
+
+        return [...$data, ...$this->buildConfiguration];
     }
 }

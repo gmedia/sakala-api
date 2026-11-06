@@ -28,6 +28,7 @@ final class GetProjectCollectionAction
         match ($data->filter) {
             '7_days' => $query->where('created_at', '>=', now()->subDays(7)),
             '30_days' => $query->where('created_at', '>=', now()->subDays(30)),
+            '90_days' => $query->where('created_at', '>=', now()->subDays(90)),
             default => null,
         };
 

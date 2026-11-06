@@ -36,6 +36,18 @@ final class CreateProjectResource extends JsonResource
             'runtime_status' => $this->resource->runtime_status,
             'preview_status' => ProjectPreviewPresenter::status($this->resource),
             'inspection' => ProjectPreviewPresenter::inspection($this->resource),
+            'stack' => ProjectPreviewPresenter::stack($this->resource),
+            /** @var int|null */
+            'configured_port' => $this->resource->configured_port,
+            'effective_port' => $this->resource->effectivePort(),
+            /** @var string|null */
+            'build_command' => $this->resource->build_command,
+            /** @var string|null */
+            'start_command' => $this->resource->start_command,
+            /** @var string|null */
+            'root_directory' => $this->resource->root_directory,
+            /** @var bool */
+            'auto_deploy' => (bool) $this->resource->auto_deploy,
             'inspection_error_code' => $this->resource->inspection_error_code,
             'created_at' => $this->resource->created_at->toAtomString(),
         ];
