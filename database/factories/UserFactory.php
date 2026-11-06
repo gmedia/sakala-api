@@ -31,6 +31,8 @@ class UserFactory extends Factory
             'name' => fake()->name(),
             'username' => fake()->unique()->bothify('user-#####'),
             'email' => fake()->unique()->safeEmail(),
+            'pending_email' => null,
+            'notification_preferences' => null,
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'role' => UserRole::User,

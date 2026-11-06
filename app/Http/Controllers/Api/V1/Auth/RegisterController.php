@@ -12,15 +12,22 @@ use Illuminate\Http\JsonResponse;
 
 final class RegisterController extends Controller
 {
-    /** @scramble-return 201 RegistrationResource */
+    /**
+     * Always 202 with the same body, whether or not the email already has an
+     * account, so this endpoint cannot be used to learn which emails exist.
+     *
+     * @scramble-return 202 RegistrationResource
+     */
     public function __invoke(
         RegisterRequest $request,
         RegisterAction $action,
     ): JsonResponse {
-        $user = $action->handle($request->toData());
+        $data = $request->toData();
 
-        return RegistrationResource::make($user)
+        $action->handle($data);
+
+        return RegistrationResource::make($data)
             ->response()
-            ->setStatusCode(201);
+            ->setStatusCode(202);
     }
 }

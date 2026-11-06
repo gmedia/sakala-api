@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Auth;
 
-use App\Models\User;
+use App\Data\Auth\RegisterData;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * @mixin User
+ * Echoes the request only, so it looks the same for a new and an existing email.
  *
- * @property User $resource
+ * @property RegisterData $resource
  */
 final class RegistrationResource extends JsonResource
 {

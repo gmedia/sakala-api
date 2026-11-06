@@ -22,5 +22,8 @@ final readonly class CurrentUserData
         public ?OnboardingProfile $onboardingRole,
         public ?CarbonImmutable $onboardingCompletedAt,
         public ?CarbonImmutable $lastLoginAt,
+        public bool $hasPassword = true,
+        public ?string $pendingEmail = null,
+        public ?CarbonImmutable $createdAt = null,
     ) {}
 }

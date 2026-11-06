@@ -62,9 +62,18 @@ return [
             'report' => false,
         ],
 
-        'avatars' => [
-            ...$s3Config,
-        ],
+        // Local development works without a bucket; staging and production keep
+        // the object store unless they opt out.
+        'avatars' => env('SAKALA_AVATAR_STORAGE', 's3') === 'local'
+            ? [
+                'driver' => 'local',
+                'root' => storage_path('app/public'),
+                'url' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/storage',
+                'visibility' => 'public',
+                'throw' => false,
+                'report' => false,
+            ]
+            : [...$s3Config],
 
         's3' => $s3Config,
 

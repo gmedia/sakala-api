@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use App\Notifications\Auth\VerifyEmailNotification;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Notification;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Support\TestingPreventRequestForgery;
@@ -178,7 +180,7 @@ test('an OAuth-only user without a password cannot log in with email and passwor
     expect($user->fresh()->last_login_at)->toBeNull();
 });
 
-test('an unverified user cannot log in with email and password', function () {
+test('an unverified user with the right password gets a distinct error and no session', function () {
     $user = User::factory()->unverified()->create();
     Event::fake();
 
@@ -187,12 +189,78 @@ test('an unverified user cannot log in with email and password', function () {
             'email' => $user->email,
             'password' => 'password',
         ])
-        ->assertUnauthorized()
-        ->assertJsonPath('message', 'Unauthenticated.');
+        ->assertForbidden()
+        ->assertExactJson([
+            'message' => 'Email kamu belum diverifikasi. Buka tautan verifikasi yang kami kirim ke email kamu, atau minta kirim ulang tautannya.',
+            'code' => 'email_not_verified',
+        ]);
 
     Event::assertNotDispatched(Login::class);
     $this->assertGuest('web');
     expect($user->fresh()->last_login_at)->toBeNull();
+});
+
+test('an unverified user with a wrong password gets the same response as an unknown email', function () {
+    $user = User::factory()->unverified()->create();
+
+    $unverified = $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => $user->email,
+            'password' => 'incorrect-password',
+        ])
+        ->assertUnauthorized();
+
+    $unknown = $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => 'unknown@example.test',
+            'password' => 'incorrect-password',
+        ])
+        ->assertUnauthorized();
+
+    expect($unverified->json())->toBe($unknown->json())
+        ->and($unverified->json())->not->toHaveKey('code');
+    $this->assertGuest('web');
+});
+
+test('the unverified login error is throttled like any other attempt', function () {
+    config()->set('sakala.rate_limits.login', 1);
+    $user = User::factory()->unverified()->create();
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => $user->email,
+            'password' => 'password',
+        ])
+        ->assertForbidden();
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => $user->email,
+            'password' => 'password',
+        ])
+        ->assertTooManyRequests();
+});
+
+test('a guest stopped by the unverified login error can request a new verification email', function () {
+    Notification::fake();
+    $user = User::factory()->unverified()->create();
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->postJson(route('api.v1.auth.login'), [
+            'email' => $user->email,
+            'password' => 'password',
+        ])
+        ->assertJsonPath('code', 'email_not_verified');
+
+    $this->assertGuest('web');
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->postJson(route('api.v1.auth.email.verification-notification'), [
+            'email' => $user->email,
+        ])
+        ->assertAccepted();
+
+    Notification::assertSentTo($user, VerifyEmailNotification::class);
 });
 
 test('login enforces a dedicated rate limit by normalized email and IP', function () {

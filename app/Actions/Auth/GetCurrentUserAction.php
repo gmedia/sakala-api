@@ -27,6 +27,9 @@ final class GetCurrentUserAction
             onboardingRole: $user->onboarding_role,
             onboardingCompletedAt: $user->onboarding_completed_at,
             lastLoginAt: $user->last_login_at,
+            hasPassword: $user->password !== null,
+            pendingEmail: $user->pending_email,
+            createdAt: $user->created_at,
         );
     }
 }

@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Data\Notification\NotificationPreferencesData;
+use App\Enums\NotificationCategory;
 use App\Enums\OnboardingProfile;
 use App\Enums\OnboardingSource;
 use App\Enums\UserRole;
+use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -27,6 +30,9 @@ use Laravel\Sanctum\HasApiTokens;
  * @property string $name
  * @property string $username
  * @property string $email
+ * @property string|null $pending_email
+ * @property array<string, bool>|null $notification_preferences
+ * @property CarbonImmutable|null $created_at
  * @property Carbon|null $email_verified_at
  * @property string|null $password
  * @property UserRole $role
@@ -40,6 +46,8 @@ use Laravel\Sanctum\HasApiTokens;
 #[Fillable([
     'name',
     'email',
+    'pending_email',
+    'notification_preferences',
     'username',
     'password',
     'role',
@@ -59,6 +67,32 @@ class User extends Authenticatable implements MustVerifyEmail
     public function sendEmailVerificationNotification(): void
     {
         $this->notify(new VerifyEmailNotification);
+    }
+
+    /**
+     * @param  string  $token
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        $this->notify(new ResetPasswordNotification($token));
+    }
+
+    public function notificationPreferences(): NotificationPreferencesData
+    {
+        return NotificationPreferencesData::fromStored($this->notification_preferences);
+    }
+
+    public function wantsNotification(NotificationCategory $category): bool
+    {
+        return $this->notificationPreferences()->preferences[$category->value];
+    }
+
+    /**
+     * Channel the database notifications are pushed on; see routes/channels.php.
+     */
+    public function receivesBroadcastNotificationsOn(): string
+    {
+        return 'users.'.$this->id;
     }
 
     public function isAdmin(): bool
@@ -111,6 +145,8 @@ class User extends Authenticatable implements MustVerifyEmail
             'onboarding_role' => OnboardingProfile::class,
             'onboarding_completed_at' => 'immutable_datetime',
             'last_login_at' => 'immutable_datetime',
+            'notification_preferences' => 'array',
+            'created_at' => 'immutable_datetime',
         ];
     }
 }

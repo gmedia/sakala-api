@@ -33,6 +33,39 @@ final class ConsoleAuthenticationRedirect
         return $this->url('/email-verified', ['status' => 'error']);
     }
 
+    public function passwordReset(string $token, string $email): string
+    {
+        return $this->url('/reset-password', ['token' => $token, 'email' => $email]);
+    }
+
+    public function emailChangeSuccess(): string
+    {
+        return $this->url('/email-changed', ['status' => 'success']);
+    }
+
+    public function emailChangeError(): string
+    {
+        return $this->url('/email-changed', ['status' => 'error']);
+    }
+
+    public function githubInstallationSuccess(): string
+    {
+        return $this->url('/projects/new', ['github_installation' => 'connected']);
+    }
+
+    public function githubInstallationError(BackedEnum $failure): string
+    {
+        return $this->url('/projects/new', [
+            'github_installation' => 'error',
+            'error' => (string) $failure->value,
+        ]);
+    }
+
+    public function login(): string
+    {
+        return $this->url('/login');
+    }
+
     public function loginError(BackedEnum $failure): string
     {
         return $this->url('/login', ['error' => (string) $failure->value]);

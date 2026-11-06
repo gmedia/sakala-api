@@ -29,6 +29,12 @@ final class UserResource extends JsonResource
             'onboarding_role' => $this->onboardingRole ? $this->onboardingRole->value : null,
             'onboarding_completed_at' => $this->onboardingCompletedAt ? $this->onboardingCompletedAt->toAtomString() : null,
             'last_login_at' => $this->lastLoginAt ? $this->lastLoginAt->toAtomString() : null,
+            /** @var bool */
+            'has_password' => $this->hasPassword,
+            /** @var string|null */
+            'pending_email' => $this->pendingEmail,
+            /** @var string|null */
+            'created_at' => $this->createdAt ? $this->createdAt->toAtomString() : null,
         ];
     }
 }
