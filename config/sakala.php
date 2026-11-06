@@ -2,20 +2,40 @@
 
 declare(strict_types=1);
 
+$emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
+
 return [
     'console_url' => env('SAKALA_CONSOLE_URL', 'http://localhost:5173'),
 
+    // Whether email can really reach people. When the env is unset or empty it
+    // follows mail.default (same env and default as config/mail.php): the log
+    // and array mailers deliver nothing. Local development sets it to true on
+    // purpose, because it reads the links from the log.
+    'email_delivery_enabled' => $emailDeliveryOverride === null || $emailDeliveryOverride === ''
+        ? ! in_array(env('MAIL_MAILER', 'log'), ['log', 'array'], true)
+        : filter_var($emailDeliveryOverride, FILTER_VALIDATE_BOOLEAN),
+
     'rate_limits' => [
-        'api' => (int) env('SAKALA_API_RATE_LIMIT', 60),
+        'api' => (int) env('SAKALA_API_RATE_LIMIT', 240),
+        'api_guest' => (int) env('SAKALA_API_GUEST_RATE_LIMIT', 60),
         'login' => (int) env('SAKALA_LOGIN_RATE_LIMIT', 5),
         'register' => (int) env('SAKALA_REGISTER_RATE_LIMIT', 5),
         'oauth' => (int) env('SAKALA_OAUTH_RATE_LIMIT', 10),
         'email_verification' => (int) env('SAKALA_EMAIL_VERIFICATION_RATE_LIMIT', 5),
         'feedback' => (int) env('SAKALA_FEEDBACK_RATE_LIMIT', 5),
+        'password_reset' => (int) env('SAKALA_PASSWORD_RESET_RATE_LIMIT', 5),
+        'account_security' => (int) env('SAKALA_ACCOUNT_SECURITY_RATE_LIMIT', 5),
+        'inspection' => (int) env('SAKALA_INSPECTION_RATE_LIMIT', 5),
+    ],
+
+    'notifications' => [
+        'retention_days' => (int) env('SAKALA_NOTIFICATION_RETENTION_DAYS', 90),
     ],
 
     'project' => [
         'default_domain' => env('SAKALA_PROJECT_DEFAULT_DOMAIN', 'run.sakala.dev'),
+        'url_scheme' => env('SAKALA_PROJECT_URL_SCHEME', 'https'),
+        'url_port' => env('SAKALA_PROJECT_URL_PORT'),
         'reserved_slugs' => [
             'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',
             'support', 'help', 'status', 'mail', 'test', 'run',

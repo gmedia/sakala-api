@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Exceptions\GitHub\GithubRateLimitedException;
+use App\Services\Auth\ConsoleAuthenticationRedirect;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -20,6 +23,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
+
+        // Browser routes (GitHub App install) have no login page of their own.
+        $middleware->redirectGuestsTo(
+            static fn (): string => app(ConsoleAuthenticationRedirect::class)->login(),
+        );
 
         // The API is only reachable through the edge proxy chain
         // (Cloudflare -> host Caddy -> nginx -> PHP-FPM), so without trusting
@@ -41,5 +49,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*', 'broadcasting/auth'),
+        );
+
+        // Calls that use ->throw() still answer honestly when GitHub limits us.
+        $exceptions->map(
+            RequestException::class,
+            static fn (RequestException $exception): Throwable => GithubRateLimitedException::fromResponse($exception->response) ?? $exception,
         );
     })->create();
