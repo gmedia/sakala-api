@@ -322,7 +322,7 @@ test('a valid token resets the password and proves the mailbox', function (): vo
         ->and($fresh->tokens()->count())->toBe(0);
     Event::assertDispatched(PasswordReset::class);
 
-    // U-32: the same account now logs in normally.
+    // The reset also verified the email, so the same account now logs in normally.
     $this->withHeader('Origin', ACCOUNT_ORIGIN)
         ->postJson(route('api.v1.auth.login'), ['email' => 'user@example.test', 'password' => 'new-secure-password'])
         ->assertOk();

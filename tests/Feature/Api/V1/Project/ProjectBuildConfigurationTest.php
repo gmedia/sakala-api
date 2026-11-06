@@ -217,7 +217,7 @@ test('a project nothing serves never asks for a redeploy', function (): void {
         ->assertJsonPath('data.redeploy_required', false);
 });
 
-// ─── U-57 environment variables ──────────────────────────────────────────────
+// ─── Editing environment variables ───────────────────────────────────────────
 
 test('is_secret comes from the request and defaults to secret', function (): void {
     $user = User::factory()->create();

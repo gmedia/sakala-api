@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
 
-// ─── Domain preview (U-39) ───────────────────────────────────────────────────
+// ─── Domain preview ──────────────────────────────────────────────────────────
 
 test('the domain preview returns the final generated domain', function (): void {
     config()->set('sakala.project.default_domain', 'apps.kampus.test');
@@ -61,7 +61,7 @@ test('the preview route is not swallowed by the project show route', function ()
     $this->actingAs($user, 'web')->getJson("/api/v1/app/projects/{$project->id}")->assertOk();
 });
 
-// ─── Repository pagination (U-37) ────────────────────────────────────────────
+// ─── Repository pagination ───────────────────────────────────────────────────
 
 function connectedInstallation(User $user): GithubInstallation
 {
@@ -157,7 +157,7 @@ test('another user cannot list the repositories of an installation', function ()
         ->assertForbidden();
 });
 
-// ─── GitHub install return (U-52) ────────────────────────────────────────────
+// ─── GitHub install return ───────────────────────────────────────────────────
 
 test('a guest starting the GitHub install lands on the console login', function (): void {
     $this->get(route('auth.github.install'))
@@ -192,7 +192,7 @@ test('a GitHub failure during setup goes back to the wizard', function (): void 
         ->assertRedirectContains('/projects/new?github_installation=error');
 });
 
-// ─── Avatar removal (U-61) ───────────────────────────────────────────────────
+// ─── Avatar removal ──────────────────────────────────────────────────────────
 
 test('removing an avatar deletes the file and clears the OAuth copy', function (): void {
     Storage::fake('avatars');
@@ -217,7 +217,7 @@ test('removing an avatar requires a session', function (): void {
     $this->deleteJson(route('api.v1.app.profile.avatar.destroy'))->assertUnauthorized();
 });
 
-// ─── Onboarding profiles (U-66) ──────────────────────────────────────────────
+// ─── Onboarding profiles ─────────────────────────────────────────────────────
 
 test('student and mentor are valid onboarding profiles', function (string $role): void {
     $user = User::factory()->create();

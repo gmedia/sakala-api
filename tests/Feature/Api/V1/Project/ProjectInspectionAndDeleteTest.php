@@ -72,7 +72,7 @@ function succeededInspection(array $overrides = []): array
     ];
 }
 
-// ─── Re-inspect (U-47) ───────────────────────────────────────────────────────
+// ─── Re-inspect ──────────────────────────────────────────────────────────────
 
 test('the owner can ask for a new inspection', function (): void {
     fakeInspectionCommit();
@@ -168,7 +168,7 @@ test('re-inspecting is limited to the owner, throttled, and refused while suspen
     $this->postJson(route('api.v1.app.projects.inspection', $project))->assertTooManyRequests();
 });
 
-// ─── Stack summary (U-41) ────────────────────────────────────────────────────
+// ─── Stack summary ───────────────────────────────────────────────────────────
 
 test('the stack summary exposes only stable derived fields', function (): void {
     $user = User::factory()->create();
@@ -369,7 +369,7 @@ test('changing the directory inspects the same commit again, and going back reus
     expect(AgentCommand::query()->where('project_id', $project->id)->count())->toBe(2);
 });
 
-// ─── 90 day filter (U-59) ────────────────────────────────────────────────────
+// ─── 90 day filter ───────────────────────────────────────────────────────────
 
 test('the project list filters by 90 days', function (): void {
     $user = User::factory()->create();
@@ -385,7 +385,7 @@ test('the project list filters by 90 days', function (): void {
     $this->getJson('/api/v1/app/projects?filter=91_days')->assertUnprocessable();
 });
 
-// ─── Delete (U-43) ───────────────────────────────────────────────────────────
+// ─── Delete ──────────────────────────────────────────────────────────────────
 
 /** @return array{User, Project, Deployment} */
 function servingProject(AgentNode $node): array
