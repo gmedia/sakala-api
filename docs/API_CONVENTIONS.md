@@ -181,9 +181,23 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 | `build_command`, `start_command` | string atau `null` | Satu baris, paling panjang 1000 karakter. Dijalankan agent hanya di dalam build atau container. |
 | `root_directory` | string atau `null` | Path relatif di dalam repository, misalnya `apps/web`. |
 | `auto_deploy` | boolean | `true` membuat push ke branch project membuat deployment baru. Default `false`. Hanya untuk project dari GitHub App; project dari URL publik dijawab `422` karena webhook-nya tidak pernah datang. |
-| `public_url` | string | Alamat publik project untuk instalasi ini, dari `SAKALA_PROJECT_URL_SCHEME` dan `SAKALA_PROJECT_URL_PORT`. Console memakai ini, bukan menyusun sendiri. |
+| `public_url` | string | Alamat publik project untuk instalasi ini, dari `SAKALA_PROJECT_URL_SCHEME` dan `SAKALA_PROJECT_URL_PORT`. Console memakai ini, bukan menyusun sendiri. Ada juga di `GET /api/v1/app/projects`. |
+| `latest_deployment` | object atau `null` | Deployment dengan `sequence` terbesar, apa pun hasilnya, atau `null` bila belum pernah ada. Bisa berbeda dari `active_deployment_id`. Ada juga di `GET /api/v1/app/projects`, jadi daftar project tidak perlu request per kartu. Lihat tabel di bawah. |
 | `redeploy_required` | boolean | `true` bila environment variable atau konfigurasi build berubah setelah deployment aktif dibuat. |
 | `stack` | object atau `null` | Lihat "Inspeksi". |
+
+Isi `latest_deployment`:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `id` | UUID | Sama dengan `id` di `GET .../deployments/{deployment}`. |
+| `sequence` | integer | Nomor urut per project. |
+| `status` | string | Nilai `DeploymentStatus`. |
+| `branch` | string | Branch saat deployment dibuat. |
+| `commit_sha` | string atau `null` | SHA 40 karakter. |
+| `commit_message` | string atau `null` | Baris pertama pesan commit, paling panjang 500 karakter, tanpa karakter kontrol. Asalnya dari GitHub saat deployment dibuat: `head_commit` pada webhook push, atau head branch pada deploy manual. Agent tidak terlibat. `null` bila GitHub tidak memberikannya. Teks ini ditulis siapa pun yang membuat commit dan markup di dalamnya tidak diubah, jadi tampilkan sebagai teks, jangan sebagai HTML. |
+| `created_at` | string ISO 8601 | Waktu deployment dibuat. |
+| `finished_at` | string ISO 8601 atau `null` | `null` selama belum selesai. |
 
 Nilai `runtime_status` dan yang menuliskannya:
 
@@ -227,7 +241,7 @@ Filter `GET /api/v1/app/projects?filter=` menerima `7_days`, `30_days`, `90_days
 
 `StopProject` tidak punya batas waktu. Saat node offline, workload tetap melayani sampai node itu kembali dan menerima command-nya, jadi penghapusan di API bukan bukti container sudah berhenti. Slug project yang dihapus tidak pernah dipakai ulang, jadi route lama tidak bisa melayani project baru.
 
-Data project dihapus permanen `SAKALA_DELETED_PROJECT_RETENTION_DAYS` hari setelah dihapus (default 30 hari) oleh `projects:purge-deleted`, yang berjalan sekali sehari. Selama masa itu tidak ada endpoint untuk memulihkan project. Yang dihapus: baris project, deployment, log, event, agent command (termasuk salinan environment variable terenkripsi di payload `DeployProject`), environment variable, dan notifikasi project itu.
+Data project dihapus permanen `SAKALA_DELETED_PROJECT_RETENTION_DAYS` hari setelah dihapus (default 30 hari) oleh `projects:purge-deleted`, yang berjalan sekali sehari. Angka yang berlaku tersedia sebagai `deleted_project_retention_days` di `GET /api/v1/app/pilot-limits`, untuk console yang perlu menyebutkannya. Selama masa itu tidak ada endpoint untuk memulihkan project. Yang dihapus: baris project, deployment, log, event, agent command (termasuk salinan environment variable terenkripsi di payload `DeployProject`), environment variable, dan notifikasi project itu.
 
 Kalau node belum menyelesaikan pekerjaannya saat masa itu habis, baris project menunggu node tersebut, karena baris itulah satu-satunya jalan untuk menyuruh node menghentikan container. Environment variable dan salinannya tetap dihapus tepat waktu, karena menghentikan container tidak membutuhkannya. `StopProject` yang gagal atau kedaluwarsa dikirim ulang sekali sehari. Node yang di-revoke tidak bisa menerima command lagi, jadi tidak menahan penghapusan; container di node itu harus dibereskan operator. Perintah ini mencatat jumlah project yang menunggu, dan log aplikasi menyebut ID-nya.
 

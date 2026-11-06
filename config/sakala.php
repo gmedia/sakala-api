@@ -63,7 +63,7 @@ return [
         'url_scheme' => env('SAKALA_PROJECT_URL_SCHEME', 'https'),
         'url_port' => env('SAKALA_PROJECT_URL_PORT'),
         // A deleted project is kept this long, then projects:purge-deleted
-        // removes it for good. The console quotes this number to users.
+        // removes it for good. GET app/pilot-limits gives the console this number.
         'deleted_retention_days' => (int) env('SAKALA_DELETED_PROJECT_RETENTION_DAYS', 30),
         'reserved_slugs' => [
             'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',

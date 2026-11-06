@@ -59,6 +59,9 @@ final class ProjectResource extends JsonResource
             'redeploy_required' => $this->resource->requiresRedeploy(),
             /** @var string|null */
             'active_deployment_id' => $this->resource->active_deployment_id,
+            'latest_deployment' => LatestDeploymentResource::fromProject(
+                $this->resource->loadMissing('latestDeployment'),
+            ),
             'preview_status' => ProjectPreviewPresenter::status($this->resource),
             'inspection' => ProjectPreviewPresenter::inspection($this->resource),
             'stack' => ProjectPreviewPresenter::stack($this->resource),

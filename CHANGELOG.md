@@ -40,6 +40,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - `order=desc` on `GET .../logs` with `per_page` up to 200, `log_sequence` on the `deployment.log.created` broadcast, and `Retry-After` in CORS exposed headers.
 - `ProjectResource.serving_port`, the port the active deployment actually uses, stored as `deployments.container_port`.
 - `ProjectResource.public_url`, from `SAKALA_PROJECT_URL_SCHEME` and `SAKALA_PROJECT_URL_PORT`.
+- `public_url` and `latest_deployment` (`id`, `sequence`, `status`, `branch`, `commit_sha`, `commit_message`, `created_at`, `finished_at`, or `null`) on `GET /api/v1/app/projects`, and `latest_deployment` on `ProjectResource`. The list needs one extra query per page.
+- `deleted_project_retention_days` on `GET /api/v1/app/pilot-limits`.
 - Optional `GITHUB_PUBLIC_API_TOKEN`, cached public GitHub reads with ETag revalidation, and `503 GITHUB_RATE_LIMITED` with `Retry-After`.
 - `SAKALA_AVATAR_STORAGE=local` for development, and `503 AVATAR_STORAGE_UNAVAILABLE`.
 - `POST .../deployments/{deployment}/cancel`, `cancel_requested_at`, `queue_state`, and the additive `cancel_requested` field on `GET /commands`.
@@ -72,6 +74,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 - `api-web` resolves the `api` upstream through Docker's DNS while running, so recreating only the `api` container no longer leaves nginx answering 502 until it reloads.
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
+- A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
 ### Security
 

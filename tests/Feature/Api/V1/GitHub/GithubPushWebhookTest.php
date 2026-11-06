@@ -213,3 +213,24 @@ test('a push during a GitHub outage still creates the deployment, and the lease 
 
     expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(1);
 });
+
+test('a pushed commit message is stored like a manual one', function (string $message, ?string $expected): void {
+    $project = pushProject();
+
+    sendPush($this, pushPayload(['head_commit' => ['message' => $message]]))->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->sole()->commit_message)->toBe($expected);
+})->with([
+    'over the column' => [str_repeat('é', 600), str_repeat('é', 500)],
+    'only the first line' => ["fix: login\n\nbody that would otherwise be kept", 'fix: login'],
+    'markup left as written' => ['<b>fix</b>', '<b>fix</b>'],
+    'empty' => ['', null],
+]);
+
+test('a push without a head commit has no message', function (): void {
+    $project = pushProject();
+
+    sendPush($this, pushPayload(['head_commit' => null]))->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->sole()->commit_message)->toBeNull();
+});

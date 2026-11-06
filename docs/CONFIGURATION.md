@@ -21,7 +21,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_LEGAL_TERMS_VERSION`, `SAKALA_LEGAL_ACCEPTABLE_USE_VERSION`, `SAKALA_LEGAL_PRIVACY_NOTICE_VERSION`: versi dokumen yang berlaku (default `syarat-v1`, `penggunaan-wajar-v1`, `privasi-v1`). Mengganti dua yang pertama meminta semua pengguna menyetujui ulang. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen).
 - `SAKALA_ABUSE_EMAIL`, `SAKALA_PRIVACY_EMAIL`: kontak yang disebut di pesan ke pengguna (default `abuse@sakala.dev`, `privacy@sakala.dev`). Deployment self-hosted mengganti keduanya.
 - `SAKALA_NOTIFICATION_RETENTION_DAYS`: umur notifikasi in-app sebelum dihapus `notifications:prune` (default `90`).
-- `SAKALA_DELETED_PROJECT_RETENTION_DAYS`: berapa hari project yang dihapus disimpan sebelum `projects:purge-deleted` menghapusnya permanen (default `30`, minimal `1`). Console menyebut angka ini ke user, jadi ubah keduanya bersamaan. Lihat [Menghapus Project](API_CONVENTIONS.md#menghapus-project).
+- `SAKALA_DELETED_PROJECT_RETENTION_DAYS`: berapa hari project yang dihapus disimpan sebelum `projects:purge-deleted` menghapusnya permanen (default `30`, minimal `1`). `GET /api/v1/app/pilot-limits` menyajikannya sebagai `deleted_project_retention_days`, jadi console tidak perlu menyimpan salinannya. Lihat [Menghapus Project](API_CONVENTIONS.md#menghapus-project).
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
 

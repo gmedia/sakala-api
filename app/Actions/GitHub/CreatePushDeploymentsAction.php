@@ -50,7 +50,7 @@ final class CreatePushDeploymentsAction
         }
 
         $headCommit = is_array($payload['head_commit'] ?? null) ? $payload['head_commit'] : [];
-        $message = is_string($headCommit['message'] ?? null) ? mb_substr($headCommit['message'], 0, 500) : null;
+        $message = is_string($headCommit['message'] ?? null) ? $headCommit['message'] : null;
 
         $projects = Project::query()
             ->with('user')

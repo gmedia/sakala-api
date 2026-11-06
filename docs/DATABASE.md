@@ -49,6 +49,7 @@ Index dibuat dari query path yang sudah diketahui:
 - daftar notifikasi dan jumlah belum dibaca: `(notifiable_type, notifiable_id, created_at)` dan `(notifiable_type, notifiable_id, read_at)`; retensi: `(created_at)`;
 - ringkasan runtime user: `(user_id, runtime_status)`;
 - riwayat deployment: `(project_id, created_at)`;
+- deployment terbaru tiap project di daftar project: satu query tambahan per halaman, dengan `(project_id, status)` atau unique `(project_id, sequence)` yang sudah ada, jadi tidak perlu index baru. Lihat [Deployment Terbaru](#deployment-terbaru);
 - project yang dilayani sebuah deployment, dipakai heartbeat untuk status crash: `(active_deployment_id)` pada `projects`, bersama `(agent_node_id, status)` pada `deployments`;
 - deployment aktif/bermasalah: `(status, created_at)` dan `(failure_code, created_at)`;
 - cleanup log terminal: `(status, finished_at)` dan `(status, cancelled_at)`;
@@ -101,6 +102,16 @@ Migrasi `2026_11_05_143109` dan `2026_11_05_143110` hanya menambah kolom nullabl
 `deployments.container_port` menyimpan port yang dikirim ke agent saat deployment dibuat, sumber `serving_port`. Migrasinya mengisi baris lama dari payload `DeployProject`; yang tanpa command tetap `null`.
 
 Migrasi `2026_11_06_00000x` hanya menambah kolom nullable atau berdefault dan satu tabel baru, jadi kode lama tetap berjalan dan tidak ada backfill.
+
+## Deployment Terbaru
+
+`Project::latestDeployment` adalah `hasOne` dengan `orderByDesc('sequence')->limit(1)`. Saat eager load, Laravel mengubah limit itu menjadi `row_number()` per `project_id`, dan yang dibaca hanya deployment milik project di halaman itu, bukan seluruh tabel. Halaman detail membaca satu baris lewat unique `(project_id, sequence)`.
+
+`latestOfMany('sequence')` tidak bisa dipakai karena Laravel selalu menambahkan `MAX(id)` sebagai penentu seri, sedangkan PostgreSQL tidak punya `max(uuid)`. SQLite menerimanya, jadi kesalahan ini hanya terlihat di PostgreSQL.
+
+Diukur dengan `EXPLAIN (ANALYZE, BUFFERS)` di PostgreSQL 18 dengan 258.800 baris deployment: 3 ms untuk 6 project (ukuran maksimal satu halaman) dengan 200 deployment per project, dan 155 ms untuk 6 project dengan 10.000 deployment per project. Biayanya mengikuti riwayat project di halaman itu. Bila riwayat sebesar itu menjadi hal biasa, pilihan berikutnya adalah pointer tersimpan seperti `active_deployment_id`.
+
+`deployments.commit_message` (varchar 500, nullable) menyimpan baris pertama pesan commit dari GitHub, yang didapat saat deployment dibuat, tanpa karakter kontrol. Satu-satunya penulisnya adalah `CreateDeploymentAction`, jadi batasnya berlaku untuk webhook push maupun deploy manual, dan agent tidak dibutuhkan. Baris lama yang pernah menyimpan beberapa baris dari webhook tidak ditulis ulang.
 
 ## Node Lifecycle dan Protocol
 

@@ -19,6 +19,7 @@ final class GetProjectCollectionAction
         GetProjectCollectionData $data
     ): LengthAwarePaginator {
         $query = Project::query()
+            ->with('latestDeployment')
             ->whereBelongsTo($user)
             ->when(
                 filled($data->search),

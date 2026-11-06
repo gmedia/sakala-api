@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -169,6 +170,22 @@ class Project extends Model
     public function deployments(): HasMany
     {
         return $this->hasMany(Deployment::class);
+    }
+
+    /**
+     * The newest attempt, whatever its outcome. `sequence` is allocated under
+     * the project lock, so unlike a timestamp it cannot tie. Not the same as
+     * activeDeployment(), which is what serves traffic.
+     *
+     * Not latestOfMany(): it always adds MAX(id) as a tie-break, and PostgreSQL
+     * has no max(uuid). SQLite accepts it, so only the PostgreSQL job would notice.
+     * The limit applies per project when eager loaded.
+     *
+     * @return HasOne<Deployment, $this>
+     */
+    public function latestDeployment(): HasOne
+    {
+        return $this->hasOne(Deployment::class)->orderByDesc('sequence')->limit(1);
     }
 
     /** @return HasMany<AgentCommand, $this> */

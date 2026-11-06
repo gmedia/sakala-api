@@ -34,7 +34,9 @@ final class GetCollectionProjectResource extends JsonResource
             'github_repository_id' => $this->resource->github_repository_id,
             'branch' => $this->resource->branch,
             'thumbnail_url' => $this->resource->thumbnail_url,
+            'public_url' => $this->resource->publicUrl(),
             'runtime_status' => $this->resource->runtime_status,
+            'latest_deployment' => LatestDeploymentResource::fromProject($this->resource),
             'stack' => ProjectPreviewPresenter::stack($this->resource),
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()

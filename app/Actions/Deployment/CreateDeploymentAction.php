@@ -113,6 +113,23 @@ final class CreateDeploymentAction
         }
     }
 
+    /**
+     * Whoever wrote the commit controls this text, and it can be any length. It
+     * stays plain text, with markup left as written: only the first line, without
+     * control characters (PostgreSQL refuses NUL), within the column.
+     */
+    private function commitSubject(?string $message): ?string
+    {
+        if ($message === null) {
+            return null;
+        }
+
+        $firstLine = Str::before(str_replace("\r", "\n", trim(mb_scrub($message, 'UTF-8'))), "\n");
+        $subject = trim((string) preg_replace('/\p{Cc}+/u', ' ', $firstLine));
+
+        return $subject === '' ? null : mb_substr($subject, 0, Deployment::MAX_COMMIT_MESSAGE_LENGTH);
+    }
+
     public function handle(
         Project $project,
         User $user,
@@ -218,7 +235,7 @@ final class CreateDeploymentAction
                     'trigger' => $data->trigger,
                     'branch' => $data->branch,
                     'commit_sha' => $commit['sha'],
-                    'commit_message' => $commit['message'],
+                    'commit_message' => $this->commitSubject($commit['message']),
                     // Fixed at creation: a later port change only affects the next deployment.
                     'container_port' => $lockedProject->effectivePort(),
                     'requested_resources' => $data->requested_resources?->toArray(),

@@ -106,6 +106,9 @@ class Deployment extends Model
     /** Bound (in characters) of the failure detail shown to the console. */
     public const MAX_FAILURE_DETAIL_LENGTH = 500;
 
+    /** Bound (in characters) of the stored commit subject; the column is varchar(500). */
+    public const MAX_COMMIT_MESSAGE_LENGTH = 500;
+
     /** @return BelongsTo<Project, $this> */
     public function project(): BelongsTo
     {
