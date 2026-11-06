@@ -10,7 +10,7 @@ Sakala API adalah control plane API-first untuk platform deployment open-source 
 - `sakala-infra`: playground dan kontrak local runtime.
 - `sakala-landing`: landing page dan dokumentasi publik.
 
-API tidak merender UI dan tidak bergantung pada Inertia atau Fortify. Browser first-party nantinya menggunakan Sanctum SPA cookie authentication. Agent dan machine client akan memakai bearer token terpisah.
+API tidak merender UI dan tidak bergantung pada Inertia atau Fortify. Browser first-party nantinya menggunakan Sanctum SPA cookie authentication, dengan cookie session yang host-only di host API supaya tidak terkirim ke aplikasi pengguna (lihat [Autentikasi](docs/AUTHENTICATION.md#cookie-dan-aplikasi-pengguna)). Agent dan machine client akan memakai bearer token terpisah.
 
 ## Stack
 

@@ -15,6 +15,11 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_PASSWORD_RESET_RATE_LIMIT`: request lupa dan reset kata sandi per menit berdasarkan email ternormalisasi dan IP (default `5`).
 - `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT`: request ganti kata sandi dan email per menit per user (default `5`).
 - `SAKALA_INSPECTION_RATE_LIMIT`: permintaan inspeksi ulang per menit per user (default `5`).
+- `SAKALA_ACCOUNT_EXPORT_RATE_LIMIT`: ekspor data per jam per user (default `3`).
+- `SAKALA_ACCOUNT_EXPORT_MAX_ITEMS`: isi maksimal per koleksi dalam satu ekspor (default `1000`).
+- `SAKALA_OAUTH_REAUTHENTICATION_MINUTES`: berapa menit setelah login lewat provider akun tanpa kata sandi boleh menghapus akunnya (default `15`).
+- `SAKALA_LEGAL_TERMS_VERSION`, `SAKALA_LEGAL_ACCEPTABLE_USE_VERSION`, `SAKALA_LEGAL_PRIVACY_NOTICE_VERSION`: versi dokumen yang berlaku (default `syarat-v1`, `penggunaan-wajar-v1`, `privasi-v1`). Mengganti dua yang pertama meminta semua pengguna menyetujui ulang. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen).
+- `SAKALA_ABUSE_EMAIL`, `SAKALA_PRIVACY_EMAIL`: kontak yang disebut di pesan ke pengguna (default `abuse@sakala.dev`, `privacy@sakala.dev`). Deployment self-hosted mengganti keduanya.
 - `SAKALA_NOTIFICATION_RETENTION_DAYS`: umur notifikasi in-app sebelum dihapus `notifications:prune` (default `90`).
 - `SAKALA_DELETED_PROJECT_RETENTION_DAYS`: berapa hari project yang dihapus disimpan sebelum `projects:purge-deleted` menghapusnya permanen (default `30`, minimal `1`). Console menyebut angka ini ke user, jadi ubah keduanya bersamaan. Lihat [Menghapus Project](API_CONVENTIONS.md#menghapus-project).
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
@@ -99,9 +104,14 @@ Edge wajib menormalkan `X-Forwarded-For` menjadi satu alamat client. Bila edge m
 
 ## Browser Authentication
 
-- `SESSION_DOMAIN`: parent domain cookie, misalnya `.sakala.localhost`.
-- `SANCTUM_STATEFUL_DOMAINS`: host/port console dan API yang dianggap first-party.
+- `SESSION_COOKIE`: nama cookie session. Production dan staging memakai `__Host-sakala-api-session`, yang hanya diterima browser lewat HTTPS. Nama ini memaksa `Secure`, `Path=/`, dan tanpa `Domain`, apa pun isi env lain. Lokal berjalan di HTTP, jadi memakai `sakala-api-session`.
+- `SESSION_DOMAIN`: kosongkan. Cookie session host-only di host API. Domain yang mencakup `SAKALA_PROJECT_DEFAULT_DOMAIN` selalu diabaikan untuk cookie session, supaya cookie itu tidak terkirim ke aplikasi pengguna walaupun env lama masih mengisinya.
+- `SAKALA_XSRF_COOKIE_DOMAIN`: domain untuk `XSRF-TOKEN` saja, misalnya `.sakala.dev`. Console membaca cookie ini lewat JavaScript dari host lain, jadi cookie ini perlu parent domain. Bila kosong, nilainya mengikuti `SESSION_DOMAIN`.
+- `SESSION_SECURE_COOKIE`: `true` di HTTPS. `__Host-` selalu `Secure`.
+- `SANCTUM_STATEFUL_DOMAINS`: host/port console dan API yang dianggap first-party. Jangan pernah memakai wildcard yang mencakup `SAKALA_PROJECT_DEFAULT_DOMAIN`: daftar ini adalah batas yang memisahkan Console dari aplikasi pengguna.
 - `CORS_ALLOWED_ORIGINS`: daftar origin console dipisahkan koma.
+
+Alasan dan batas keamanannya ada di [Autentikasi](AUTHENTICATION.md#cookie-dan-aplikasi-pengguna).
 
 Untuk Sanctum SPA session, `CORS_ALLOWED_ORIGINS` harus berisi origin Console
 secara eksplisit dan tidak boleh menggunakan wildcard. Console harus mengirim

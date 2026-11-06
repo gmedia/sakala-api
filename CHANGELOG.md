@@ -4,8 +4,18 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Security
+
+- The session cookie no longer reaches tenant applications. It is host-only on the API, with `SESSION_COOKIE=__Host-sakala-api-session` in production, and a `SESSION_DOMAIN` covering `SAKALA_PROJECT_DEFAULT_DOMAIN` is ignored. Only `XSRF-TOKEN` keeps a parent domain, through `SAKALA_XSRF_COOKIE_DOMAIN`. Existing sessions end and users log in again.
+- `/broadcasting/auth`, which Laravel registers without CSRF checks, now accepts only origins in `SANCTUM_STATEFUL_DOMAINS` (`403 ORIGIN_NOT_ALLOWED`), so a tenant page cannot use the session there.
+- Revealing a secret value is recorded in `audit_events` before the value is returned: actor, project, variable name, never the value.
+
 ### Added
 
+- Terms acceptance: `POST /api/v1/auth/register` requires `accept_terms`, `terms_version`, and `acceptable_use_version`; `POST /api/v1/auth/legal-acceptance` covers provider logins and new versions; `UserResource.legal_acceptance_required`; `GET /api/v1/auth/options` gains `legal`; `403 LEGAL_ACCEPTANCE_REQUIRED` on creating projects, inspection, and deploys.
+- `DELETE /api/v1/auth/account` with re-authentication, which stops workloads, removes personal data at once, and leaves projects without an owner until their purge.
+- `GET /api/v1/auth/account/export`, a bounded and rate-limited JSON copy without secret values or tokens.
+- The owner of a suspended project gets the reason and the abuse contact, in-app and by email, regardless of notification preferences. `POST /api/v1/admin/projects/{project}/unsuspend` lifts a suspension.
 - `sakala.email_delivery_enabled` (`SAKALA_EMAIL_DELIVERY_ENABLED`), which follows `mail.default` when unset, and `503 EMAIL_DELIVERY_UNAVAILABLE` on register, forgot-password, resend verification, and email change while it is off. Adding an SMTP provider needs env only.
 - Public `GET /api/v1/auth/options` with `email_delivery_enabled` and `providers.github` / `providers.google`.
 - `projects:purge-deleted`, run daily, permanently deletes a project `SAKALA_DELETED_PROJECT_RETENTION_DAYS` days (default 30) after its soft delete. Secrets go on time even while a node still has to stop the workload, and purged slugs stay reserved in `retired_project_slugs`.

@@ -71,6 +71,11 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `REPOSITORY_ACCESS_REVOKED` | `409` | Deploy project GitHub App saat pemilik project tidak lagi punya akses ke repository. | - |
 | `invalid_reset_token` | `422` | Token reset kata sandi salah atau kedaluwarsa, atau emailnya tidak dikenal. | - |
 | `email_not_verified` | `403` | Login dengan kata sandi benar, tetapi email belum diverifikasi. Lihat [Autentikasi](AUTHENTICATION.md). | - |
+| `LEGAL_ACCEPTANCE_REQUIRED` | `403` | Membuat proyek, inspeksi ulang, atau deploy sebelum menyetujui versi terbaru. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen). | - |
+| `REAUTHENTICATION_REQUIRED` | `403` | Akun tanpa kata sandi menghapus akun tanpa login baru di provider. Lihat [Menghapus Akun](AUTHENTICATION.md#menghapus-akun). | - |
+| `ADMIN_ACCOUNT_CANNOT_BE_DELETED` | `409` | Admin menghapus akunnya sendiri. | - |
+| `ACCOUNT_DELETION_CONFLICT` | `409` | Proyek baru terus muncul selama akun dihapus. Aman diulang. | - |
+| `ORIGIN_NOT_ALLOWED` | `403` | `/broadcasting/auth` dari origin selain Console. Lihat [Autentikasi](AUTHENTICATION.md#cookie-dan-aplikasi-pengguna). | - |
 
 Pemilik project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
 
@@ -232,6 +237,8 @@ Yang sengaja tetap ada: slug di `retired_project_slugs`, supaya alamat lama tida
 
 `POST` menerima `is_secret` (default `true`). `PATCH .../environment-variables/{id}` menerima `value` dan `is_secret`, keduanya opsional. `value` ada di response hanya untuk variabel non-secret; variabel secret tidak punya key itu dan tetap dibaca lewat `GET .../value`. `POST` dan `PATCH` menyertakan `redeploy_required`, karena deployment berjalan memakai nilai saat ia dibuat.
 
+Setiap `GET .../value` untuk variabel secret mencatat `environment_variable.value_revealed` di `audit_events` sebelum nilainya dikirim: pelaku, project, `variable_id`, `variable_name`, dan `by_project_owner`, tidak pernah nilainya. Bila catatan gagal ditulis, nilainya tidak dikirim. Alamat IP dan user agent hanya disimpan untuk admin yang membaca project orang lain. Variabel non-secret tidak dicatat, karena nilainya sudah ada di daftar.
+
 `ProjectStatus` adalah status control plane dan terpisah dari runtime: `draft` (default) dan `active` (deployment pertama sukses) serta `suspended` (admin). Nilai `failed` masih ada di enum tetapi tidak pernah ditulis; kegagalan deploy hanya tampak di `runtime_status`.
 
 ## Project Control
@@ -245,6 +252,12 @@ Endpoint project control menyediakan kontrol runtime yang hanya dapat digunakan 
 `Suspend` mengubah status control-plane project menjadi `Suspended` dan mencegah command yang dapat menjalankan atau mengekspos workload diproses untuk project tersebut. Jika project memiliki workload yang sedang berjalan, API membuat command `SleepProject` untuk Agent.
 
 `Stop` dan `Suspend` merupakan operasi yang berbeda dan tidak boleh diperlakukan sebagai alias satu sama lain.
+
+### Pemberitahuan dan Membuka Penangguhan
+
+Suspend baru mengirim notifikasi `project_issue` ke pemilik berisi `reason` apa adanya dan kontak `SAKALA_ABUSE_EMAIL`, juga email bila `sakala.email_delivery_enabled` aktif. Notifikasi ini mengabaikan preferensi kategori, dan tidak dikirim ulang saat request diulang dengan `Idempotency-Key` yang sama. Karena `reason` sampai ke pemilik, jangan menulis identitas pelapor di dalamnya.
+
+`POST /api/v1/admin/projects/{project}/unsuspend` (admin, body `reason`) menjawab `202 ProjectControlResource` dengan `command: null`. Status menjadi `active` bila project pernah punya deployment `succeeded`, selain itu `draft`. API tidak menjalankan workload lagi: pemilik diberi tahu lalu men-deploy ulang. Ditolak `409` bila project tidak `suspended` atau `SleepProject` masih berjalan, termasuk saat menunggu node yang offline. Idempotency sama dengan operasi control lain, audit event-nya `project.unsuspended`.
 
 ### Response Asynchronous
 
@@ -335,7 +348,7 @@ Notifikasi in-app memakai database notification Laravel. Kategori: `deployment_s
 
 Satu crash menghasilkan satu notifikasi `project_issue`: heartbeat berikutnya yang masih melaporkan crash tidak mengirim lagi, begitu juga setelah redeploy gagal, dan pemulihan tidak mengirim apa pun. Crash baru setelah workload pulih mengirim lagi. Selama ada deployment baru yang berjalan, heartbeat tidak mengubah `runtime_status`.
 
-Bentuk item: `id`, `category`, `title`, `message`, `project_id`, `deployment_id`, `read_at`, `created_at`. Kategori yang dimatikan tidak membuat notifikasi sama sekali. Notifikasi baru juga dibroadcast pada channel privat `users.{id}` dengan event `notification.created` dan field yang sama. Kiriman terjadi setelah transaksi commit, dan kegagalannya dilaporkan tanpa menggagalkan laporan agent yang memicunya.
+Bentuk item: `id`, `category`, `title`, `message`, `project_id`, `deployment_id`, `read_at`, `created_at`. Kategori yang dimatikan tidak membuat notifikasi sama sekali, kecuali pemberitahuan penangguhan. Notifikasi baru juga dibroadcast pada channel privat `users.{id}` dengan event `notification.created` dan field yang sama. Kiriman terjadi setelah transaksi commit, dan kegagalannya dilaporkan tanpa menggagalkan laporan agent yang memicunya.
 
 Tidak ada data contoh di luar test. Notifikasi lebih tua dari `SAKALA_NOTIFICATION_RETENTION_DAYS` dihapus `notifications:prune`, dijadwalkan harian.
 
