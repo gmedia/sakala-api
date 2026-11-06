@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Webhooks;
 
+use App\Actions\GitHub\CreatePushDeploymentsAction;
 use App\Enums\GithubInstallationStatus;
 use App\Http\Controllers\Controller;
 use App\Models\AuditEvent;
@@ -13,10 +14,11 @@ use App\Services\GitHub\GithubInstallationTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 final class GithubWebhookController extends Controller
 {
-    public function __invoke(Request $request, GithubInstallationTokenService $tokens): JsonResponse
+    public function __invoke(Request $request, GithubInstallationTokenService $tokens, CreatePushDeploymentsAction $pushDeployments): JsonResponse
     {
         $body = $request->getContent();
         $signature = (string) $request->header('X-Hub-Signature-256');
@@ -28,11 +30,12 @@ final class GithubWebhookController extends Controller
         $deliveryId = (string) $request->header('X-GitHub-Delivery');
         $event = (string) $request->header('X-GitHub-Event');
         $payload = $request->json()->all();
-        if ($deliveryId === '' || $event === '') {
+        // delivery_id is a uuid column, so anything else would fail as a 500 on PostgreSQL.
+        if (! Str::isUuid($deliveryId) || $event === '') {
             return response()->json(['message' => 'Invalid GitHub webhook delivery.'], 422);
         }
 
-        $created = DB::transaction(function () use ($deliveryId, $event, $payload, $tokens): bool {
+        $created = DB::transaction(function () use ($deliveryId, $event, $payload, $tokens, $pushDeployments): bool {
             $inserted = GithubWebhookDelivery::query()->insertOrIgnore([
                 'delivery_id' => $deliveryId,
                 'event' => $event,
@@ -44,6 +47,13 @@ final class GithubWebhookController extends Controller
             if ($inserted !== 1) {
                 return false;
             }
+
+            if ($event === 'push') {
+                $pushDeployments->handle($payload, $deliveryId);
+
+                return true;
+            }
+
             $this->handle($event, $payload, $tokens);
 
             return true;

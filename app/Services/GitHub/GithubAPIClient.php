@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\GitHub;
 
+use App\Exceptions\GitHub\GithubRateLimitedException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -30,10 +31,23 @@ final class GithubAPIClient
      * can be accessed without an OAuth token.
      *
      * @param  array<string, mixed>  $query
+     * @param  array<string, string>  $headers
+     *
+     * @throws GithubRateLimitedException
      */
-    public function get(string $uri, ?string $accessToken = null, array $query = []): Response
+    public function get(string $uri, ?string $accessToken = null, array $query = [], array $headers = []): Response
     {
-        return $this->request($accessToken)->get(self::BASE_URL.$uri, $query);
+        $response = $this->request($accessToken)
+            ->withHeaders($headers)
+            ->get(self::BASE_URL.$uri, $query);
+
+        $limited = GithubRateLimitedException::fromResponse($response);
+
+        if ($limited !== null) {
+            throw $limited;
+        }
+
+        return $response;
     }
 
     public function hasNextPage(Response $response): bool

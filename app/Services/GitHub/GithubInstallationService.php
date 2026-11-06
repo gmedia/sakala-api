@@ -13,10 +13,14 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 final class GithubInstallationService
 {
+    private const SEARCH_PAGE_LIMIT = 10;
+
     public function __construct(
         private readonly GithubAppOAuthService $oauth,
         private readonly GithubRepositoryMapper $repositoryMapper,
@@ -54,27 +58,84 @@ final class GithubInstallationService
     }
 
     /** @return LengthAwarePaginator<int, GithubRepositoryData> */
-    public function repositories(User $user, GithubInstallation $installation, int $page, int $perPage): LengthAwarePaginator
+    public function repositories(User $user, GithubInstallation $installation, int $page, int $perPage, ?string $search = null): LengthAwarePaginator
     {
         $this->ensureActive($installation);
-        $response = $this->userRequest($user)->get(
+
+        if ($search !== null && $search !== '') {
+            return $this->searchRepositories($user, $installation, $page, $perPage, $search);
+        }
+
+        $payload = $this->repositoryPage($user, $installation, $page, $perPage);
+
+        return new LengthAwarePaginator(
+            $this->mapRepositories($payload),
+            (int) ($payload['total_count'] ?? 0),
+            $perPage,
+            $page,
+            ['path' => Paginator::resolveCurrentPath()],
+        );
+    }
+
+    /**
+     * GitHub cannot filter this endpoint, so the search walks the pages here.
+     * It stops at SEARCH_PAGE_LIMIT pages to stay bounded; an installation with
+     * more repositories than that is searched only within the first ones.
+     *
+     * @return LengthAwarePaginator<int, GithubRepositoryData>
+     */
+    private function searchRepositories(User $user, GithubInstallation $installation, int $page, int $perPage, string $search): LengthAwarePaginator
+    {
+        $matches = [];
+        $githubPage = 1;
+
+        do {
+            $payload = $this->repositoryPage($user, $installation, $githubPage, 100);
+            $repositories = $this->mapRepositories($payload);
+
+            foreach ($repositories as $repository) {
+                if (Str::contains($repository->fullName, $search, ignoreCase: true)) {
+                    $matches[] = $repository;
+                }
+            }
+
+            $githubPage++;
+        } while (count($repositories) === 100 && $githubPage <= self::SEARCH_PAGE_LIMIT);
+
+        return new LengthAwarePaginator(
+            array_slice($matches, ($page - 1) * $perPage, $perPage),
+            count($matches),
+            $perPage,
+            $page,
+            ['path' => Paginator::resolveCurrentPath()],
+        );
+    }
+
+    /** @return array<array-key, mixed> */
+    private function repositoryPage(User $user, GithubInstallation $installation, int $page, int $perPage): array
+    {
+        $payload = $this->userRequest($user)->get(
             "https://api.github.com/user/installations/{$installation->github_installation_id}/repositories?page={$page}&per_page={$perPage}",
-        )->throw();
-        $payload = $response->json();
+        )->throw()->json();
+
         if (! is_array($payload)) {
             throw new \RuntimeException('GitHub installation repositories response is invalid.');
         }
-        $repositories = collect(is_array($payload['repositories'] ?? null) ? $payload['repositories'] : [])
-            ->filter(fn (mixed $repository): bool => is_array($repository))
-            ->map(fn (array $repository) => $this->repositoryMapper->toData($repository))
-            ->values()
-            ->all();
 
-        return new LengthAwarePaginator(
-            $repositories,
-            (int) ($payload['total_count'] ?? count($repositories)),
-            $perPage,
-            $page,
+        return $payload;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $payload
+     * @return list<GithubRepositoryData>
+     */
+    private function mapRepositories(array $payload): array
+    {
+        return array_values(
+            collect(is_array($payload['repositories'] ?? null) ? $payload['repositories'] : [])
+                ->filter(fn (mixed $repository): bool => is_array($repository))
+                ->map(fn (array $repository) => $this->repositoryMapper->toData($repository))
+                ->all(),
         );
     }
 

@@ -4,18 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Auth;
 
+use App\Enums\GithubInstallationFailure;
 use App\Http\Controllers\Controller;
+use App\Services\Auth\ConsoleAuthenticationRedirect;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 final class GithubInstallationRedirectController extends Controller
 {
-    public function __invoke(Request $request): RedirectResponse
+    public function __invoke(Request $request, ConsoleAuthenticationRedirect $redirect): RedirectResponse
     {
         $slug = config('services.github_app.slug');
         if (! is_string($slug) || $slug === '') {
-            abort(503, 'GitHub App is not configured.');
+            return redirect()->away($redirect->githubInstallationError(GithubInstallationFailure::NotConfigured));
         }
 
         $state = Str::random(64);

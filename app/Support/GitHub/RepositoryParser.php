@@ -15,36 +15,36 @@ final class RepositoryParser
 
         // Handle Invalid URL
         if (! is_array($parts)) {
-            throw new \InvalidArgumentException('Invalid URL: Repository URL is not valid.');
+            throw new \InvalidArgumentException('URL repository tidak bisa dibaca. Contoh yang benar: https://github.com/pemilik/nama-repo.');
         }
 
         // Handle HTTPS
         if (($parts['scheme'] ?? '') !== 'https') {
-            throw new \InvalidArgumentException('Invalid URL: Repository URL must be HTTPS.');
+            throw new \InvalidArgumentException('URL repository harus memakai HTTPS, misalnya https://github.com/pemilik/nama-repo.');
         }
 
         // Handle jika ada user atau pass di URL
         if (isset($parts['user']) || isset($parts['pass'])) {
-            throw new \InvalidArgumentException('Invalid URL: Repository URL must not contain user or password.');
+            throw new \InvalidArgumentException('URL repository tidak boleh berisi username atau password. Contoh yang benar: https://github.com/pemilik/nama-repo.');
         }
 
         // Handle jika ada query atau fragment di URL
         if (isset($parts['query']) || isset($parts['fragment'])) {
-            throw new \InvalidArgumentException('Invalid URL: Repository URL must not contain query or fragment.');
+            throw new \InvalidArgumentException('URL repository tidak boleh berisi query atau fragment. Contoh yang benar: https://github.com/pemilik/nama-repo.');
         }
 
         $host = strtolower(str_replace('www.', '', $parts['host'] ?? ''));
 
         // Handle jika host bukan github
         if ($host !== 'github.com') {
-            throw new \InvalidArgumentException('Repository provider must be GitHub.');
+            throw new \InvalidArgumentException('Saat ini Sakala hanya mendukung repository dari GitHub.');
         }
 
         $repositoryFullName = trim($parts['path'] ?? '', '/');
         $repositoryFullName = preg_replace('/\.git$/', '', $repositoryFullName);
 
         if ($repositoryFullName === null || substr_count($repositoryFullName, '/') !== 1) {
-            throw new \InvalidArgumentException('Invalid GitHub repository URL');
+            throw new \InvalidArgumentException('URL repository GitHub harus berbentuk https://github.com/pemilik/nama-repo.');
         }
 
         return new ParsedRepositoryData(
