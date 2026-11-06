@@ -28,7 +28,7 @@ final class ExistingAccountRegistrationNotification extends Notification impleme
             ->subject('Email kamu sudah punya akun Sakala')
             ->greeting("Halo {$notifiable->name},")
             ->line('Ada yang mencoba mendaftar di Sakala dengan email ini, padahal akunnya sudah ada.')
-            ->line('Kalau itu kamu, masuk saja. Lupa kata sandi bisa direset dari halaman login.')
+            ->line('Kalau itu kamu, masuk saja lewat tombol di bawah. Kalau lupa kata sandi, kamu bisa meresetnya dari halaman login.')
             ->action('Masuk ke Sakala', app(ConsoleAuthenticationRedirect::class)->login())
             ->line('Kalau bukan kamu, abaikan email ini. Akunmu tidak berubah.');
     }

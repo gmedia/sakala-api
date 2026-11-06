@@ -38,6 +38,11 @@ final class ConsoleAuthenticationRedirect
         return $this->url('/reset-password', ['token' => $token, 'email' => $email]);
     }
 
+    public function forgotPassword(): string
+    {
+        return $this->url('/forgot-password');
+    }
+
     public function emailChangeSuccess(): string
     {
         return $this->url('/email-changed', ['status' => 'success']);

@@ -32,9 +32,9 @@ final class ConfirmEmailChangeNotification extends Notification implements Shoul
         return (new MailMessage)
             ->subject('Konfirmasi email baru akun Sakala')
             ->greeting("Halo {$this->name},")
-            ->line('Klik tombol berikut untuk memakai alamat ini sebagai email akun Sakala kamu.')
+            ->line('Klik tombol di bawah untuk memakai alamat ini sebagai email akun Sakala kamu.')
             ->action('Konfirmasi email baru', $this->url)
-            ->line("Tautan ini berlaku selama {$expiration} menit. Email akun tidak berubah sebelum tautan ini dibuka.")
-            ->line('Kalau kamu tidak memintanya, abaikan email ini.');
+            ->line("Tautan ini berlaku selama {$expiration} menit. Email akunmu tidak berubah sebelum tautan ini dibuka.")
+            ->line('Kalau bukan kamu yang meminta, abaikan email ini.');
     }
 }

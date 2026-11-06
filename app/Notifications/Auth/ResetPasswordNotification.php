@@ -27,11 +27,11 @@ final class ResetPasswordNotification extends ResetPassword implements ShouldQue
         $expiration = (int) config('auth.passwords.users.expire', 60);
 
         return (new MailMessage)
-            ->subject('Reset kata sandi Sakala')
+            ->subject('Reset kata sandi akun Sakala')
             ->greeting("Halo {$notifiable->name},")
-            ->line('Kami menerima permintaan untuk mereset kata sandi akun Sakala kamu.')
+            ->line('Ada permintaan untuk mereset kata sandi akun Sakala kamu. Klik tombol di bawah untuk membuat kata sandi baru.')
             ->action('Reset kata sandi', $this->resetUrl($notifiable))
             ->line("Tautan ini berlaku selama {$expiration} menit.")
-            ->line('Kalau kamu tidak memintanya, abaikan email ini. Kata sandimu tidak berubah.');
+            ->line('Kalau bukan kamu yang meminta, abaikan email ini. Kata sandimu tidak berubah.');
     }
 }

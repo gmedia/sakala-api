@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Notifications\Auth;
 
+use App\Services\Auth\ConsoleAuthenticationRedirect;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -28,12 +29,19 @@ final class EmailChangeNoticeNotification extends Notification implements Should
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject($this->applied ? 'Email akun Sakala sudah diganti' : 'Permintaan ganti email akun Sakala')
-            ->greeting("Halo {$this->name},")
-            ->line($this->applied
-                ? "Email akun Sakala kamu sudah diganti menjadi {$this->newEmail}."
-                : "Ada permintaan untuk mengganti email akun Sakala kamu menjadi {$this->newEmail}. Email belum berubah sampai tautan konfirmasi di alamat baru dibuka.")
-            ->line('Kalau ini bukan kamu, segera reset kata sandi dan hubungi admin Sakala.');
+        $message = (new MailMessage)->greeting("Halo {$this->name},");
+
+        if ($this->applied) {
+            return $message
+                ->subject('Email akun Sakala sudah diganti')
+                ->line("Email akun Sakala kamu sudah diganti menjadi {$this->newEmail}. Alamat lama, tempat email ini dikirim, tidak bisa dipakai lagi untuk masuk.")
+                ->line('Kalau kamu yang menggantinya, abaikan email ini. Kalau bukan kamu, segera hubungi admin Sakala, karena reset kata sandi sekarang hanya bisa lewat email yang baru.');
+        }
+
+        return $message
+            ->subject('Permintaan ganti email akun Sakala')
+            ->line("Ada permintaan untuk mengganti email akun Sakala kamu menjadi {$this->newEmail}. Email akunmu belum berubah sampai tautan konfirmasi di alamat baru dibuka.")
+            ->line('Kalau kamu yang meminta, abaikan email ini. Kalau bukan kamu, segera reset kata sandi lewat tombol di bawah.')
+            ->action('Reset kata sandi', app(ConsoleAuthenticationRedirect::class)->forgotPassword());
     }
 }

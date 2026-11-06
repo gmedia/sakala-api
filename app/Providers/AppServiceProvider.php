@@ -14,6 +14,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Mail\Markdown;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -46,6 +47,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Mail goes through Markdown, and a registering stranger picks the name
+        // in the greeting: their link syntax must stay text in someone's inbox.
+        Markdown::withSecuredEncoding();
+
         Scramble::afterOpenApiGenerated(static function (OpenApi $openApi): OpenApi {
             $schema = $openApi->components->schemas['DeploymentEventResource'] ?? null;
 

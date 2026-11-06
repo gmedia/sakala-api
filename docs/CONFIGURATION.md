@@ -81,7 +81,7 @@ Staging dan production yang memakai `MAIL_MAILER=log` tidak mengirim apa pun, ja
 | `MAIL_HOST`, `MAIL_PORT` | Host dan port SMTP dari provider, biasanya port `587`. |
 | `MAIL_USERNAME`, `MAIL_PASSWORD` | Credential SMTP dari provider. Simpan sebagai secret. |
 | `MAIL_SCHEME` | Kosongkan untuk STARTTLS di port `587`, atau `smtps` untuk port `465`. |
-| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Alamat dan nama pengirim. |
+| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Alamat dan nama pengirim. Nama pengirim default-nya `Sakala` dan tidak mengikuti `APP_NAME`. |
 
 Domain pada `MAIL_FROM_ADDRESS` wajib punya SPF dan DKIM yang mengizinkan provider tersebut. Tanpa keduanya, email kemungkinan besar masuk spam atau ditolak. Queue worker juga harus berjalan, karena email dikirim lewat queue.
 
