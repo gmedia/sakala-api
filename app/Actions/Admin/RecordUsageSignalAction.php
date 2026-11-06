@@ -88,6 +88,7 @@ final class RecordUsageSignalAction
      */
     private const KNOWN_ACTION_CODES = [
         'manual_suspend',
+        'manual_unsuspend',
         'manual_stop',
         'manual_force_deploy',
         'manual_rollback',

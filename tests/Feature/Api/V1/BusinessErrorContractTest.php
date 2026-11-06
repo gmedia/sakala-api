@@ -98,7 +98,7 @@ test('the owner of a suspended project learns why it cannot deploy', function ()
         ->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'main'])
         ->assertConflict()
         ->assertExactJson([
-            'message' => 'Proyek ini sedang ditangguhkan oleh admin, jadi belum bisa di-deploy. Hubungi admin Sakala untuk membukanya kembali.',
+            'message' => 'Proyek ini sedang ditangguhkan oleh admin, jadi belum bisa di-deploy. Kirim email ke abuse@sakala.dev kalau kamu ingin mengajukan banding.',
             'code' => 'PROJECT_SUSPENDED',
         ]);
 

@@ -100,6 +100,14 @@ final class ProjectPolicy
     }
 
     /**
+     * Determine whether the user can lift a suspension. Admin-only via before().
+     */
+    public function unsuspend(User $user, Project $project): bool
+    {
+        return false;
+    }
+
+    /**
      * Determine whether the user can request workload reconciliation.
      * Admin-only via before().
      */

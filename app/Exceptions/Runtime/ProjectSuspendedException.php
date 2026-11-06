@@ -13,7 +13,9 @@ final class ProjectSuspendedException extends RuntimeException
 {
     public function __construct()
     {
-        parent::__construct('Proyek ini sedang ditangguhkan oleh admin, jadi belum bisa di-deploy. Hubungi admin Sakala untuk membukanya kembali.');
+        $contact = (string) config('sakala.contact.abuse_email');
+
+        parent::__construct("Proyek ini sedang ditangguhkan oleh admin, jadi belum bisa di-deploy. Kirim email ke {$contact} kalau kamu ingin mengajukan banding.");
     }
 
     public function render(Request $request): JsonResponse
