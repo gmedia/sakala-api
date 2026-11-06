@@ -18,9 +18,37 @@ Endpoint berikut tersedia untuk Console:
 | Endpoint | Kegunaan |
 | --- | --- |
 | `GET /sanctum/csrf-cookie` | Menetapkan cookie CSRF sebelum request state-changing. |
+| `GET /api/v1/auth/options` | Publik. Pilihan masuk yang tersedia; lihat "Pilihan Masuk". |
 | `POST /api/v1/auth/login` | Membuat session browser dari email/password yang valid dan terverifikasi. |
 | `GET /api/v1/auth/user` | Mengembalikan user dari session browser yang aktif. |
 | `POST /api/v1/auth/logout` | Mengakhiri session browser aktif. |
+
+### Pilihan Masuk
+
+`GET /api/v1/auth/options` bersifat publik, tidak menyentuh database, dan memberi tahu Console pilihan yang benar-benar bisa dipakai:
+
+```json
+{ "data": { "email_delivery_enabled": false, "providers": { "github": true, "google": false } } }
+```
+
+`providers.github` dan `providers.google` bernilai `true` hanya bila `client_id`, `client_secret`, dan `redirect` provider itu terisi.
+
+### Pengiriman Email
+
+`config('sakala.email_delivery_enabled')` menentukan apakah email bisa terkirim; cara mengisinya ada di [Configuration](CONFIGURATION.md#pengiriman-email). Saat `false`, endpoint berikut menjawab `503` dengan body yang sama sebelum validasi dijalankan, sehingga tidak bisa dipakai untuk menebak email terdaftar:
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/forgot-password`
+- `POST /api/v1/auth/email/verification-notification`
+- `POST /api/v1/auth/email/change`, setelah session diperiksa
+
+```json
+{ "code": "EMAIL_DELIVERY_UNAVAILABLE", "message": "Sakala belum bisa mengirim email untuk saat ini, jadi pendaftaran, reset kata sandi, verifikasi, dan ganti email lewat email belum tersedia. Kalau belum punya akun, masuk lewat GitHub atau hubungi admin Sakala." }
+```
+
+Yang tetap berjalan: login kata sandi untuk akun terverifikasi, login GitHub dan Google yang terkonfigurasi, ganti kata sandi (pemberitahuannya lewat notifikasi in-app, bukan email), dan `POST /api/v1/auth/reset-password` untuk tautan yang sudah terlanjur diterima.
+
+Akun yang belum terverifikasi tetap menerima `403 email_not_verified`, dengan `message` yang tidak lagi menyuruh membuka tautan atau mengirim ulang. Login GitHub dengan alamat email yang sama tetap ditolak `github_email_conflict`, karena API tidak menautkan akun secara otomatis. Akun seperti ini perlu bantuan admin sampai SMTP terpasang.
 
 ### Registrasi dan Verifikasi Email
 
@@ -33,6 +61,12 @@ tersedia:
 | `POST /api/v1/auth/email/verification-notification` | Mengantrekan ulang email verifikasi dengan response generik. |
 | `GET /auth/email/verify/{user}/{hash}` | Memproses temporary signed URL dari email dan mengarahkan browser ke Console. |
 
+`POST /api/v1/auth/register` selalu menjawab `202` dengan body yang sama
+(`name`, `email`, `verification_required`), baik email itu baru maupun sudah
+terdaftar, sehingga endpoint ini tidak bisa dipakai untuk menebak email terdaftar.
+Bila sudah terdaftar, tidak ada akun baru: pemilik akun menerima email yang
+memberi tahu hal itu, paling banyak sekali per jam per email.
+
 Request register menerima `name`, `email`, `password`, dan
 `password_confirmation`. Email dinormalisasi menjadi lowercase setelah
 trim. User baru mendapat role `user`, username unik yang dibuat dari nama,
@@ -42,6 +76,21 @@ Setelah link verifikasi berhasil, API mengarahkan browser ke
 `SAKALA_CONSOLE_URL/email-verified?status=success`. Link yang tidak valid,
 kedaluwarsa, atau tidak cocok diarahkan ke URL yang sama dengan
 `status=error`. User yang belum terverifikasi tetap tidak dapat login.
+
+Login dengan kata sandi yang benar untuk email yang belum diverifikasi dijawab
+`403` dengan body berikut, tanpa membuat session:
+
+```json
+{ "code": "email_not_verified", "message": "Email kamu belum diverifikasi. Buka tautan verifikasi yang kami kirim ke email kamu, atau minta kirim ulang tautannya." }
+```
+
+Console memakai `code` untuk menawarkan kirim ulang lewat
+`POST /api/v1/auth/email/verification-notification` dengan email yang sama;
+endpoint itu tidak memerlukan session. Kata sandi salah dan email yang tidak
+terdaftar tetap dijawab `401` generik yang sama persis, termasuk untuk akun yang
+belum diverifikasi. Jadi `email_not_verified` hanya terlihat oleh orang yang
+sudah tahu kata sandinya dan tidak bisa dipakai untuk menebak email terdaftar.
+Rate limiter login berlaku untuk semua hasil ini.
 
 Response resend selalu berbentuk response generik sehingga tidak membedakan
 email yang tidak terdaftar, sudah terverifikasi, atau berhasil diproses.
@@ -56,7 +105,7 @@ Flow session lokal:
 
 1. Console memanggil `GET /sanctum/csrf-cookie` dengan credentials.
 2. Console mengirim `POST /api/v1/auth/login` dengan `email` dan `password`, menggunakan origin first-party yang diizinkan.
-3. API hanya membuat session untuk user dengan password valid dan email terverifikasi. Respons sukses berisi `UserResource` dan tidak berisi bearer token.
+3. API hanya membuat session untuk user dengan password valid dan email terverifikasi. Respons sukses berisi `UserResource` dan tidak berisi bearer token. Password valid dengan email belum terverifikasi menghasilkan `403 email_not_verified`.
 4. Setelah authentication berhasil, Console dapat memanggil `GET /api/v1/auth/user` untuk bootstrap user.
 5. Saat keluar, Console memanggil `POST /api/v1/auth/logout`.
 6. Request `GET /api/v1/auth/user` berikutnya akan menghasilkan `401`.
@@ -64,6 +113,22 @@ Flow session lokal:
 Endpoint login memiliki rate limiter khusus yang default-nya mengizinkan 5
 percobaan per menit untuk setiap kombinasi email ternormalisasi dan IP. Limiter
 ini berjalan sebagai tambahan dari limiter API global.
+
+### Keamanan Akun
+
+| Endpoint | Akses | Kegunaan |
+| --- | --- | --- |
+| `PUT /api/v1/auth/password` | Session | Mengganti kata sandi dengan `current_password`, `password`, `password_confirmation`. Akun OAuth tanpa kata sandi (`has_password = false`) cukup mengirim dua yang terakhir. Mengembalikan `UserResource`. |
+| `POST /api/v1/auth/email/change` | Session | Meminta ganti email dengan `email` dan `current_password`. Menjawab `202` dengan `pending_email`. |
+| `GET /auth/email/change/{user}/{hash}` | Signed URL | Link di email baru. Menerapkan email lalu mengarahkan ke `/email-changed?status=success` atau `status=error` di console. |
+| `POST /api/v1/auth/forgot-password` | Tamu | Mengirim link reset dengan `email`. Selalu `202` dengan body yang sama. |
+| `POST /api/v1/auth/reset-password` | Tamu | Menerapkan `token`, `email`, `password`, `password_confirmation`. `204`, atau `422 invalid_reset_token`. |
+
+Mengganti atau mereset kata sandi mengakhiri session lain pada request berikutnya, lewat middleware `AuthenticateSession` Sanctum yang membandingkan hash kata sandi di session, dan mencabut personal access token. Session yang melakukan perubahan tetap login. Akun OAuth yang baru membuat kata sandi pertama tidak mengakhiri session lain, karena sebelumnya tidak ada hash untuk dibandingkan.
+
+Ganti email berlaku hanya setelah link di alamat baru dibuka, dan alamat lama diberi tahu saat diminta dan saat diterapkan. Permintaan baru mengganti `pending_email`, sehingga link lama mati, dan link hanya bisa dipakai sekali. Alamat yang sudah dipakai akun lain dijawab sama tanpa mengirim email apa pun. Akun tanpa kata sandi harus membuatnya dulu.
+
+Link reset mengarah ke `SAKALA_CONSOLE_URL/reset-password?token=&email=`, memakai password broker Laravel (berlaku 60 menit, jeda 60 detik per akun). Email yang tidak dikenal dan permintaan yang terkena jeda dijawab sama. Reset yang berhasil juga menandai email terverifikasi, karena link itu membuktikan pemilik kotak surat, sehingga akun yang tertahan `email_not_verified` bisa login. Tamu dibatasi `SAKALA_PASSWORD_RESET_RATE_LIMIT` per email dan IP; endpoint ber-session dibatasi `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT` per user.
 
 ### GitHub App
 

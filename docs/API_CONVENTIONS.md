@@ -54,6 +54,30 @@ Untuk ketentuan lengkap durasi retensi, batasan akses (owner, admin, machine age
 
 Gunakan method dan status code sesuai semantik HTTP. Validation error memakai `422`, unauthenticated `401`, forbidden `403`, missing resource `404`, dan conflict `409` bila state tidak memungkinkan operasi.
 
+## Error Bisnis
+
+Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk dibaca mesin dan `message` berbahasa Indonesia untuk ditampilkan ke pengguna. Console memilih perilaku dari `code`, bukan dari isi `message`, karena teksnya boleh berubah.
+
+| `code` | HTTP | Kapan | Field tambahan |
+| --- | --- | --- | --- |
+| `PROJECT_LIMIT_EXCEEDED` | `422` | Kuota project selama pilot habis. | `limit`, `current` |
+| `ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED` | `422` | Batas deployment yang sedang berjalan tercapai. | `scope` (`project` atau `user`), `limit`, `current` |
+| `RESOURCE_LIMIT_EXCEEDED` | `422` | Resource yang diminta di luar batas pilot. | `resource`, `requested`, `maximum` |
+| `PROJECT_SUSPENDED` | `409` | Deploy atau inspeksi ulang pada project yang ditangguhkan admin. | - |
+| `DEPLOYMENT_ALREADY_FINISHED` | `409` | Membatalkan deployment yang sudah `succeeded` atau `failed`. | `status` |
+| `GITHUB_RATE_LIMITED` | `503` | GitHub membatasi permintaan Sakala dan tidak ada jawaban tersimpan. Header `Retry-After` berisi detik tunggu. | `retry_after` |
+| `AVATAR_STORAGE_UNAVAILABLE` | `503` | Foto profil tidak bisa disimpan karena penyimpanan tidak tersedia. | - |
+| `EMAIL_DELIVERY_UNAVAILABLE` | `503` | Endpoint yang tugasnya mengirim email dipanggil saat pengiriman email mati. Lihat [Autentikasi](AUTHENTICATION.md#pengiriman-email). | - |
+| `REPOSITORY_ACCESS_REVOKED` | `409` | Deploy project GitHub App saat pemilik project tidak lagi punya akses ke repository. | - |
+| `invalid_reset_token` | `422` | Token reset kata sandi salah atau kedaluwarsa, atau emailnya tidak dikenal. | - |
+| `email_not_verified` | `403` | Login dengan kata sandi benar, tetapi email belum diverifikasi. Lihat [Autentikasi](AUTHENTICATION.md). | - |
+
+Pemilik project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
+
+## Bahasa
+
+Locale default adalah `id` (`APP_LOCALE`), dengan fallback `en`. Pesan validasi berasal dari `lang/id/validation.php`, dan nama kolom yang dilihat pengguna diatur di `attributes` pada file yang sama. Bentuk error validasi tetap `{ "message", "errors": { "<kolom>": ["..."] } }`. Pesan yang disusun oleh framework di luar katalog itu, seperti `Unauthenticated.` dan `Too Many Attempts.`, tetap berbahasa Inggris; console memetakannya dari status HTTP.
+
 ## Endpoint Implementation
 
 Urutan dependency yang disarankan:
@@ -69,15 +93,140 @@ Gunakan DTO di `app/Data/<Domain>` ketika payload melintasi lebih dari satu laye
 
 Scramble menginfer dokumentasi dari route, validation rules pada Form Request, return type controller, dan API Resource. Jalankan `composer docs:analyse` setiap menambah atau mengubah endpoint. Lihat [panduan OpenAPI](OPENAPI.md).
 
+## GitHub
+
+`GET /api/v1/app/github/installations/{installation}/repositories` menerima `page`, `per_page` (maks. 100), dan `search`, dengan `meta` dan `links` pagination standar. GitHub tidak bisa memfilter endpoint ini, jadi `search` berjalan di API dan hanya memeriksa 1000 repository pertama.
+
+Instalasi GitHub App selalu kembali ke `/projects/new` di console: `?github_installation=connected` saat berhasil, atau `?github_installation=error&error=<kode>` dengan kode `github_app_not_configured`, `github_invalid_state`, `github_invalid_installation`, `github_access_denied`, atau `github_provider_failure`. Tamu diarahkan ke `/login` di console, bukan ke halaman error API.
+
+Webhook `push` membuat deployment untuk project yang `auto_deploy`-nya aktif bila repository, installation, dan branch cocok, memakai commit dari payload dengan `trigger = webhook`. Signature diverifikasi lebih dulu, dan `X-GitHub-Delivery` membuat pengiriman ulang tidak melakukan apa-apa. Project yang ditangguhkan atau yang kena batas deployment aktif dilewati: webhook tetap `200`, tindakan dicatat di audit (`project.auto_deploy_skipped`), dan pemilik mendapat notifikasi `project_issue`. Pengiriman yang dilewati tidak dicoba ulang. GitHub App harus berlangganan event `push`.
+
 ## Project Preview
 
-`ProjectResource` dan `CreateProjectResource` menyertakan `preview_status` (`pending` | `succeeded` | `failed` | `unavailable`), `inspection` (hanya saat `succeeded`: `repository_url`, `commit_sha`, `dockerfile_found`, `env_example_found`, `compose_found`, `manifests`, `package_manager`, `inspected_at`), dan `inspection_error_code`. Preview diminta otomatis saat project dibuat dan tidak pernah menggagalkan pembuatan; `unavailable` dengan kode `branch_not_found`, `repository_access_denied`, atau `github_unavailable` berarti tidak ada command inspeksi yang dibuat. Endpoint untuk meminta inspeksi ulang belum tersedia.
+`ProjectResource` dan `CreateProjectResource` menyertakan `preview_status` (`pending` | `succeeded` | `failed` | `unavailable`), `inspection` (hanya saat `succeeded`: `repository_url`, `commit_sha`, `dockerfile_found`, `env_example_found`, `compose_found`, `manifests`, `package_manager`, `inspected_at`), dan `inspection_error_code`. Preview diminta otomatis saat project dibuat dan tidak pernah menggagalkan pembuatan; `unavailable` dengan kode `branch_not_found`, `repository_access_denied`, atau `github_unavailable` berarti tidak ada command inspeksi yang dibuat. Inspeksi ulang tersedia lewat `POST /api/v1/app/projects/{project}/inspection`; lihat "Inspeksi".
 
 ## Deployment Representation
 
-`DeploymentResource` menyertakan `agent_node_id` (node target yang dipin control plane), `applied_resources` (resource yang benar-benar diterapkan agent, `null` sampai command selesai), serta `finalization_deferred` dan `finalization_deferred_reason` (`grace_elapsed` atau `runtime_error`) bila agent men-commit route tetapi tidak sempat merapikan workload lama; control plane lalu mengirim `StopProject` untuk workload tersebut. `image_reference` diisi dari metadata event `deployment.runtime.ready`.
+`DeploymentResource` menyertakan `agent_node_id` (node target yang dipin control plane), `applied_resources` (resource yang benar-benar diterapkan agent, `null` sampai command selesai), serta `finalization_deferred` dan `finalization_deferred_reason` (`grace_elapsed` atau `runtime_error`) bila agent men-commit route tetapi tidak sempat merapikan workload lama; control plane lalu mengirim `StopProject` untuk workload tersebut. `image_reference` diisi dari metadata event `deployment.runtime.ready`, event yang tidak lagi mengubah `status`.
 
-Kategori `failure.category` juga mengenal `node` (runtime node tidak siap: preflight, dependency, konfigurasi, atau command tidak didukung), `timeout` untuk `command_lease_expired` (node tidak menyelesaikan command sebelum lease habis), dan `scheduling` untuk `command_expired` (command tidak diambil node sebelum batas ketersediaan).
+`DeploymentResource` juga menyertakan `is_active` (boolean): `true` hanya untuk deployment yang sedang melayani project, yaitu `projects.active_deployment_id`. Klaim seperti "perubahan sudah live" harus memakai `is_active` bersama `runtime_status` project, bukan `status = succeeded`, karena deployment yang sudah tergantikan atau dihentikan tetap `succeeded`.
+
+`failure` bernilai `null` selama `failure_code` kosong. Bila terisi:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `code` | string | Error code asli dari agent atau control plane. |
+| `category` | enum | `checkout`, `build`, `start`, `health`, `route`, `timeout`, `resource`, `node`, `scheduling`, `unknown`. Nilainya stabil. |
+| `summary` | string | Apa yang terjadi, dalam bahasa Indonesia. |
+| `recovery_hint` | string | Apa yang bisa dilakukan pengguna. |
+| `user_fixable` | boolean | `true` bila perbaikannya ada di repository atau akses GitHub milik pengguna; `false` bila gangguan ada di sisi Sakala dan cukup deploy ulang. |
+| `detail` | string atau `null` | Pesan agent yang sudah diredaksi, paling panjang 500 karakter. `null` bila deployment ditutup control plane atau gagal sebelum field ini ada. |
+| `stage` | enum atau `null` | Tahap saat gagal: `queued`, `cloning`, `analyzing`, `building`, `deploying`, `routing`, `health_checking`. `queued` berarti gagal sebelum tahap pertama dilaporkan. `null` hanya untuk deployment yang gagal sebelum field ini ada. |
+
+`detail` dan `stage` disimpan pada `deployments`, jadi tetap terbaca setelah event dan log dipangkas oleh retensi 7 hari. Kategori `node` mencakup runtime node yang tidak siap dan deployment yang dibatalkan (`runtime_cancelled`), `timeout` mencakup `command_lease_expired` (node tidak menyelesaikan command sebelum lease habis), dan `scheduling` mencakup `command_expired` (command tidak diambil node sebelum batas ketersediaan).
+
+## Pembacaan GitHub Publik
+
+Alur URL publik memakai satu kuota GitHub untuk semua user, jadi jawabannya disimpan di cache: repository 5 menit, daftar branch 2 menit, branch head 30 detik, dan 404 30 detik. Setelah itu API bertanya ulang dengan `ETag`. Membuat deployment selalu bertanya ulang, supaya deployment tepat setelah push mendapat commit itu.
+
+Saat GitHub membatasi, API memakai jawaban terakhir (disimpan sampai 24 jam). Deployment yang tidak punya jawaban tersimpan memakai commit deployment terakhir di branch yang sama, dan `commit_sha` menunjukkan commit yang dijalankan. Bila itu pun tidak ada, API menjawab `503 GITHUB_RATE_LIMITED`. Inspeksi tidak pernah menggagalkan pembuatan project: `preview_status` menjadi `unavailable` dengan `inspection_error_code = github_rate_limited`.
+
+`GITHUB_PUBLIC_API_TOKEN` menaikkan kuota. Token installation GitHub App sengaja tidak dipakai di sini, karena token itu juga bisa membaca repository private milik pemasang App, dan alur ini menerima URL dari user mana pun.
+
+## Log Deployment
+
+`GET /api/v1/app/projects/{project}/deployments/{deployment}/logs` memakai cursor pagination dengan parameter berikut:
+
+| Parameter | Nilai | Default | Keterangan |
+| --- | --- | --- | --- |
+| `per_page` | 1 sampai 200 | 6 | Baris per halaman. |
+| `order` | `asc`, `desc` | `asc` | `desc` mulai dari baris terbaru, dan `next_cursor` berjalan ke baris yang lebih lama. Baca isi halaman terbalik untuk menampilkannya berurutan. |
+| `cursor` | string | - | Dari `meta.next_cursor`. Pakai bersama `order` yang sama dengan halaman sebelumnya. |
+
+Klien yang tidak mengirim `order` tetap menerima urutan lama. Endpoint ini memakai limiter `api` (`SAKALA_API_RATE_LIMIT`, default 240 request per menit per user), jadi `order=desc&per_page=200` menjangkau baris terakhir log gagal dalam satu request. Bila kena limit, response `429` membawa `Retry-After`, dan header itu terbaca lintas origin lewat `exposed_headers` di `config/cors.php`. Endpoint event tetap paling banyak 10 per halaman tanpa `order`.
+
+Broadcast `deployment.log.created` membawa `sequence` untuk urutan semua event realtime deployment, dan `log_sequence` yang sama dengan `sequence` di endpoint ini. Pakai `log_sequence` untuk membuang baris yang sudah diambil.
+
+## Membatalkan Deployment
+
+`POST /api/v1/app/projects/{project}/deployments/{deployment}/cancel` (pemilik atau admin; tetap boleh saat project ditangguhkan, karena hanya menghentikan pekerjaan).
+
+| Keadaan | Response | Hasil |
+| --- | --- | --- |
+| Belum ada node yang mengambil | `200` | Command `Cancelled`, deployment `cancelled`, kuota deployment aktif langsung kembali. |
+| Node sedang mengerjakan | `202` | `cancel_requested_at` terisi, `status` belum berubah. Agent mengetahuinya dari poll berikutnya; lihat [Agent API](AGENT_API.md#pembatalan-command). |
+| Sudah `cancelled` | `200` | Idempoten. |
+| Sudah `succeeded` atau `failed` | `409` | `DEPLOYMENT_ALREADY_FINISHED` dengan `status`. |
+
+Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` bukan janji: agent yang sudah melewati cutover route boleh tetap menyelesaikan deployment menjadi `succeeded`, dan console harus mengikuti `status`. Bila node mati setelah diminta batal, deployment berakhir `cancelled` saat lease habis.
+
+`queue_state` hanya terisi selama `status = queued`: `waiting_for_node` berarti belum ada node yang bisa mengambilnya, entah belum ada target atau targetnya sedang offline atau draining, dan deployment menunggu tanpa batas waktu; `assigned` berarti node yang siap sudah memegangnya. Console memakai ini untuk menjelaskan antrean dan menawarkan pembatalan.
+
+## Project Runtime
+
+`ProjectResource` menyertakan:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `active_deployment_id` | UUID atau `null` | Deployment yang sedang melayani: terakhir `succeeded` dan belum dihentikan. Tetap terisi saat redeploy gagal dan saat `crashed`; kosong setelah stop atau sleep selesai. |
+| `detected_port` | integer atau `null` | Port hasil deteksi. Saat ini belum ada penulisnya. |
+| `configured_port` | integer atau `null` | Port yang diisi pemilik, 1 sampai 65535. |
+| `effective_port` | integer | Nilai `PORT` untuk aplikasi: `configured_port`, lalu `detected_port`, lalu 3000. Sama dengan `container_port` deployment berikutnya. |
+| `serving_port` | integer atau `null` | Port yang sedang dipakai deployment aktif. Bisa berbeda dari `effective_port` sampai deployment berikutnya. `null` bila tidak ada yang melayani, termasuk saat `crashed`, dan untuk deployment lama yang port-nya tidak tercatat. |
+| `build_command`, `start_command` | string atau `null` | Satu baris, paling panjang 1000 karakter. Dijalankan agent hanya di dalam build atau container. |
+| `root_directory` | string atau `null` | Path relatif di dalam repository, misalnya `apps/web`. |
+| `auto_deploy` | boolean | `true` membuat push ke branch project membuat deployment baru. Default `false`. Hanya untuk project dari GitHub App; project dari URL publik dijawab `422` karena webhook-nya tidak pernah datang. |
+| `public_url` | string | Alamat publik project untuk instalasi ini, dari `SAKALA_PROJECT_URL_SCHEME` dan `SAKALA_PROJECT_URL_PORT`. Console memakai ini, bukan menyusun sendiri. |
+| `redeploy_required` | boolean | `true` bila environment variable atau konfigurasi build berubah setelah deployment aktif dibuat. |
+| `stack` | object atau `null` | Lihat "Inspeksi". |
+
+Nilai `runtime_status` dan yang menuliskannya:
+
+| Nilai | Arti | Ditulis oleh |
+| --- | --- | --- |
+| `not_deployed` | Belum pernah ada deployment. | Default kolom. |
+| `deploying` | Ada deployment yang sudah melewati `queued`. Versi lama bisa tetap melayani: lihat `active_deployment_id`. | Transisi deployment. |
+| `running` | `active_deployment_id` sedang melayani. | Deployment, restart, atau wake sukses; redeploy gagal saat versi lama masih melayani; heartbeat yang tidak lagi melaporkan crash. |
+| `stopped` | Dihentikan dengan sengaja, tidak ada yang melayani. | Stop atau sleep sukses. |
+| `failed` | Deployment terakhir gagal dan tidak ada versi yang melayani. | Deployment gagal tanpa `active_deployment_id`. |
+| `crashed` | Workload aktif berhenti sendiri. | Heartbeat (lihat [Agent API](AGENT_API.md#heartbeat)). |
+
+Mengganti port tidak mengubah workload yang sedang berjalan: `PORT` dan route baru berlaku pada deployment berikutnya, dan `redeploy_required` menandainya sampai saat itu. Aplikasi harus membaca `PORT`. Bila project sendiri punya environment variable `PORT` dengan nilai lain, deployment gagal dengan `runtime_port_conflict`.
+
+Field konfigurasi diterima pada `POST` dan `PATCH /api/v1/app/projects`. Pada `PATCH`, field yang tidak dikirim tidak berubah dan `null` mengosongkannya. `thumbnail_url` belum punya generator, jadi console memakai gambar cadangannya bila kosong.
+
+### Inspeksi
+
+`POST /api/v1/app/projects/{project}/inspection` (pemilik; dibatasi `SAKALA_INSPECTION_RATE_LIMIT` per menit) menjawab `202` dengan `ProjectResource`. Hasilnya menyusul lewat `preview_status`. Inspeksi yang sedang berjalan atau sudah selesai untuk commit yang sama dipakai ulang; yang gagal, kedaluwarsa, atau dibatalkan dicoba lagi. Project yang ditangguhkan dijawab `409 PROJECT_SUSPENDED`.
+
+`stack` ada pada `ProjectResource`, `CreateProjectResource`, dan daftar project, bernilai `null` sampai inspeksi berhasil:
+
+| Field | Nilai | Keterangan |
+| --- | --- | --- |
+| `builder` | `dockerfile` atau `railpack` | Pilihan mode auto untuk direktori yang diinspeksi. |
+| `provider` | string atau `null` | Provider pertama yang dideteksi railpack, misalnya `node`. |
+| `framework` | string atau `null` | Dari `nodeSPAFramework` railpack, lalu `nodeRuntime` kecuali `node`, `bun`, dan `deno`. Selain itu `null`. |
+| `package_manager` | string atau `null` | Dari lockfile yang ditemukan agent, lalu `metadata.nodePackageManager` railpack. |
+
+`null` berarti tidak diketahui, bukan tebakan. Output railpack mentah tetap di server. Field yang dibaca sudah dicocokkan dengan output `railpack info` sungguhan (`detectedProviders`, `metadata.nodeSPAFramework`, `metadata.nodeRuntime`, `metadata.nodePackageManager`); contohnya ada di `tests/Fixtures/railpack/`.
+
+Inspeksi dijalankan pada `root_directory` project. Setelah direktori itu diganti, `stack` kembali `null` karena hasil lama menggambarkan folder lain, dan console perlu meminta inspeksi ulang. Commit yang sama dengan direktori berbeda dihitung sebagai inspeksi baru. Agent v0.2.0 mengabaikan field ini dan selalu menginspeksi root repository.
+
+Filter `GET /api/v1/app/projects?filter=` menerima `7_days`, `30_days`, `90_days`, dan `all`.
+
+`GET /api/v1/app/projects/domain-preview?name=` menjawab `{ "data": { "slug", "domain" } }` memakai generator yang sama dengan pembuatan project, termasuk suffix bentrok dan domain lingkungan. Hasilnya tidak dipesan, jadi domain akhir bisa berbeda bila ada yang mengambilnya lebih dulu. Nama yang dicadangkan dijawab `422` pada `name`.
+
+### Menghapus Project
+
+`DELETE /api/v1/app/projects/{project}` menjawab `204` dan project langsung hilang dari API (soft delete, kuota kembali). Bila ada deployment aktif, API membuat `StopProject` yang menghapus route dan container di node. Antrean yang belum diambil dibatalkan, dan attempt yang sedang berjalan diminta batal; bila tetap sukses, workload-nya ikut dihentikan.
+
+`StopProject` tidak punya batas waktu. Saat node offline, workload tetap melayani sampai node itu kembali dan menerima command-nya, jadi penghapusan di API bukan bukti container sudah berhenti. Slug project yang dihapus tidak pernah dipakai ulang, jadi route lama tidak bisa melayani project baru.
+
+### Environment Variable
+
+`POST` menerima `is_secret` (default `true`). `PATCH .../environment-variables/{id}` menerima `value` dan `is_secret`, keduanya opsional. `value` ada di response hanya untuk variabel non-secret; variabel secret tidak punya key itu dan tetap dibaca lewat `GET .../value`. `POST` dan `PATCH` menyertakan `redeploy_required`, karena deployment berjalan memakai nilai saat ia dibuat.
+
+`ProjectStatus` adalah status control plane dan terpisah dari runtime: `draft` (default) dan `active` (deployment pertama sukses) serta `suspended` (admin). Nilai `failed` masih ada di enum tetapi tidak pernah ditulis; kegagalan deploy hanya tampak di `runtime_status`.
 
 ## Project Control
 
@@ -97,7 +246,7 @@ Operasi stop dan suspend mengembalikan `202 Accepted` ketika request control-pla
 
 `202 Accepted` tidak berarti operasi runtime telah selesai. Runtime state diperbarui setelah Agent melaporkan hasil eksekusi command.
 
-Jika command stop atau sleep berhasil, runtime state dari workload yang menjadi target berubah menjadi `Stopped`.
+Jika command stop atau sleep berhasil, runtime state dari workload yang menjadi target berubah menjadi `Stopped` dan `active_deployment_id` dikosongkan.
 
 Jika command gagal, control plane tidak boleh menganggap runtime telah berubah menjadi `Stopped`.
 
@@ -166,6 +315,24 @@ Header `Idempotency-Key` opsional dengan semantik yang sama dengan project contr
 
 Header `Idempotency-Key` pada semua operasi control (stop, suspend, reconcile, drain, resume, cleanup) ditolak `409` bila sudah dipakai command mana pun, bukan hanya oleh record control yang sama.
 
+## Notifikasi
+
+Notifikasi in-app memakai database notification Laravel. Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email).
+
+| Endpoint | Hasil |
+| --- | --- |
+| `GET /api/v1/app/notifications` | Terbaru dulu, `page`, `per_page` (maks. 50), `unread=1`. |
+| `GET /api/v1/app/notifications/unread-count` | `{ "data": { "count" } }` |
+| `POST /api/v1/app/notifications/{id}/read` | Resource notifikasi. Idempoten, `read_at` pertama dipertahankan. Milik orang lain `404`. |
+| `POST /api/v1/app/notifications/read-all` | `204` |
+| `GET`, `PATCH /api/v1/app/notification-preferences` | Satu boolean per kategori, default `true`. `PATCH` boleh sebagian. |
+
+Satu crash menghasilkan satu notifikasi `project_issue`: heartbeat berikutnya yang masih melaporkan crash tidak mengirim lagi, begitu juga setelah redeploy gagal, dan pemulihan tidak mengirim apa pun. Crash baru setelah workload pulih mengirim lagi. Selama ada deployment baru yang berjalan, heartbeat tidak mengubah `runtime_status`.
+
+Bentuk item: `id`, `category`, `title`, `message`, `project_id`, `deployment_id`, `read_at`, `created_at`. Kategori yang dimatikan tidak membuat notifikasi sama sekali. Notifikasi baru juga dibroadcast pada channel privat `users.{id}` dengan event `notification.created` dan field yang sama. Kiriman terjadi setelah transaksi commit, dan kegagalannya dilaporkan tanpa menggagalkan laporan agent yang memicunya.
+
+Tidak ada data contoh di luar test. Notifikasi lebih tua dari `SAKALA_NOTIFICATION_RETENTION_DAYS` dihapus `notifications:prune`, dijadwalkan harian.
+
 ## Profile Contract
 
 ### Update Profile
@@ -184,7 +351,11 @@ Request bersifat partial. Field yang dapat dikirim:
 
 Satu atau beberapa field dapat diperbarui dalam satu request.
 
-`email` tidak termasuk field yang dapat diperbarui melalui endpoint ini.
+`email` tidak termasuk field yang dapat diperbarui melalui endpoint ini; lihat [Autentikasi](AUTHENTICATION.md#keamanan-akun).
+
+`DELETE /api/v1/app/profile/avatar` menghapus foto yang diunggah sekaligus foto salinan dari provider OAuth, lalu mengembalikan `UserResource`. Foto dari provider tidak kembali saat login berikutnya.
+
+`UserResource` juga menyertakan `created_at`, `has_password`, dan `pending_email`. Profil onboarding (`role`) menerima `developer`, `devops`, `architect`, `student`, `mentor`, dan `other`.
 
 ### Avatar Storage Contract
 

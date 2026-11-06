@@ -6,16 +6,30 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 
 - `APP_URL`: URL API.
 - `SAKALA_CONSOLE_URL`: URL console first-party.
-- `SAKALA_API_RATE_LIMIT`: request per menit untuk limiter API dasar.
+- `SAKALA_API_RATE_LIMIT`: request per menit per user untuk route API yang sudah login (default `240`, yaitu 4 request per detik). Satu halaman deployment yang memantau status, event, dan log memakai kira-kira 60 sampai 90 request per menit, jadi 60 sudah habis oleh dua tab, sedangkan 240 masih memberi ruang untuk beberapa tab.
+- `SAKALA_API_GUEST_RATE_LIMIT`: request per menit per IP untuk route API tanpa login (default `60`). Limiter login, registrasi, email verifikasi, dan reset kata sandi berjalan terpisah di atasnya dan tidak berubah.
 - `SAKALA_LOGIN_RATE_LIMIT`: percobaan login per menit berdasarkan email ternormalisasi dan IP.
 - `SAKALA_REGISTER_RATE_LIMIT`: percobaan registrasi per menit berdasarkan IP (default `5`).
 - `SAKALA_OAUTH_RATE_LIMIT`: request per menit per IP untuk browser OAuth route.
 - `SAKALA_EMAIL_VERIFICATION_RATE_LIMIT`: request pengiriman ulang email verifikasi per menit berdasarkan email ternormalisasi dan IP (default `5`).
+- `SAKALA_PASSWORD_RESET_RATE_LIMIT`: request lupa dan reset kata sandi per menit berdasarkan email ternormalisasi dan IP (default `5`).
+- `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT`: request ganti kata sandi dan email per menit per user (default `5`).
+- `SAKALA_INSPECTION_RATE_LIMIT`: permintaan inspeksi ulang per menit per user (default `5`).
+- `SAKALA_NOTIFICATION_RETENTION_DAYS`: umur notifikasi in-app sebelum dihapus `notifications:prune` (default `90`).
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
 
 `AUTH_VERIFICATION_EXPIRE` menentukan masa berlaku signed URL verifikasi email
 dalam menit (default `60`).
+
+- `SAKALA_PROJECT_DEFAULT_DOMAIN`: domain induk project, misalnya `run.sakala.dev`.
+- `SAKALA_PROJECT_URL_SCHEME`, `SAKALA_PROJECT_URL_PORT`: membentuk `public_url` project. Default `https` tanpa port; lingkungan lokal biasanya `http`, dan port diisi bila runtime tidak di 80 atau 443.
+- `SAKALA_AVATAR_STORAGE`: `local` menyimpan foto profil di `storage/app/public` (perlu `php artisan storage:link`, sudah dijalankan `composer setup`). Default `s3` memakai bucket `AWS_*`. Bila penyimpanan tidak bisa dipakai, API menjawab `503 AVATAR_STORAGE_UNAVAILABLE`.
+- `GITHUB_PUBLIC_API_TOKEN`: opsional, disarankan untuk produksi. Token GitHub baca-saja untuk repository publik. Tanpa token, GitHub membatasi 60 request per jam per IP server untuk semua user. Token ini hanya dikirim ke GitHub, tidak pernah ke agent, browser, atau log. Beri akses publik saja; API tetap menolak membaca repository private lewat alur URL publik.
+
+`APP_LOCALE` menentukan bahasa pesan validasi, default `id`.
+
+GitHub App harus berlangganan event `push` supaya `auto_deploy` bekerja, selain event `installation` yang sudah dipakai.
 
 ## Agent
 
@@ -43,6 +57,7 @@ dalam menit (default `60`).
 - `CACHE_STORE`: cache store default yang juga dipakai Laravel scheduler untuk mutex `withoutOverlapping`/`onOneServer`. Gunakan store yang mendukung lock dan dibagi bersama (Valkey/Redis pada deployment multi-instance).
 - `QUEUE_CONNECTION`: queue driver; local default memakai database.
 - `MAIL_*`: Mailpit pada local runtime.
+- `SAKALA_EMAIL_DELIVERY_ENABLED`: apakah email benar-benar bisa sampai ke pengguna. Bila kosong atau tidak diset, nilainya `true` untuk mailer selain `log` dan `array`, dan `false` untuk keduanya. Lihat "Pengiriman email".
 
 Flow registrasi dan pengiriman ulang email verifikasi menggunakan queue
 asynchronous setelah transaksi commit. Production wajib menggunakan
@@ -52,6 +67,26 @@ asynchronous setelah transaksi commit. Production wajib menggunakan
 `MAIL_FROM_ADDRESS`, serta `MAIL_FROM_NAME` sesuai mailer/provider yang
 digunakan. Jangan menggunakan `QUEUE_CONNECTION=sync` untuk flow email
 verifikasi.
+
+## Pengiriman email
+
+`config('sakala.email_delivery_enabled')` adalah satu-satunya sumber kebenaran untuk ketersediaan email. Saat nilainya `false`, API menjawab `503 EMAIL_DELIVERY_UNAVAILABLE` pada registrasi, lupa kata sandi, kirim ulang verifikasi, dan ganti email, lalu Console menyembunyikan pilihan itu lewat `GET /api/v1/auth/options`. Login dengan kata sandi untuk akun yang sudah terverifikasi tetap berjalan.
+
+Staging dan production yang memakai `MAIL_MAILER=log` tidak mengirim apa pun, jadi fitur itu mati dengan sendirinya. Untuk menyalakannya, cukup isi env berikut lalu buat ulang container API dan queue worker, tanpa perubahan kode:
+
+| Env | Isi |
+| --- | --- |
+| `MAIL_MAILER` | `smtp`. Nilai ini sudah membuat flag menjadi `true`. |
+| `MAIL_HOST`, `MAIL_PORT` | Host dan port SMTP dari provider, biasanya port `587`. |
+| `MAIL_USERNAME`, `MAIL_PASSWORD` | Credential SMTP dari provider. Simpan sebagai secret. |
+| `MAIL_SCHEME` | Kosongkan untuk STARTTLS di port `587`, atau `smtps` untuk port `465`. |
+| `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Alamat dan nama pengirim. |
+
+Domain pada `MAIL_FROM_ADDRESS` wajib punya SPF dan DKIM yang mengizinkan provider tersebut. Tanpa keduanya, email kemungkinan besar masuk spam atau ditolak. Queue worker juga harus berjalan, karena email dikirim lewat queue.
+
+Local development memakai `MAIL_MAILER=log` dengan sengaja dan membaca tautan dari `storage/logs/laravel.log`, sehingga `.env.example` mengisi `SAKALA_EMAIL_DELIVERY_ENABLED=true`. File `.env` lokal yang dibuat sebelum variabel ini ada perlu menambahkan baris yang sama; tanpa itu registrasi lokal menjawab `503`. Environment `testing` mengisinya di `phpunit.xml`.
+
+Nilai `false` tidak mematikan mailer. Email yang sudah terlanjur antre, misalnya pemberitahuan ke alamat lama saat tautan ganti email dibuka, tetap diproses oleh mailer yang aktif.
 
 ## Reverse Proxy
 
@@ -81,7 +116,7 @@ request dengan credentials agar cookie session dan CSRF dapat dipakai.
   Callback login local default:
   `http://api.sakala.localhost:8000/auth/github/callback`.
 - `REVERB_APP_*`: credential aplikasi Reverb.
-- `REVERB_ALLOWED_ORIGINS`: allowlist origin WebSocket dipisahkan koma.
+- `REVERB_ALLOWED_ORIGINS`: hostname yang boleh membuka WebSocket, dipisahkan koma, misalnya `app.sakala.dev,localhost`. Reverb hanya membandingkan hostname, jadi nilai berbentuk URL dinormalkan menjadi hostname saat config dibaca, dan port tidak ikut dibandingkan. `*` dan `*.contoh.dev` juga diterima.
 
 Nilai credential sengaja kosong di `.env.example`; buat nilai lokal sendiri dan gunakan GitLab File variable untuk private key di environment deployment. Private key, webhook secret, dan installation token tidak boleh masuk log, OpenAPI, atau database.
 

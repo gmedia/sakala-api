@@ -478,19 +478,22 @@ Agent menyelesaikan command:
 POST /api/agent/v1/commands/{command}/complete
 -> CompleteAgentCommandAction
 -> command status Succeeded
--> DeployProject: applied_resources, deployment Succeeded, project Running, StopProject bila finalization_deferred
+-> DeployProject: applied_resources, deployment Succeeded, project Running + active_deployment_id, StopProject bila finalization_deferred
 -> InspectProject: hasil inspeksi ke project (hanya command terbaru)
--> Stop/Sleep: runtime_status Stopped bila menargetkan workload aktif
+-> Stop/Sleep: runtime_status Stopped dan active_deployment_id kosong bila menargetkan workload aktif
+-> Restart/Wake: runtime_status Running bila menargetkan workload aktif
 -> audit
 ```
+
+Pemilik project bisa membatalkan deployment. Command yang belum diklaim langsung `Cancelled`; yang sedang berjalan hanya dicatat, lalu agent membacanya dari `cancel_requested` pada poll berikutnya dan menjawab `fail` dengan `runtime_cancelled`.
 
 Jika gagal:
 
 ```text
 POST /api/agent/v1/commands/{command}/fail
 -> FailAgentCommandAction
--> command status Failed
--> DeployProject: deployment Failed + klasifikasi error_code
+-> command status Failed (Cancelled bila runtime_cancelled)
+-> DeployProject: deployment Failed + klasifikasi error_code, failure_detail, failure_stage; project tetap Running bila deployment sebelumnya masih melayani
 -> InspectProject: preview failed
 -> ResumeNode: desired_state kembali drained
 -> audit
