@@ -194,7 +194,8 @@ final class PurgeDeletedProjectsAction
         );
     }
 
-    private function eraseSecrets(Project $project): void
+    /** Also called when the owner deletes the account, without waiting for the window. */
+    public function eraseSecrets(Project $project): void
     {
         $project->environmentVariables()->delete();
 
@@ -209,7 +210,8 @@ final class PurgeDeletedProjectsAction
         $commands = $this->commandsOf($project)->delete();
         $deployments = Deployment::query()->where('project_id', $project->id)->delete();
 
-        $project->user()->firstOrFail()->notifications()->where('data->project_id', $project->id)->delete();
+        // No owner left means the account was deleted, notifications included.
+        $project->user?->notifications()->where('data->project_id', $project->id)->delete();
 
         RetiredProjectSlug::query()->insertOrIgnore(['slug' => $project->slug, 'retired_at' => now()]);
 

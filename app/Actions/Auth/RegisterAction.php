@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Actions\Auth;
 
+use App\Actions\Legal\RecordLegalAcceptanceAction;
 use App\Data\Auth\RegisterData;
+use App\Enums\LegalAcceptanceSource;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Notifications\Auth\ExistingAccountRegistrationNotification;
@@ -24,6 +26,7 @@ final class RegisterAction
 
     public function __construct(
         private CreateUserWithUniqueUsernameAction $createUserWithUniqueUsernameAction,
+        private RecordLegalAcceptanceAction $recordLegalAcceptance,
     ) {}
 
     /**
@@ -51,6 +54,10 @@ final class RegisterAction
                         usernameSource: $data->name,
                         attempt: $attempt,
                     );
+
+                    // Only here, where the account really is created: the answer for
+                    // an email already taken is the same, and records nothing.
+                    $this->recordLegalAcceptance->handle($user, LegalAcceptanceSource::Register);
 
                     event(new Registered($user));
                 });

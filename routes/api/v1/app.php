@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\Project\DomainPreviewController;
 use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
+use App\Http\Middleware\EnsureLegalAcceptance;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -34,9 +35,11 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
     // Project routes
     Route::get('projects/domain-preview', DomainPreviewController::class)
         ->name('api.v1.app.projects.domain-preview');
-    Route::apiResource('projects', ProjectController::class)->only(['index', 'store', 'show', 'update', 'destroy']);
+    Route::apiResource('projects', ProjectController::class)
+        ->only(['index', 'store', 'show', 'update', 'destroy'])
+        ->middlewareFor('store', EnsureLegalAcceptance::class);
     Route::post('projects/{project}/inspection', [ProjectController::class, 'inspect'])
-        ->middleware('throttle:inspection')
+        ->middleware(['throttle:inspection', EnsureLegalAcceptance::class])
         ->name('api.v1.app.projects.inspection');
 
     // Environment variable routes
@@ -81,7 +84,8 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
     // Deployment routes
     Route::scopeBindings()->group(function (): void {
         Route::apiResource('projects.deployments', DeploymentController::class)
-            ->only(['store', 'show', 'index']);
+            ->only(['store', 'show', 'index'])
+            ->middlewareFor('store', EnsureLegalAcceptance::class);
 
         Route::prefix('projects/{project}/deployments/{deployment}')
             ->group(function (): void {

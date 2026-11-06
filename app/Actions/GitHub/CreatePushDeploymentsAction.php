@@ -70,6 +70,12 @@ final class CreatePushDeploymentsAction
 
     private function deploy(Project $project, string $branch, string $commit, ?string $message, string $deliveryId): void
     {
+        if ($project->user->requiresLegalAcceptance()) {
+            $this->skip($project, 'legal_acceptance_required', $commit, 'Syarat Layanan atau Kebijakan Penggunaan Wajar terbaru belum kamu setujui, jadi push terbaru tidak di-deploy. Setujui dulu di Console, lalu deploy manual.');
+
+            return;
+        }
+
         try {
             $this->createDeployment->handle(
                 project: $project,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Auth;
 
 use App\Data\Auth\AuthOptionsData;
+use App\Enums\LegalDocument;
 
 final class GetAuthOptionsAction
 {
@@ -18,6 +19,9 @@ final class GetAuthOptionsAction
             emailDeliveryEnabled: (bool) config('sakala.email_delivery_enabled'),
             githubEnabled: $this->isConfigured('services.github_app'),
             googleEnabled: $this->isConfigured('services.google'),
+            termsVersion: LegalDocument::Terms->currentVersion(),
+            acceptableUseVersion: LegalDocument::AcceptableUse->currentVersion(),
+            privacyNoticeVersion: LegalDocument::PrivacyNotice->currentVersion(),
         );
     }
 

@@ -24,6 +24,11 @@ final class AuthOptionsResource extends JsonResource
                 'github' => $this->githubEnabled,
                 'google' => $this->googleEnabled,
             ],
+            'legal' => [
+                'terms_version' => $this->termsVersion,
+                'acceptable_use_version' => $this->acceptableUseVersion,
+                'privacy_notice_version' => $this->privacyNoticeVersion,
+            ],
         ];
     }
 }

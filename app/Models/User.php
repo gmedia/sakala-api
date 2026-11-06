@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Data\Notification\NotificationPreferencesData;
+use App\Enums\LegalDocument;
 use App\Enums\NotificationCategory;
 use App\Enums\OnboardingProfile;
 use App\Enums\OnboardingSource;
@@ -18,6 +19,7 @@ use Illuminate\Auth\MustVerifyEmail as MustVerifyEmailTrait;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -104,6 +106,28 @@ class User extends Authenticatable implements MustVerifyEmail
     public function oauthAccounts(): HasMany
     {
         return $this->hasMany(OAuthAccount::class);
+    }
+
+    /** @return HasMany<LegalAcceptance, $this> */
+    public function legalAcceptances(): HasMany
+    {
+        return $this->hasMany(LegalAcceptance::class);
+    }
+
+    /**
+     * Whether this user still has to accept the current terms or acceptable use
+     * version. The privacy notice is not part of this: it is only acknowledged.
+     */
+    public function requiresLegalAcceptance(): bool
+    {
+        $accepted = $this->legalAcceptances()
+            ->where(fn (Builder $query) => $query
+                ->where(['document' => LegalDocument::Terms->value, 'version' => LegalDocument::Terms->currentVersion()])
+                ->orWhere(fn (Builder $query) => $query
+                    ->where(['document' => LegalDocument::AcceptableUse->value, 'version' => LegalDocument::AcceptableUse->currentVersion()])))
+            ->count();
+
+        return $accepted < 2;
     }
 
     /** @return HasMany<Project, $this> */

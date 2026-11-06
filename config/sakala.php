@@ -26,6 +26,32 @@ return [
         'password_reset' => (int) env('SAKALA_PASSWORD_RESET_RATE_LIMIT', 5),
         'account_security' => (int) env('SAKALA_ACCOUNT_SECURITY_RATE_LIMIT', 5),
         'inspection' => (int) env('SAKALA_INSPECTION_RATE_LIMIT', 5),
+        // Per hour, unlike the others: an export is the heaviest read a user can ask for.
+        'account_export' => (int) env('SAKALA_ACCOUNT_EXPORT_RATE_LIMIT', 3),
+    ],
+
+    // Current versions of the published documents, stored per user on acceptance.
+    // A new terms or acceptable use version asks every user to accept again; a new
+    // privacy notice does not, because it is a notice and not what processing rests on.
+    'legal' => [
+        'versions' => [
+            'terms' => env('SAKALA_LEGAL_TERMS_VERSION', 'syarat-v1'),
+            'acceptable_use' => env('SAKALA_LEGAL_ACCEPTABLE_USE_VERSION', 'penggunaan-wajar-v1'),
+            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_VERSION', 'privasi-v1'),
+        ],
+    ],
+
+    'contact' => [
+        'abuse_email' => env('SAKALA_ABUSE_EMAIL', 'abuse@sakala.dev'),
+        'privacy_email' => env('SAKALA_PRIVACY_EMAIL', 'privacy@sakala.dev'),
+    ],
+
+    'account' => [
+        // Most items per collection in one data export.
+        'export_max_items' => (int) env('SAKALA_ACCOUNT_EXPORT_MAX_ITEMS', 1000),
+        // How long after a provider login an account without a password may do
+        // something that asks for re-authentication.
+        'oauth_reauthentication_minutes' => (int) env('SAKALA_OAUTH_REAUTHENTICATION_MINUTES', 15),
     ],
 
     'notifications' => [

@@ -182,6 +182,9 @@ return [
     */
 
     'attributes' => [
+        'accept_terms' => 'persetujuan Syarat Layanan dan Kebijakan Penggunaan Wajar',
+        'acceptable_use_version' => 'versi Kebijakan Penggunaan Wajar',
+        'terms_version' => 'versi Syarat Layanan',
         'avatar' => 'foto profil',
         'branch' => 'branch',
         'build_command' => 'perintah build',

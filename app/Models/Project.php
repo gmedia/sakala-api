@@ -20,7 +20,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * @property string $id
- * @property int $user_id
+ * @property int|null $user_id
  * @property string|null $github_installation_id
  * @property int|null $github_repository_id
  * @property string $name

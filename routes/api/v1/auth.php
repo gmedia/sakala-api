@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Auth\AccountController;
 use App\Http\Controllers\Api\V1\Auth\AuthOptionsController;
 use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
 use App\Http\Controllers\Api\V1\Auth\EmailChangeController;
+use App\Http\Controllers\Api\V1\Auth\LegalAcceptanceController;
 use App\Http\Controllers\Api\V1\Auth\LoginController;
 use App\Http\Controllers\Api\V1\Auth\LogoutController;
 use App\Http\Controllers\Api\V1\Auth\PasswordController;
@@ -52,5 +54,17 @@ Route::prefix('auth')->group(function (): void {
         Route::post('email/change', EmailChangeController::class)
             ->middleware(['throttle:account-security', EnsureEmailDeliveryAvailable::class])
             ->name('api.v1.auth.email.change');
+
+        Route::post('legal-acceptance', LegalAcceptanceController::class)
+            ->middleware('throttle:account-security')
+            ->name('api.v1.auth.legal-acceptance');
+
+        Route::get('account/export', [AccountController::class, 'export'])
+            ->middleware('throttle:account-export')
+            ->name('api.v1.auth.account.export');
+
+        Route::delete('account', [AccountController::class, 'destroy'])
+            ->middleware('throttle:account-security')
+            ->name('api.v1.auth.account.destroy');
     });
 });

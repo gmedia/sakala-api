@@ -35,6 +35,8 @@ final class UserResource extends JsonResource
             'pending_email' => $this->pendingEmail,
             /** @var string|null */
             'created_at' => $this->createdAt ? $this->createdAt->toAtomString() : null,
+            /** @var bool */
+            'legal_acceptance_required' => $this->legalAcceptanceRequired,
         ];
     }
 }

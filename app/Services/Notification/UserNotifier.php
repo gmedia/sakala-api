@@ -18,15 +18,21 @@ use Throwable;
  */
 final class UserNotifier
 {
+    /**
+     * A project whose owner deleted the account has nobody left to tell. A
+     * mandatory notice ignores the preference: the owner of a suspended project
+     * must learn why even with that category switched off.
+     */
     public function send(
-        User $user,
+        ?User $user,
         NotificationCategory $category,
         string $title,
         string $message,
         ?string $projectId = null,
         ?string $deploymentId = null,
+        bool $mandatory = false,
     ): void {
-        if (! $user->wantsNotification($category)) {
+        if ($user === null || (! $mandatory && ! $user->wantsNotification($category))) {
             return;
         }
 

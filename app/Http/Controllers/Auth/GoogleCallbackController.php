@@ -9,6 +9,7 @@ use App\Data\Auth\GoogleOAuthIdentityData;
 use App\Enums\GoogleOAuthFailure;
 use App\Exceptions\Auth\GoogleOAuthIdentityException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\Auth\DeleteAccountRequest;
 use App\Services\Auth\ConsoleAuthenticationRedirect;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -71,6 +72,7 @@ final class GoogleCallbackController extends Controller
 
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
+        $request->session()->put(DeleteAccountRequest::OAUTH_AUTHENTICATED_AT, now()->getTimestamp());
 
         return redirect()->away($consoleAuthenticationRedirect->dashboard());
     }

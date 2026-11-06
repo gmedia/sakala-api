@@ -75,6 +75,9 @@ function guestEmailEndpoints(): array
             'email' => 'rani@example.test',
             'password' => 'password123',
             'password_confirmation' => 'password123',
+            'accept_terms' => true,
+            'terms_version' => 'syarat-v1',
+            'acceptable_use_version' => 'penggunaan-wajar-v1',
         ]],
         'forgot password' => ['api.v1.auth.password.forgot', ['email' => 'rani@example.test']],
         'resend verification' => ['api.v1.auth.email.verification-notification', ['email' => 'rani@example.test']],
@@ -95,6 +98,11 @@ test('auth options are public, need no database, and report what is configured',
         ->assertExactJson(['data' => [
             'email_delivery_enabled' => false,
             'providers' => ['github' => true, 'google' => false],
+            'legal' => [
+                'terms_version' => 'syarat-v1',
+                'acceptable_use_version' => 'penggunaan-wajar-v1',
+                'privacy_notice_version' => 'privasi-v1',
+            ],
         ]]);
 
     expect(DB::getQueryLog())->toBe([]);
@@ -110,6 +118,11 @@ test('auth options report delivery and providers when they are on', function ():
         ->assertExactJson(['data' => [
             'email_delivery_enabled' => true,
             'providers' => ['github' => false, 'google' => true],
+            'legal' => [
+                'terms_version' => 'syarat-v1',
+                'acceptable_use_version' => 'penggunaan-wajar-v1',
+                'privacy_notice_version' => 'privasi-v1',
+            ],
         ]]);
 });
 
@@ -266,6 +279,9 @@ test('endpoints that send email work while delivery is on', function (): void {
         'email' => 'rani@example.test',
         'password' => 'password123',
         'password_confirmation' => 'password123',
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
     ])->assertAccepted();
 
     $this->postJson(route('api.v1.auth.email.verification-notification'), ['email' => $unverified->email])

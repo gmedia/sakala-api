@@ -30,6 +30,7 @@ final class GetCurrentUserAction
             hasPassword: $user->password !== null,
             pendingEmail: $user->pending_email,
             createdAt: $user->created_at,
+            legalAcceptanceRequired: $user->requiresLegalAcceptance(),
         );
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\V1\Auth;
 
 use App\Data\Auth\RegisterData;
+use App\Http\Requests\Concerns\ValidatesLegalAcceptance;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
@@ -12,6 +13,8 @@ use Illuminate\Validation\Rules\Password;
 
 final class RegisterRequest extends FormRequest
 {
+    use ValidatesLegalAcceptance;
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -32,6 +35,7 @@ final class RegisterRequest extends FormRequest
             'email' => ['required', 'string', 'email', 'max:255'],
             'password' => ['required', 'string', Password::defaults(), 'confirmed'],
             'password_confirmation' => ['required', 'string'],
+            ...$this->legalAcceptanceRules(),
         ];
     }
 

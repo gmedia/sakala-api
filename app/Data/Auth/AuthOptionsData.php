@@ -10,5 +10,8 @@ final readonly class AuthOptionsData
         public bool $emailDeliveryEnabled,
         public bool $githubEnabled,
         public bool $googleEnabled,
+        public string $termsVersion,
+        public string $acceptableUseVersion,
+        public string $privacyNoticeVersion,
     ) {}
 }

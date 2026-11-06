@@ -25,5 +25,6 @@ final readonly class CurrentUserData
         public bool $hasPassword = true,
         public ?string $pendingEmail = null,
         public ?CarbonImmutable $createdAt = null,
+        public bool $legalAcceptanceRequired = false,
     ) {}
 }

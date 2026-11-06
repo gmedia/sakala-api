@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Actions\Auth\CreateUserWithUniqueUsernameAction;
 use App\Actions\Auth\RegisterAction;
+use App\Actions\Legal\RecordLegalAcceptanceAction;
 use App\Data\Auth\RegisterData;
 use App\Enums\UserRole;
 use App\Models\User;
@@ -26,6 +27,9 @@ test('a guest can register and receives a queued verification notification', fun
         'email' => ' User@Example.TEST ',
         'password' => 'password123',
         'password_confirmation' => 'password123',
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
     ]);
 
     $response
@@ -58,7 +62,7 @@ test('a guest can register and receives a queued verification notification', fun
 test('registration validates required and confirmed credentials', function () {
     $this->postJson(route('api.v1.auth.register'), [])
         ->assertUnprocessable()
-        ->assertJsonValidationErrors(['name', 'email', 'password', 'password_confirmation']);
+        ->assertJsonValidationErrors(['name', 'email', 'password', 'password_confirmation', 'accept_terms', 'terms_version', 'acceptable_use_version']);
 
     $this->postJson(route('api.v1.auth.register'), [
         'name' => [],
@@ -80,6 +84,9 @@ test('an existing email gets the same answer as a new one, and the owner an emai
         'email' => $email,
         'password' => 'password123',
         'password_confirmation' => 'password123',
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
     ];
 
     $existing = $this->postJson(route('api.v1.auth.register'), $payload(' EXISTING@EXAMPLE.TEST '))->assertAccepted();
@@ -103,6 +110,9 @@ test('a new and an existing email answer byte for byte alike', function () {
         'email' => $email,
         'password' => 'password123',
         'password_confirmation' => 'password123',
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
     ])->assertAccepted()->getContent();
 
     $existing = $body('existing@example.test');
@@ -145,7 +155,7 @@ test('a database email collision in a race also stays silent', function () {
     ));
 
     // The pre-check misses it, as it would in a real race.
-    $action = new RegisterAction($creator);
+    $action = new RegisterAction($creator, app(RecordLegalAcceptanceAction::class));
     (fn () => $this->notifyExistingOwner(new RegisterData(name: 'R', email: 'race@example.test', password: 'password123')))->call($action);
 
     Notification::assertSentTo($owner, ExistingAccountRegistrationNotification::class);
@@ -159,6 +169,9 @@ test('registration is rate limited by IP', function () {
         'email' => 'rate-limited@example.test',
         'password' => 'password123',
         'password_confirmation' => 'password123',
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
     ];
 
     $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.20'])

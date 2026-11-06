@@ -118,6 +118,13 @@ class AppServiceProvider extends ServiceProvider
                 ->by((string) $identifier);
         });
 
+        RateLimiter::for('account-export', function (Request $request): Limit {
+            $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
+
+            return Limit::perHour((int) config('sakala.rate_limits.account_export', 3))
+                ->by('account-export:'.(string) $identifier);
+        });
+
         RateLimiter::for('inspection', function (Request $request): Limit {
             $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
 
