@@ -105,12 +105,14 @@ return [
         // Teams one user may own; users.max_owned_teams overrides it per user.
         'max_owned_teams_per_user' => (int) env('SAKALA_MAX_OWNED_TEAMS_PER_USER', 2),
         'invitation_ttl_hours' => (int) env('SAKALA_WORKSPACE_INVITATION_TTL_HOURS', 168),
-        // Limits of a team without a limit profile. Null falls back to the
-        // pilot_limits value a personal workspace uses, read at runtime.
+        // Limits of a team without a limit profile: deliberately small, so
+        // creating teams does not multiply quota. A team that needs more gets a
+        // limit profile from an admin. Empty values fall back to these defaults;
+        // memory and CPU fall back to the personal caps.
         'team_limits' => [
-            'max_projects' => env('SAKALA_TEAM_MAX_PROJECTS'),
-            'max_active_containers' => env('SAKALA_TEAM_MAX_ACTIVE_CONTAINERS'),
-            'max_active_deployments' => env('SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS'),
+            'max_projects' => env('SAKALA_TEAM_MAX_PROJECTS', 2),
+            'max_active_containers' => env('SAKALA_TEAM_MAX_ACTIVE_CONTAINERS', 2),
+            'max_active_deployments' => env('SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS', 1),
             'max_memory_mb' => env('SAKALA_TEAM_MAX_CONTAINER_MEMORY_MB'),
             'max_cpu_millis' => env('SAKALA_TEAM_MAX_CONTAINER_CPU_MILLIS'),
         ],

@@ -63,17 +63,35 @@ test('a personal workspace without a profile keeps exactly the pilot limits', fu
         ->assertJsonPath('data.runtime_maximums.cpu_millis', 1000);
 });
 
-test('a team without a profile follows the team config and falls back to the pilot values', function (): void {
+test('a team without a profile gets the conservative team defaults, not the personal ones', function (): void {
     $team = teamWorkspace(User::factory()->create());
     $service = app(PilotRuntimeLimitService::class);
+    $limits = $service->limitsFor($team);
 
-    expect($service->limitsFor($team)->max_projects)->toBe(3);
+    expect($limits->max_projects)->toBe(2)
+        ->and($limits->max_active_deployments)->toBe(1)
+        ->and($limits->max_active_containers)->toBe(2)
+        ->and($limits->max_memory_mb)->toBe(512)
+        ->and($limits->max_cpu_millis)->toBe(1000);
 
-    config(['sakala.workspaces.team_limits.max_projects' => 10]);
+    // Raising the personal limits does not raise a team's.
+    config(['sakala.pilot_limits.max_projects_per_user' => 10]);
+    expect($service->limitsFor($team)->max_projects)->toBe(2);
 
-    expect($service->limitsFor($team)->max_projects)->toBe(10)
-        ->and($service->limitsFor($team)->max_active_containers)->toBe(10)
-        ->and($service->limitsFor($team)->max_active_deployments)->toBe(2);
+    config(['sakala.workspaces.team_limits.max_projects' => 6]);
+    expect($service->limitsFor($team)->max_projects)->toBe(6);
+});
+
+test('creating teams does not multiply quota: each team without a profile stops at its own small default', function (): void {
+    $owner = User::factory()->create();
+    $team = teamWorkspace($owner);
+
+    createProjectIn($this, $owner, $team->id)->assertCreated();
+    createProjectIn($this, $owner, $team->id)->assertCreated();
+    createProjectIn($this, $owner, $team->id)
+        ->assertUnprocessable()
+        ->assertJsonPath('code', 'PROJECT_LIMIT_EXCEEDED')
+        ->assertJsonPath('limit', 2);
 });
 
 test('team projects count against the team, not against the members personal quota', function (): void {
@@ -190,6 +208,6 @@ test('an empty limit variable falls back instead of meaning zero', function (): 
 
     $service = app(PilotRuntimeLimitService::class);
 
-    expect($service->limitsFor(teamWorkspace(User::factory()->create()))->max_projects)->toBe(3)
+    expect($service->limitsFor(teamWorkspace(User::factory()->create()))->max_projects)->toBe(2)
         ->and($service->limitsFor(User::factory()->create()->personalWorkspace()->firstOrFail())->max_active_containers)->toBe(3);
 });

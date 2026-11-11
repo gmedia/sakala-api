@@ -23,11 +23,18 @@ use Illuminate\Database\Eloquent\Builder;
 
 class PilotRuntimeLimitService
 {
+    public const TEAM_DEFAULT_MAX_PROJECTS = 2;
+
+    public const TEAM_DEFAULT_MAX_ACTIVE_CONTAINERS = 2;
+
+    public const TEAM_DEFAULT_MAX_ACTIVE_DEPLOYMENTS = 1;
+
     /**
      * The workspace's limit profile, or the default for its type. A personal
      * workspace without a profile runs under exactly the pilot limits every
-     * account had before workspaces; a team falls back to the same values unless
-     * the team_limits config says otherwise.
+     * account had before workspaces. A team without one gets the small team
+     * defaults (2 projects, 2 running containers, 1 deployment at a time), never
+     * the personal values, so creating teams does not multiply quota.
      */
     public function limitsFor(Workspace $workspace): WorkspaceLimitsData
     {
@@ -52,12 +59,11 @@ class PilotRuntimeLimitService
         }
 
         $team = static fn (string $key, int $fallback): int => self::configuredOr("sakala.workspaces.team_limits.{$key}", $fallback);
-        $teamMaxProjects = $team('max_projects', $personal->max_projects);
 
         return new WorkspaceLimitsData(
-            max_projects: $teamMaxProjects,
-            max_active_containers: $team('max_active_containers', max($personal->max_active_containers, $teamMaxProjects)),
-            max_active_deployments: $team('max_active_deployments', $personal->max_active_deployments),
+            max_projects: $team('max_projects', self::TEAM_DEFAULT_MAX_PROJECTS),
+            max_active_containers: $team('max_active_containers', self::TEAM_DEFAULT_MAX_ACTIVE_CONTAINERS),
+            max_active_deployments: $team('max_active_deployments', self::TEAM_DEFAULT_MAX_ACTIVE_DEPLOYMENTS),
             max_memory_mb: $team('max_memory_mb', $personal->max_memory_mb),
             max_cpu_millis: $team('max_cpu_millis', $personal->max_cpu_millis),
             max_builds_per_hour: null,
