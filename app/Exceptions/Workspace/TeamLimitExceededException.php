@@ -6,14 +6,17 @@ namespace App\Exceptions\Workspace;
 
 use Symfony\Component\HttpFoundation\Response;
 
-/** The user already owns as many teams as allowed; an admin can raise the cap. */
+/** Owning one more team would pass the user's cap; an admin can raise it. */
 final class TeamLimitExceededException extends WorkspaceRuleException
 {
     public function __construct(
         public readonly int $limit,
         public readonly int $current,
+        bool $actingForSelf = true,
     ) {
-        parent::__construct(sprintf('Kamu sudah memiliki %d workspace tim, dan itu batasnya. Hapus tim yang tidak dipakai atau minta admin Sakala menaikkan batasnya.', $limit));
+        parent::__construct(sprintf($actingForSelf
+            ? 'Kamu sudah memiliki %d workspace tim, dan itu batasnya. Hapus tim yang tidak dipakai atau minta admin Sakala menaikkan batasnya.'
+            : 'Orang ini sudah memiliki %d workspace tim, dan itu batasnya, jadi belum bisa dijadikan pemilik. Admin Sakala bisa menaikkan batasnya.', $limit));
     }
 
     public function errorCode(): string

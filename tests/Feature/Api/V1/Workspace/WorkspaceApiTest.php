@@ -11,8 +11,10 @@ use App\Models\LimitProfile;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\WorkspaceInvitation;
 use App\Models\WorkspaceMember;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
@@ -309,4 +311,51 @@ test('assigning a limit profile is audited and detaching falls back to the defau
         ->and($events[1]->metadata)->toBe(['from_limit_profile_id' => $profile->id, 'to_limit_profile_id' => null])
         ->and($events[0]->actor_type)->toBe('system')
         ->and($team->refresh()->limit_profile_id)->toBeNull();
+});
+
+test('promoting someone to owner respects their owned-team cap', function (): void {
+    config(['sakala.workspaces.max_owned_teams_per_user' => 1]);
+    $owner = User::factory()->create();
+    $member = User::factory()->create();
+    teamWorkspace($member);
+    $team = teamWorkspace($owner, [[$member, WorkspaceRole::Member]]);
+    $membership = $team->members()->where('user_id', $member->id)->firstOrFail();
+
+    $this->actingAs($owner, 'web')->patchJson("/api/v1/app/workspaces/{$team->id}/members/{$membership->id}", ['role' => 'owner'])
+        ->assertUnprocessable()
+        ->assertJsonPath('code', 'TEAM_LIMIT_EXCEEDED')
+        ->assertJsonPath('limit', 1)
+        ->assertJsonPath('current', 1);
+
+    expect($team->roleOf($member))->toBe(WorkspaceRole::Member);
+
+    $member->forceFill(['max_owned_teams' => 2])->save();
+
+    $this->actingAs($owner, 'web')->patchJson("/api/v1/app/workspaces/{$team->id}/members/{$membership->id}", ['role' => 'owner'])
+        ->assertOk();
+});
+
+test('an owner who loses the role takes their pending invitations with them', function (): void {
+    config(['sakala.email_delivery_enabled' => true]);
+    Notification::fake();
+    $first = User::factory()->create();
+    $second = User::factory()->create();
+    $team = teamWorkspace($first, [[$second, WorkspaceRole::Owner]]);
+
+    $this->actingAs($second, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'a@example.test', 'role' => 'member'])->assertCreated();
+    $this->actingAs($second, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'b@example.test', 'role' => 'viewer'])->assertCreated();
+    $this->actingAs($first, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'c@example.test', 'role' => 'viewer'])->assertCreated();
+
+    $secondMembership = $team->members()->where('user_id', $second->id)->firstOrFail();
+    $this->actingAs($first, 'web')->patchJson("/api/v1/app/workspaces/{$team->id}/members/{$secondMembership->id}", ['role' => 'member'])->assertOk();
+
+    expect(WorkspaceInvitation::query()->pluck('email')->all())->toBe(['c@example.test'])
+        ->and(AuditEvent::query()->where('action', 'workspace.invitation_revoked')->count())->toBe(2);
+
+    $this->actingAs($first, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/leave")->assertConflict();
+    $this->actingAs($first, 'web')->patchJson("/api/v1/app/workspaces/{$team->id}/members/{$secondMembership->id}", ['role' => 'owner'])->assertOk();
+    $firstMembership = $team->members()->where('user_id', $first->id)->firstOrFail();
+    $this->actingAs($second, 'web')->deleteJson("/api/v1/app/workspaces/{$team->id}/members/{$firstMembership->id}")->assertNoContent();
+
+    expect(WorkspaceInvitation::query()->count())->toBe(0);
 });

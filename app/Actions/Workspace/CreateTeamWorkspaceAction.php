@@ -7,7 +7,6 @@ namespace App\Actions\Workspace;
 use App\Enums\WorkspaceRole;
 use App\Enums\WorkspaceType;
 use App\Exceptions\Workspace\EmailVerificationRequiredException;
-use App\Exceptions\Workspace\TeamLimitExceededException;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMember;
@@ -39,17 +38,7 @@ final class CreateTeamWorkspaceAction
         for ($attempt = 0; ; $attempt++) {
             try {
                 return DB::transaction(function () use ($user, $name, $slug, $attempt): Workspace {
-                    User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
-
-                    $owned = WorkspaceMember::query()
-                        ->where('user_id', $user->id)
-                        ->where('role', WorkspaceRole::Owner)
-                        ->whereHas('workspace', fn ($query) => $query->where('type', WorkspaceType::Team))
-                        ->count();
-
-                    if (! $user->isAdmin() && $owned >= $user->maxOwnedTeams()) {
-                        throw new TeamLimitExceededException($user->maxOwnedTeams(), $owned);
-                    }
+                    WorkspaceOwnership::ensureCanOwnAnotherTeam($user);
 
                     $workspace = Workspace::query()->create([
                         'name' => $name,

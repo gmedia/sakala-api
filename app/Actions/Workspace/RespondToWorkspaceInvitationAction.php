@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Actions\Workspace;
 
+use App\Enums\WorkspaceRole;
 use App\Exceptions\Workspace\AlreadyWorkspaceMemberException;
 use App\Exceptions\Workspace\EmailVerificationRequiredException;
+use App\Exceptions\Workspace\InvitationEmailMismatchException;
 use App\Exceptions\Workspace\InvitationExpiredException;
 use App\Models\User;
 use App\Models\Workspace;
@@ -22,14 +24,20 @@ use Illuminate\Support\Str;
  * credential, as with most email invitations), or by having verified the
  * invited address on their own account. Anything else is a plain 404, so an ID
  * reveals nothing. Either answer uses the invitation up.
+ *
+ * An owner invitation is accepted only by the invited verified address, token
+ * or not, and only within the acceptor's owned-team cap: a forwarded link must
+ * not hand over a team.
  */
 final class RespondToWorkspaceInvitationAction
 {
     public function accept(User $user, WorkspaceInvitation $invitation, ?string $token): Workspace
     {
-        $this->authorise($user, $invitation, $token);
+        $this->authorise($user, $invitation, $token, accepting: true);
 
         return DB::transaction(function () use ($user, $invitation): Workspace {
+            // The user row before the workspace row, the order every path keeps.
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             $workspace = WorkspaceOwnership::lock($invitation->workspace);
 
             /** @var WorkspaceInvitation $locked */
@@ -42,6 +50,10 @@ final class RespondToWorkspaceInvitationAction
             // Kept, so the address it was meant for can still use it.
             if (WorkspaceMember::query()->where('workspace_id', $workspace->id)->where('user_id', $user->id)->exists()) {
                 throw new AlreadyWorkspaceMemberException;
+            }
+
+            if ($locked->role === WorkspaceRole::Owner) {
+                WorkspaceOwnership::ensureCanOwnAnotherTeam($user);
             }
 
             WorkspaceMember::query()->create([
@@ -66,7 +78,7 @@ final class RespondToWorkspaceInvitationAction
 
     public function decline(User $user, WorkspaceInvitation $invitation, ?string $token): void
     {
-        $this->authorise($user, $invitation, $token);
+        $this->authorise($user, $invitation, $token, accepting: false);
 
         DB::transaction(function () use ($user, $invitation): void {
             $deleted = WorkspaceInvitation::query()->whereKey($invitation->id)->delete();
@@ -82,7 +94,7 @@ final class RespondToWorkspaceInvitationAction
         });
     }
 
-    private function authorise(User $user, WorkspaceInvitation $invitation, ?string $token): void
+    private function authorise(User $user, WorkspaceInvitation $invitation, ?string $token, bool $accepting): void
     {
         $byToken = $token !== null && $token !== ''
             && hash_equals($invitation->token_hash, WorkspaceInvitation::hashToken($token));
@@ -94,6 +106,10 @@ final class RespondToWorkspaceInvitationAction
 
         if (! $user->hasVerifiedEmail()) {
             throw new EmailVerificationRequiredException;
+        }
+
+        if ($accepting && $invitation->role === WorkspaceRole::Owner && ! $byEmail) {
+            throw new InvitationEmailMismatchException;
         }
     }
 }

@@ -14,7 +14,8 @@ use Illuminate\Support\Facades\DB;
 /**
  * Removes a member, or the caller when leaving. Access ends with the row: every
  * request checks membership afresh. The last owner can be neither removed nor
- * leave. Projects stay with the workspace.
+ * leave. Projects stay with the workspace, and the invitations the member
+ * sent are revoked.
  */
 final class RemoveWorkspaceMemberAction
 {
@@ -33,6 +34,8 @@ final class RemoveWorkspaceMemberAction
             WorkspaceOwnership::ensureAnotherOwner($workspace, $locked);
 
             $locked->delete();
+
+            WorkspaceOwnership::revokeInvitationsSentBy($actor, $locked->user_id, reason: 'inviter_lost_role', workspace: $workspace);
 
             $leaving = $locked->user_id === $actor->id;
 

@@ -216,7 +216,7 @@ test('accepting while already a member is refused', function (): void {
     $owner = User::factory()->create();
     $member = User::factory()->create();
     $team = teamWorkspace($owner, [[$member, WorkspaceRole::Viewer]]);
-    $this->actingAs($owner, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'elsewhere@example.test', 'role' => 'owner']);
+    $this->actingAs($owner, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'elsewhere@example.test', 'role' => 'member']);
     $token = invitationTokenSentTo('elsewhere@example.test');
     $invitation = WorkspaceInvitation::query()->firstOrFail();
 
@@ -250,4 +250,42 @@ test('the invitee declines and an owner revokes', function (): void {
     $this->actingAs(User::factory()->create(), 'web')->postJson("/api/v1/app/workspace-invitations/{$revoked->id}/accept", ['token' => $token])
         ->assertNotFound();
     expect(AuditEvent::query()->where('action', 'workspace.invitation_revoked')->exists())->toBeTrue();
+});
+
+test('an owner invitation is accepted only by the invited verified address, even with the token', function (): void {
+    $owner = User::factory()->create();
+    $team = teamWorkspace($owner);
+    $this->actingAs($owner, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'Co-Owner@example.test', 'role' => 'owner']);
+    $token = invitationTokenSentTo('co-owner@example.test');
+    $invitation = WorkspaceInvitation::query()->firstOrFail();
+
+    $this->actingAs(User::factory()->create(), 'web')
+        ->postJson("/api/v1/app/workspace-invitations/{$invitation->id}/accept", ['token' => $token])
+        ->assertForbidden()
+        ->assertJsonPath('code', 'INVITATION_EMAIL_MISMATCH');
+
+    expect(WorkspaceInvitation::query()->exists())->toBeTrue();
+
+    $invitee = User::factory()->create(['email' => 'co-owner@example.test']);
+    $this->actingAs($invitee, 'web')
+        ->postJson("/api/v1/app/workspace-invitations/{$invitation->id}/accept", ['token' => $token])
+        ->assertOk()
+        ->assertJsonPath('data.role', 'owner');
+});
+
+test('accepting an owner invitation respects the owned-team cap', function (): void {
+    config(['sakala.workspaces.max_owned_teams_per_user' => 1]);
+    $owner = User::factory()->create();
+    $team = teamWorkspace($owner);
+    $invitee = User::factory()->create(['email' => 'busy@example.test']);
+    teamWorkspace($invitee);
+    $this->actingAs($owner, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'busy@example.test', 'role' => 'owner']);
+    $invitation = WorkspaceInvitation::query()->firstOrFail();
+
+    $this->actingAs($invitee, 'web')->postJson("/api/v1/app/workspace-invitations/{$invitation->id}/accept")
+        ->assertUnprocessable()
+        ->assertJsonPath('code', 'TEAM_LIMIT_EXCEEDED');
+
+    expect($team->roleOf($invitee))->toBeNull()
+        ->and(WorkspaceInvitation::query()->exists())->toBeTrue();
 });
