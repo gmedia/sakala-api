@@ -387,6 +387,7 @@ test('deferred finalization stops every superseded workload on the same node exa
         ->and($stop->status)->toBe(AgentCommandStatus::Pending)
         ->and($stop->idempotency_key)->toBe("deferred-finalization:{$deployment->id}:{$priorOnNode->id}")
         ->and($stop->request_context['reason'])->toBe('finalization_deferred:grace_elapsed')
+        ->and($stop->payload)->toBe([])
         ->and($stop->deployment_id)->not->toBe($deployment->id)
         ->and($stop->deployment_id)->not->toBe($priorElsewhere->id)
         ->and($stop->deployment_id)->not->toBe($priorFailed->id);

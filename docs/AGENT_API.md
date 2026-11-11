@@ -186,8 +186,10 @@ Polling **tidak** memberi kepemilikan. Field `cancel_requested` dijelaskan di
   `restore_route`.
 
 Command tanpa payload selalu diserialisasi sebagai `{}`. Hanya
-`InspectProject`, `DeployProject`, `ReconcileWorkload`, dan `CleanupRuntime`
-yang membawa payload; lifecycle command hanya membawa identitas.
+`InspectProject`, `DeployProject`, `StopProject`, `ReconcileWorkload`, dan
+`CleanupRuntime` yang membawa payload. `StopProject` paling banyak membawa
+`remove_images` (lihat [StopProject](#stopproject)); lifecycle command lain hanya
+membawa identitas.
 
 | Command type | Capability yang dibutuhkan (salah satu) |
 | --- | --- |
@@ -375,6 +377,28 @@ aksi mutatif dari state.
   `cleaned_routes`, `reclaimed_image_bytes`) dicatat ke audit.
 
 Keduanya menerima `Idempotency-Key` dengan semantik project/node control.
+
+### StopProject
+
+Lifecycle command yang membawa identitas (`project_id`, `deployment_id`) dan
+payload opsional berikut. Field ini tambahan di dalam protocol revision 4:
+
+| Field | Tipe | Arti |
+| --- | --- | --- |
+| `remove_images` | boolean, opsional, default `false` | Bila `true`, setelah container hilang agent juga menghapus semua image `sakala/project-<project_id>` yang tidak dipakai container mana pun. Result-nya lalu menambah `removed_images` dan `reclaimed_image_bytes`. |
+
+API hanya mengirim `{ "remove_images": true }` pada stop yang dibuat karena
+project dihapus: `DELETE /api/v1/app/projects/{project}` dan penghapusan akun
+(`DeleteProjectAction`), attempt yang tetap sukses setelah project dihapus
+(`TransitionDeploymentAction`), dan stop ulang harian dari `projects:purge-deleted`.
+Stop lain (admin stop, suspend, finalisasi deploy yang tertunda) mempertahankan
+image supaya project bisa di-rollback atau dijalankan lagi, dan dikirim sebagai `{}`.
+API tidak pernah mengirim `false` atau nilai lain.
+
+Agent sampai v0.3.0 tidak membaca payload `StopProject` sama sekali (payload
+di-deserialisasi sebagai JSON bebas dan tidak dipakai untuk stop), jadi field ini
+diabaikan tanpa error dan image project yang dihapus tetap tertinggal seperti
+sebelumnya. Karena itu protocol revision tidak dinaikkan.
 
 ### Repository credential
 

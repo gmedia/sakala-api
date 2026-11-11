@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Deleting is a soft delete plus runtime cleanup: a StopProject makes the agent
- * remove the route and the container, and in-flight attempts are cancelled.
+ * remove the route, the container, and the project's images, and in-flight
+ * attempts are cancelled.
  *
  * The project disappears from the API at once, whether or not a node is online.
  * The StopProject has no deadline, so with the node offline the workload keeps
@@ -89,6 +90,7 @@ final class DeleteProjectAction
             deployment: $deployment,
             reason: 'project_deleted',
             idempotencyKey: "project-delete:{$project->id}:{$deployment->id}",
+            removeImages: true,
         )->id;
     }
 }

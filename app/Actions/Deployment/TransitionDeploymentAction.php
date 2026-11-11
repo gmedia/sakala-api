@@ -103,6 +103,7 @@ final class TransitionDeploymentAction
                         deployment: $deployment,
                         reason: 'project_deleted',
                         idempotencyKey: "project-delete:{$project->id}:{$deployment->id}",
+                        removeImages: true,
                     );
                 }
 

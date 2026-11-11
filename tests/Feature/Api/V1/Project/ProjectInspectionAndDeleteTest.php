@@ -10,6 +10,7 @@ use App\Enums\DeploymentStatus;
 use App\Enums\ProjectInspectionStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Enums\UserRole;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\AuditEvent;
@@ -417,7 +418,8 @@ test('deleting a serving project stops its workload through the agent', function
     expect($stop->deployment_id)->toBe($deployment->id)
         ->and($stop->agent_node_id)->toBe($node->id)
         ->and($stop->status)->toBe(AgentCommandStatus::Pending)
-        ->and($stop->expires_at)->toBeNull();
+        ->and($stop->expires_at)->toBeNull()
+        ->and($stop->payload)->toBe(['remove_images' => true]);
 
     expect(AuditEvent::query()->where('action', 'project.deleted')->where('subject_id', $project->id)->exists())->toBeTrue();
 });
@@ -433,11 +435,13 @@ test('the node can poll, claim, and complete the stop of a deleted project', fun
     $this->withHeaders(inspectionHeaders($node))
         ->getJson('/api/agent/v1/commands')
         ->assertOk()
-        ->assertJsonPath('data.0.id', $stop->id);
+        ->assertJsonPath('data.0.id', $stop->id)
+        ->assertJsonPath('data.0.payload', ['remove_images' => true]);
 
     $this->withHeaders(inspectionHeaders($node))
         ->postJson("/api/agent/v1/commands/{$stop->id}/claim", [])
-        ->assertOk();
+        ->assertOk()
+        ->assertJsonPath('data.payload', ['remove_images' => true]);
 
     $this->withHeaders(inspectionHeaders($node))
         ->postJson("/api/agent/v1/commands/{$stop->id}/complete", ['result' => null])
@@ -532,7 +536,30 @@ test('an attempt that still succeeds after the delete gets stopped too', functio
     $stop = AgentCommand::query()->where('project_id', $project->id)->where('type', AgentCommandType::StopProject)->sole();
 
     expect($stop->deployment_id)->toBe($running->id)
+        ->and($stop->payload)->toBe(['remove_images' => true])
         ->and($running->fresh()->status)->toBe(DeploymentStatus::Succeeded);
+});
+
+test('a stop that is not a delete keeps the images and reaches the node as an empty payload', function (): void {
+    $node = inspectionNode();
+    [, $project] = servingProject($node);
+    $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+    $this->actingAs($admin, 'web')
+        ->postJson("/api/v1/admin/projects/{$project->id}/stop", ['reason' => 'Emergency incident'])
+        ->assertAccepted();
+
+    $stop = AgentCommand::query()->where('project_id', $project->id)->where('type', AgentCommandType::StopProject)->sole();
+    expect($stop->payload)->toBe([]);
+
+    $poll = $this->withHeaders(inspectionHeaders($node))
+        ->getJson('/api/agent/v1/commands')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $stop->id);
+
+    // serde expects a map, so the empty payload must be `{}`, never `[]`.
+    expect($poll->getContent())->toContain('"payload":{}')
+        ->and($poll->getContent())->not->toContain('remove_images');
 });
 
 test('a retried delete of a deleted project is a 404 and adds no command', function (): void {

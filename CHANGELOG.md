@@ -4,6 +4,10 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- A `StopProject` created because a project is deleted (project delete, account deletion, an attempt that succeeds after the delete, and the daily retry of `projects:purge-deleted`) now carries `{ "remove_images": true }`, so an agent with that support also removes the project's images. Every other stop still sends `{}` and keeps the images. Agents up to v0.3.0 ignore the field.
+
 ## [0.2.0] - 2026-11-11
 
 ### Security

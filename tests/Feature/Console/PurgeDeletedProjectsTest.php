@@ -247,7 +247,8 @@ test('a failed stop is asked again once a day instead of orphaning the container
 
     expect(Project::withTrashed()->find($project->id))->not->toBeNull()
         ->and($retry->deployment_id)->toBe($deployment->id)
-        ->and($retry->agent_node_id)->toBe($node->id);
+        ->and($retry->agent_node_id)->toBe($node->id)
+        ->and($retry->payload)->toBe(['remove_images' => true]);
 
     // The same day a pending retry is enough, and a failed one is not repeated.
     $this->artisan('projects:purge-deleted')->assertSuccessful();
