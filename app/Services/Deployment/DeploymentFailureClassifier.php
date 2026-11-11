@@ -147,6 +147,13 @@ final class DeploymentFailureClassifier
                 'Buka log deployment untuk melihat pesan terakhir sebelum aplikasi berhenti. Penyebab yang sering muncul: environment variable belum diisi atau koneksi ke layanan lain gagal. Perbaiki, lalu deploy ulang.',
             ),
 
+            'runtime_app_exec_denied' => $this->userFixable(
+                $errorCode,
+                Category::Start,
+                'Perintah start aplikasi ditolak karena meminta hak sistem yang tidak diizinkan Sakala.',
+                'Demi keamanan, aplikasi di Sakala hanya boleh memakai hak sistem dasar. Cek log deployment untuk perintah yang ditolak, lalu pakai perintah start atau image yang tidak membutuhkan hak tambahan (misalnya tanpa setcap atau sudo), dan pastikan aplikasi mendengarkan di port dari PORT. Setelah itu deploy ulang.',
+            ),
+
             'runtime_port_conflict' => $this->userFixable(
                 $errorCode,
                 Category::Start,

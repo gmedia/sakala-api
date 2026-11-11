@@ -103,6 +103,7 @@ test('new runtime failure codes map to stable categories', function (
     ['runtime_app_not_listening', DeploymentFailureCategory::Health],
     ['runtime_app_unhealthy', DeploymentFailureCategory::Health],
     ['runtime_app_crashed', DeploymentFailureCategory::Start],
+    ['runtime_app_exec_denied', DeploymentFailureCategory::Start],
     ['runtime_app_out_of_memory', DeploymentFailureCategory::Resource],
     ['runtime_port_conflict', DeploymentFailureCategory::Start],
 ]);
@@ -186,6 +187,7 @@ test('user fixable failures never read as a platform fault', function (string $e
     'repository_access_revoked',
     'runtime_build_failed',
     'runtime_app_crashed',
+    'runtime_app_exec_denied',
     'runtime_app_not_listening',
     'runtime_app_unhealthy',
     'runtime_app_out_of_memory',
