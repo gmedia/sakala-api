@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-11
+
 ### Changed
 
 - A `StopProject` created because a project is deleted (project delete, account deletion, an attempt that succeeds after the delete, and the daily retry of `projects:purge-deleted`) now carries `{ "remove_images": true }`, so an agent with that support also removes the project's images. Every other stop still sends `{}` and keeps the images. Agents up to v0.3.0 ignore the field.
@@ -88,5 +90,6 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/gmedia/sakala-api/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gmedia/sakala-api/compare/v0.1.4...v0.2.0
