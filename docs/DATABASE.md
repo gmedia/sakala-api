@@ -146,6 +146,19 @@ Log/event disimpan di database untuk MVP. Record report bersifat append-only (`u
 
 Kebijakan retensi log fase pilot didefinisikan secara lengkap di [Pilot Log Retention Policy](LOG_RETENTION.md). Selama fase pilot, durasi retensi default adalah 7 hari (`SAKALA_LOG_RETENTION_DAYS=7`). Pembersihan data log dan event dijalankan oleh scheduler harian atau manual melalui `php artisan pilot:prune-logs` yang menargetkan deployment berstatus terminal (`succeeded`, `failed`, `cancelled`) berdasarkan `finished_at`/`cancelled_at`, dengan fallback `created_at` untuk record legacy. Query pembersihan memanfaatkan index timestamp terminal pada tabel `deployments` dan foreign key `deployment_id` pada `deployment_logs` serta `deployment_events`. Jangan membuat pencarian tanpa batas atas; endpoint timeline/log harus memakai cursor pagination dan urutan sequence. Evaluasi partitioning PostgreSQL atau object storage akan dilakukan sebelum transisi ke volume produksi.
 
+## Admin Console
+
+Migrasi `2026_11_13_000001` hanya menambah satu kolom berdefault dan index, jadi kode lama tetap berjalan:
+
+- `feedbacks.status` (varchar 32, default `open`) dengan index `(status, created_at)` untuk daftar masukan admin yang difilter status. Masukan lama menjadi `open`.
+- `users (created_at)` untuk user baru dan deret pertumbuhan harian di overview.
+- `agent_commands (agent_node_id, created_at)` untuk riwayat command satu node, terbaru dulu. Index `(agent_node_id, status, available_at)` yang ada melayani poll, bukan urutan waktu.
+- `audit_events (created_at)` untuk daftar audit tanpa filter pelaku, subjek, atau aksi. Filter itu memakai index `(actor_type, actor_id, created_at)`, `(subject_type, subject_id, created_at)`, dan `(action, created_at)` yang sudah ada.
+
+Query overview lain sudah tertutup index yang ada: deployment per status dan rentang memakai `(status, created_at)`, kegagalan per kode `(failure_code, created_at)`, dan project serta workspace dihitung utuh karena tabelnya kecil. Hasil overview di-cache 60 detik. Hari dalam deret dihitung di SQL dengan menggeser `created_at` (UTC) tujuh jam, karena WIB tidak punya DST. Kategori kegagalan tidak disimpan: kode yang berbeda dikelompokkan di SQL lalu diklasifikasi di PHP, sehingga mapping kode ke kategori hanya ada di `DeploymentFailureClassifier`.
+
+`DeleteLimitProfileAction` mengunci baris profil (`FOR UPDATE`) sebelum menghitung workspace yang memakainya, dan `AssignLimitProfileAction` mengambil shared lock pada baris profil yang sama, sehingga profil tidak bisa dipasang di antara pengecekan dan penghapusan. Foreign key `restrictOnDelete` tetap menjadi pengaman terakhir. `ChangeUserRoleAction` mengunci semua baris admin sebelum menurunkan peran, jadi dua admin yang saling menurunkan bersamaan tidak bisa meninggalkan Sakala tanpa admin.
+
 ## Data Lokal
 
 Seeder hanya berjalan pada environment `local` dan `testing` serta aman dijalankan ulang:

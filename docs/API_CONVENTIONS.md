@@ -85,6 +85,9 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `ALREADY_WORKSPACE_MEMBER` | `409` | Mengundang alamat milik anggota, atau menerima undangan saat sudah menjadi anggota. | - |
 | `INVITATION_EXPIRED` | `409` | Menerima undangan yang sudah kedaluwarsa. | - |
 | `ORIGIN_NOT_ALLOWED` | `403` | `/broadcasting/auth` dari origin selain Console. Lihat [Autentikasi](AUTHENTICATION.md#cookie-dan-aplikasi-pengguna). | - |
+| `ADMIN_SELF_DEMOTION` | `409` | Admin mencabut peran admin dari akunnya sendiri lewat API admin. | - |
+| `LAST_ADMIN` | `409` | Mencabut peran admin akan membuat Sakala tanpa admin. | - |
+| `LIMIT_PROFILE_IN_USE` | `409` | Menghapus profil batas yang masih dipakai workspace. | `workspaces` |
 
 Anggota workspace project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
 
@@ -573,3 +576,67 @@ Signal types yang tersedia:
 - `manual_intervention`
 
 Endpoint ini tidak mengekspos data pribadi (nama, email) maupun secret. Field `tags` hanya berisi metadata operasional seperti `failure_code` atau `limit_name`.
+
+## API Admin
+
+Semua endpoint admin ada di `/api/v1/admin` (`routes/api/v1/admin.php`) dan dijaga middleware `auth:web` lalu `can:admin`. Gate `admin` hanya lolos untuk `users.role = admin`, dan peran dibaca ulang di setiap request, jadi admin yang diturunkan kehilangan akses di request berikutnya. Tamu menerima `401`, pengguna biasa `403`. ID yang tidak ada tetap `404`, karena route model binding berjalan sebelum gate. Console hanya menyembunyikan menu admin; API yang menentukan.
+
+Setiap aksi yang mengubah sesuatu wajib membawa `reason` (maks. 500) dan menulis `audit_events` dengan pelaku, alamat IP, user agent, dan `metadata.reason`. Mengulang aksi yang tidak mengubah apa pun (peran yang sama, profil yang sama, status yang sama, revoke kedua) tidak menulis audit baru. Secret, token, hash kata sandi, dan nilai environment variable tidak pernah ada di response maupun metadata audit.
+
+### Daftar, Pagination, dan Rentang Waktu
+
+Semua daftar memakai pagination server: `page`, `per_page` (1 sampai 100, default 25), dengan `meta` dan `links` standar, urut dari yang terbaru. `search` mencocokkan beberapa kolom tanpa membedakan huruf besar dan kecil (`ILIKE` di PostgreSQL).
+
+Endpoint dengan rentang waktu menerima `range`: `7d`, `30d`, `90d`, `custom` (dengan `from` dan `to` berformat `Y-m-d`, paling panjang 366 hari), dan `all` bila disebutkan. Rentang selalu berupa hari penuh WIB (`Asia/Jakarta`, UTC+7 tanpa DST): `7d` adalah hari ini ditambah enam hari sebelumnya, dan `to` adalah tengah malam WIB berikutnya (eksklusif). `range` di response memuat `key`, `from`, `to` (UTC, ISO 8601), dan `timezone`. Hitungan deployment memakai `created_at`.
+
+### Endpoint
+
+| Endpoint | Hasil |
+| --- | --- |
+| `GET overview` | Dashboard. `range` (default `30d`, tanpa `all`). Lihat "Overview". |
+| `GET users` | `search` (nama, username, email), `role`, `verified`. |
+| `GET users/{user}` | Akun, `workspaces` dengan peran dan jumlah project, `personal_workspace_quota` (batas efektif dan pemakaian), `owned_teams_count`, `effective_max_owned_teams`, 20 audit event terbaru tempat akun ini pelaku atau subjek. |
+| `PATCH users/{user}/role` | Body `role` (`user`, `admin`), `reason`. `409 ADMIN_SELF_DEMOTION` atau `LAST_ADMIN`. |
+| `PATCH users/{user}/team-limit` | Body `max_owned_teams` (0 sampai 1000, atau `null` untuk default konfigurasi), `reason`. Batas di bawah jumlah tim yang sudah dimiliki hanya menahan tim baru. |
+| `PUT users/{user}/limit-profile` | Body `limit_profile_id` (atau `null`), `reason`. Dipasang ke workspace pribadi user. |
+| `GET workspaces` | `search` (nama, slug), `type`, `limit_profile_id`. |
+| `GET workspaces/{workspace}` | Workspace, `members` (dengan email), `projects`, `quota`. |
+| `PUT workspaces/{workspace}/limit-profile` | Body `limit_profile_id` (atau `null`), `reason`. Audit `workspace.limit_profile_changed`. |
+| `GET`, `POST limit-profiles`; `GET`, `PATCH`, `DELETE limit-profiles/{limitProfile}` | Profil batas dengan `workspaces_count`. `PATCH` sebagian. `DELETE` membawa `reason` di body dan dijawab `409 LIMIT_PROFILE_IN_USE` (dengan `workspaces`) selama masih dipakai. |
+| `GET projects` | `search` (nama, slug, `owner/repo`), `status`, `runtime_status`, `workspace_id`, `suspended`. Project yang dihapus tidak ikut. |
+| `GET projects/{project}` | Project, `deployments_count`, `effective_port`, 20 control request terbaru dengan `reason`. Aksi stop, suspend, unsuspend, dan reconcile tetap seperti di "Project Control". |
+| `GET deployments/failures` | Deployment `failed` lintas project. `range` (default `30d`, boleh `all`), `category`, `code`, `search` (nama atau slug project, termasuk project yang menunggu purge). |
+| `GET deployments/failure-summary` | Jumlah per kategori dan per kode untuk `range`, dengan `previous_count` untuk jendela sebelumnya (`null` untuk `all`). |
+| `GET deployments/{deployment}` | `deployment` (sama dengan `DeploymentResource`), `project`, `requested_by`, `agent_node`, `duration_seconds`. |
+| `GET deployments/{deployment}/events`, `/logs` | Sama dengan endpoint member untuk deployment itu, termasuk parameter cursor dan `order`. |
+| `GET agents` | `search` (nama, agent ID, hostname), `status`, `auth_status`, `never_seen`. Lihat "Runtime Node". |
+| `POST agents` | Body `name`, `description`, `reason`. `201` dengan `agent` dan `token`. |
+| `GET agents/{agent}` | Node. |
+| `POST agents/{agent}/rotate` | Body `reason`. Token baru sekali tampil; token lama langsung tidak berlaku. |
+| `POST agents/{agent}/revoke` | Body `reason`. Node tidak bisa autentikasi atau menerima command lagi. Idempoten. |
+| `GET agents/{agent}/commands` | Riwayat command node: `type`, `status`, project, `deployment_id`, waktu, `error_code`, `error_message` (sudah diredaksi), `reports_count`. Filter `type`, `status`. |
+| `GET agents/{agent}/commands/{command}` | Command dengan sampai 200 report terbaru. Command milik node lain `404`. |
+| `GET feedback` | `status` (`open`, `acknowledged`, `resolved`), `category`, `search` (isi pesan). |
+| `PATCH feedback/{feedback}` | Body `status`, `reason`. |
+| `GET audit-events` | `actor_type` + `actor_id`, `action` (persis), `subject_type` + `subject_id`, `range` (default `all`). |
+| `GET metrics/pilot-validation`, `GET signals` | Tetap seperti sebelumnya. |
+
+### Overview
+
+`totals` dihitung sepanjang waktu: `users`, `projects` (yang masih ada), dan `active_projects` (project dengan deployment yang melayani, `active_deployment_id` terisi). `period` dihitung untuk rentang: `new_users`, `new_projects` (termasuk yang sudah dihapus), dan `deployments` (`succeeded`, `failed`, `cancelled`, `in_progress`, `total`). `previous_period` berisi hitungan yang sama untuk jendela sepanjang rentang tepat sebelumnya, untuk badge tren. `user_growth` adalah user baru per hari WIB, setiap hari dalam rentang ada, termasuk yang nol.
+
+`failure_categories` memuat semua kategori `DeploymentFailureCategory` dan `top_failure_codes` sepuluh kode terbanyak. Kategori tidak disimpan; ia diturunkan dari `failure_code` dengan `DeploymentFailureClassifier` yang sama dengan field `failure` di deployment, jadi angkanya selalu sama dengan yang dilihat pemilik project. Kegagalan tanpa kode dihitung `unknown` dengan `code: null`. Filter `category` di daftar kegagalan memakai daftar kode yang tercatat untuk kategori itu.
+
+`new_user_sources` adalah jawaban pertanyaan onboarding "dari mana kamu tahu Sakala" (`users.onboarding_source`) untuk user baru di rentang. Semua nilai `OnboardingSource` selalu ada, dan entri terakhir `source: null` menghitung user yang belum menjawab. `pilot` memuat `activated_users`, `unique_deployers`, `repeat_deployers`, dan `feedback_count` untuk rentang yang sama.
+
+Hasil overview disimpan di cache 60 detik, dan `generated_at` menunjukkan kapan angkanya dihitung.
+
+### Runtime Node
+
+`AdminAgentResource` menambah `agent_version` (dari heartbeat terakhir), `hostname`, `runtime_network` (nama network Docker di node, bukan alamat IP), `capabilities`, `registered_at`, `active_workload_count` (project yang deployment aktifnya berjalan di node ini), dan `open_commands_count` (`Pending`, `Claimed`, `Running`). Node yang belum pernah heartbeat punya `last_seen_at: null`; `never_seen=1` menampilkannya. Token dan hash-nya tidak pernah ada di response.
+
+`POST agents` memakai action yang sama dengan `artisan agent:provision`, yang dipanggil `provision-agent.sh` di repository deployment. Token hanya ada di response pembuatan atau rotate (`Cache-Control: no-store`); API hanya menyimpan HMAC-nya, jadi token yang hilang diganti dengan rotate. Command `DeployProject` melaporkan output sebagai log deployment, dibaca lewat `deployments/{deployment}/logs`; report command lain ada di detail command. Log proses `sakala-agent` sendiri tidak dikirim ke API dan tidak disimpan, jadi tidak ada endpoint untuknya. Restart agent juga tidak punya command; yang ada drain, resume, dan cleanup di `/api/agent/v1/agents/{agent}`.
+
+### Yang Belum Ada
+
+Tidak ada model laporan abuse: sinyal `manual_intervention` di `signals` dan audit `project.suspend_requested` adalah catatan yang ada sekarang. Akun pengguna juga tidak punya status suspend; yang bisa ditangguhkan adalah project.
