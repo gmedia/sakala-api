@@ -24,7 +24,7 @@ Runtime lokal sebelumnya memakai service `redis`. `.env.example` sudah menunjuk 
 
 ## Akun admin
 
-Halaman admin (node runtime, suspend proyek, metrik pilot) hanya untuk akun dengan role `admin`. Registrasi publik selalu membuat role `user`, jadi admin dibuat atau dipromosikan lewat Artisan, bukan tinker:
+Endpoint admin hanya menerima akun dengan role `admin`: `/api/v1/admin/*` (stop, suspend, dan unsuspend proyek, metrik pilot, usage signal) dan `/api/agent/v1/agents/*` (daftar, rotate, revoke, drain, dan cleanup node). Console belum punya halaman admin, jadi endpoint ini dipanggil lewat API dengan session akun admin. Registrasi publik selalu membuat role `user`, jadi admin dibuat atau dipromosikan lewat Artisan, bukan tinker:
 
 ```bash
 # Promosikan akun yang sudah terdaftar (lewat form, GitHub, atau Google)

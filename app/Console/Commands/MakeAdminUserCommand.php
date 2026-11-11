@@ -79,7 +79,7 @@ final class MakeAdminUserCommand extends Command
         $user->update(['role' => UserRole::Admin]);
 
         $this->components->info("Promoted {$user->email} (username {$user->username}) to admin.");
-        $this->line('  Their password and sign-in methods are unchanged. The admin pages appear after they reload the console.');
+        $this->line('  Their password and sign-in methods are unchanged. Admin endpoints accept their session from the next request.');
 
         return self::SUCCESS;
     }
