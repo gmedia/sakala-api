@@ -11,14 +11,31 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 | Admin Routes
 |--------------------------------------------------------------------------
+|
+| Every route here is for Sakala admins only. `can:admin` answers 403 to any
+| other signed-in user before a controller runs; the console hiding its admin
+| menu is not the boundary.
+|
 */
-Route::prefix('admin')->middleware('auth:web')->group(function (): void {
+Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function (): void {
 
-    // Stop and Suspend Routes
+    // Dashboard
+
+    // Projects, with the stop, suspend, unsuspend, and reconcile controls
     Route::post('projects/{project}/stop', [ProjectControlController::class, 'stop']);
     Route::post('projects/{project}/suspend', [ProjectControlController::class, 'suspend']);
     Route::post('projects/{project}/unsuspend', [ProjectControlController::class, 'unsuspend']);
     Route::post('projects/{project}/reconcile', [ProjectControlController::class, 'reconcile']);
+
+    // Users
+
+    // Workspaces and limit profiles
+
+    // Deployments
+
+    // Runtime nodes
+
+    // Feedback and audit
 
     // Metrics Routes
     Route::get('metrics/pilot-validation', PilotValidationMetricsController::class);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Models\User;
 use App\Support\Domains\ProjectDomainGenerator;
 use App\Support\Slug\ReservedSlug;
 use Dedoc\Scramble\Scramble;
@@ -64,6 +65,9 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Model::shouldBeStrict(! $this->app->isProduction());
+
+        // Guards every route under /api/v1/admin (routes/api/v1/admin.php).
+        Gate::define('admin', static fn (User $user): bool => $user->isAdmin());
 
         Gate::define(
             'viewApiDocs',
