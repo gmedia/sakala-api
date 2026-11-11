@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\FeedbackCategory;
+use App\Enums\FeedbackStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\FeedbackFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -21,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property FeedbackCategory $category
  * @property string $message
  * @property bool $consent
+ * @property FeedbackStatus $status Set by admins; new feedback is open.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -31,6 +33,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'category',
     'message',
     'consent',
+    'status',
 ])]
 class Feedback extends Model
 {
@@ -39,6 +42,11 @@ class Feedback extends Model
 
     /** @var string */
     protected $table = 'feedbacks';
+
+    /** @var array<string, string> */
+    protected $attributes = [
+        'status' => 'open',
+    ];
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
@@ -64,6 +72,7 @@ class Feedback extends Model
         return [
             'category' => FeedbackCategory::class,
             'consent' => 'boolean',
+            'status' => FeedbackStatus::class,
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
