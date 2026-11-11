@@ -57,6 +57,8 @@ docker build --target web -t sakala-api-web:local .
 
 Image tidak memuat `.env`, secret, database, Valkey/Redis, migrasi otomatis, queue worker, atau Reverb. Repository deployment nantinya menyediakan environment runtime, jaringan internal, proses migrasi satu-kali, serta service tambahan hanya ketika memang dibutuhkan oleh fitur yang berjalan.
 
+Setelah migrasi pertama di server, buat atau promosikan admin dengan `php artisan user:admin <email>` di container API. Opsi dan perilakunya ada di [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#akun-admin).
+
 ## Perintah
 
 ```bash

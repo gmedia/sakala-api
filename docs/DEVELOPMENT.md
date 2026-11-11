@@ -22,6 +22,30 @@ Runtime lokal sebelumnya memakai service `redis`. `.env.example` sudah menunjuk 
 4. `./vendor/bin/sail up -d`.
 5. Volume `sail-redis` hanya berisi cache dan boleh dihapus: `docker volume rm sakala-api_sail-redis` (nama prefix mengikuti nama direktori project; lihat `docker volume ls`).
 
+## Akun admin
+
+Halaman admin (node runtime, suspend proyek, metrik pilot) hanya untuk akun dengan role `admin`. Registrasi publik selalu membuat role `user`, jadi admin dibuat atau dipromosikan lewat Artisan, bukan tinker:
+
+```bash
+# Promosikan akun yang sudah terdaftar (lewat form, GitHub, atau Google)
+php artisan user:admin dosen@kampus.ac.id
+
+# Buat akun admin baru; kata sandi ditanyakan tanpa ditampilkan
+php artisan user:admin ops@kampus.ac.id --create --name="Tim Ops"
+
+# Tanpa terminal interaktif (skrip, CI): kata sandi acak dicetak sekali
+php artisan user:admin ops@kampus.ac.id --create --generate-password --no-interaction
+```
+
+Perilakunya sengaja konservatif:
+
+- Tanpa `--create`, email yang belum terdaftar ditolak, jadi salah ketik tidak membuat akun baru.
+- Akun yang sudah ada hanya diubah role-nya. Kata sandi dan metode login-nya tidak disentuh. Menjalankan ulang pada akun yang sudah admin tidak mengubah apa pun.
+- Akun baru langsung terverifikasi emailnya, karena operator yang menjamin alamatnya. Persetujuan syarat dan onboarding tetap ditanyakan saat login pertama.
+- Kata sandi mengikuti aturan yang sama dengan registrasi (minimal 8 karakter). Kata sandi dari `--generate-password` hanya muncul sekali di output, jadi simpan saat itu juga, atau ganti setelah login.
+
+Dengan Sail, ganti `php artisan` dengan `./vendor/bin/sail artisan`. Di server, jalankan lewat container API, misalnya `docker compose exec api php artisan user:admin ...`.
+
 ## Scheduler
 
 Beberapa proses control plane berjalan lewat scheduler Laravel (`agent:assign-commands`, `agent:expire-commands`, `agent:mark-offline-nodes`, prune/usage signals). Jalankan `php artisan schedule:work` (atau `sail artisan schedule:work`) di terminal terpisah saat menguji alur agent secara lokal.
