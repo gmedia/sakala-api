@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Admin\AgentController;
+use App\Http\Controllers\Api\V1\Admin\AuditEventController;
 use App\Http\Controllers\Api\V1\Admin\DeploymentController;
+use App\Http\Controllers\Api\V1\Admin\FeedbackController;
 use App\Http\Controllers\Api\V1\Admin\LimitProfileController;
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\PilotValidationMetricsController;
@@ -71,6 +73,9 @@ Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function ()
     Route::get('agents/{agent}/commands/{command}', [AgentController::class, 'command'])->whereUuid(['agent', 'command']);
 
     // Feedback and audit
+    Route::get('feedback', [FeedbackController::class, 'index']);
+    Route::patch('feedback/{feedback}', [FeedbackController::class, 'update'])->whereUuid('feedback');
+    Route::get('audit-events', AuditEventController::class);
 
     // Metrics Routes
     Route::get('metrics/pilot-validation', PilotValidationMetricsController::class);
