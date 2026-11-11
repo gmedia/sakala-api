@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Actions\Project\RequestProjectInspectionAction;
 use App\Enums\AgentAuthStatus;
+use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
@@ -228,4 +229,33 @@ test('moving back to an inspected directory brings its port back', function (): 
     expect(AgentCommand::query()->where('project_id', $project->id)->where('type', AgentCommandType::InspectProject)->count())->toBe(2)
         ->and($reused?->payload['root_directory'])->toBe('apps/web')
         ->and($project->fresh()->detected_port)->toBe(80);
+});
+
+test('a finished Dockerfile inspection from before exposed_ports is asked again, so the port is found without a new commit', function (): void {
+    $project = portProject();
+
+    // An agent from before the field inspected this commit.
+    completeInspectionWith($project, dockerfileInspection());
+    expect($project->refresh()->detected_port)->toBeNull();
+
+    // After the node moves to a newer agent, the same commit is inspected again
+    // instead of the old result being reused.
+    $first = AgentCommand::query()->where('project_id', $project->id)->where('type', AgentCommandType::InspectProject)->sole();
+    completeInspectionWith($project, dockerfileInspection(['exposed_ports' => [80]]));
+
+    $commands = AgentCommand::query()->where('project_id', $project->id)->where('type', AgentCommandType::InspectProject)->get();
+    expect($commands)->toHaveCount(2)
+        ->and($commands->pluck('id'))->toContain($first->id)
+        ->and($project->refresh()->detected_port)->toBe(80)
+        ->and(deployedContainerPort($project))->toBe(80);
+});
+
+test('a finished inspection that already carries exposed_ports is reused', function (): void {
+    $project = portProject();
+    completeInspectionWith($project, dockerfileInspection(['exposed_ports' => [80]]));
+
+    $again = app(RequestProjectInspectionAction::class)->handle($project);
+
+    expect(AgentCommand::query()->where('project_id', $project->id)->where('type', AgentCommandType::InspectProject)->count())->toBe(1)
+        ->and($again?->status)->toBe(AgentCommandStatus::Succeeded);
 });

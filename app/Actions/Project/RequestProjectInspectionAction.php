@@ -90,7 +90,7 @@ final class RequestProjectInspectionAction
                 ->get()
                 ->first(static fn (AgentCommand $command): bool => ($command->payload['root_directory'] ?? null) === $locked->root_directory);
 
-            if ($existing !== null && ! in_array($existing->status, self::RETRYABLE, true)) {
+            if ($existing !== null && ! in_array($existing->status, self::RETRYABLE, true) && ! $this->predatesExposedPorts($existing)) {
                 if ($existing->status === AgentCommandStatus::Succeeded && $locked->inspection !== null) {
                     $result = ProjectInspectionResultData::fromArray($existing->result);
 
@@ -139,6 +139,22 @@ final class RequestProjectInspectionAction
 
             return $command;
         });
+    }
+
+    /**
+     * A finished Dockerfile inspection from an agent older than `exposed_ports`
+     * never reports a port, so reusing it would keep a project that predates
+     * the field on 3000 until its next commit. Asking again lets a newer agent
+     * answer; an older one simply answers the same way.
+     */
+    private function predatesExposedPorts(AgentCommand $command): bool
+    {
+        $result = $command->result;
+
+        return $command->status === AgentCommandStatus::Succeeded
+            && is_array($result)
+            && ($result['dockerfile_found'] ?? false) === true
+            && ! array_key_exists('exposed_ports', $result);
     }
 
     private function unavailable(Project $project, string $code): void

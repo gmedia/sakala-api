@@ -7,6 +7,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 ### Added
 
 - `detected_port` now has a writer. When an `InspectProject` result carries `exposed_ports` with exactly one TCP port, that port becomes `detected_port`, so a Dockerfile that ends in `nginx` with `EXPOSE 80` gets `PORT=80` and a probe on 80 instead of failing with `runtime_app_not_listening` on 3000. No port, several ports, or an inspection of another `root_directory` clear it. The effective port stays `configured_port`, then `detected_port`, then 3000. A result without `exposed_ports`, from an agent before the field, leaves `detected_port` unchanged, so older agents keep 3000. Changing `root_directory` clears `detected_port` until the next inspection.
+- Asking to inspect a commit again re-runs a finished Dockerfile inspection whose result has no `exposed_ports`, instead of reusing it. Otherwise a project inspected by an agent from before the field kept port 3000 until its next commit, even after its node moved to a newer agent.
 
 ### Changed
 
