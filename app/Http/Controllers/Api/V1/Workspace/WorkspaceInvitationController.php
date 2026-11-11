@@ -7,9 +7,11 @@ namespace App\Http\Controllers\Api\V1\Workspace;
 use App\Actions\Workspace\InviteToWorkspaceAction;
 use App\Actions\Workspace\RespondToWorkspaceInvitationAction;
 use App\Actions\Workspace\RevokeWorkspaceInvitationAction;
+use App\Actions\Workspace\ShowWorkspaceInvitationAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Workspace\RespondWorkspaceInvitationRequest;
 use App\Http\Requests\Api\V1\Workspace\StoreWorkspaceInvitationRequest;
+use App\Http\Resources\Api\V1\Workspace\WorkspaceInvitationDetailsResource;
 use App\Http\Resources\Api\V1\Workspace\WorkspaceInvitationResource;
 use App\Http\Resources\Api\V1\Workspace\WorkspaceResource;
 use App\Models\User;
@@ -32,7 +34,7 @@ final class WorkspaceInvitationController extends Controller
         Gate::authorize('manageMembers', $workspace);
 
         return WorkspaceInvitationResource::collection(
-            $workspace->invitations()->with(['workspace', 'inviter'])->latest()->orderBy('id')->get(),
+            $workspace->invitations()->pending()->with(['workspace', 'inviter'])->latest()->orderBy('id')->get(),
         );
     }
 
@@ -77,6 +79,7 @@ final class WorkspaceInvitationController extends Controller
 
         $invitations = $user->hasVerifiedEmail()
             ? WorkspaceInvitation::query()
+                ->pending()
                 ->with(['workspace', 'inviter'])
                 ->where('email', Str::lower($user->email))
                 ->where('expires_at', '>', now())
@@ -86,6 +89,25 @@ final class WorkspaceInvitationController extends Controller
             : collect();
 
         return WorkspaceInvitationResource::collection($invitations);
+    }
+
+    /**
+     * Read an invitation with the token from the email, or as the owner of the invited verified address, from a
+     * verified account. A wrong or missing token is `404` whatever the invitation's state. With the right proof, a
+     * closed invitation answers `409` with `INVITATION_ALREADY_ACCEPTED`, `INVITATION_DECLINED`, `INVITATION_REVOKED`,
+     * or `INVITATION_EXPIRED`. `can_accept` and `accept_error_code` tell whether this account may accept it.
+     *
+     * @scramble-return WorkspaceInvitationDetailsResource
+     */
+    public function show(
+        RespondWorkspaceInvitationRequest $request,
+        WorkspaceInvitation $invitation,
+        ShowWorkspaceInvitationAction $action,
+    ): WorkspaceInvitationDetailsResource {
+        /** @var User $user */
+        $user = $request->user();
+
+        return new WorkspaceInvitationDetailsResource($action->handle($user, $invitation, $request->token()));
     }
 
     /**

@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\DeploymentStatus;
 use App\Enums\WorkspaceRole;
 use App\Enums\WorkspaceType;
 use Carbon\CarbonImmutable;
 use Database\Factories\WorkspaceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -16,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 /**
  * Owns projects. Every user has exactly one personal workspace; a team is a
@@ -30,6 +33,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property WorkspaceMember|null $membership Present when loaded through User::workspaces().
+ * @property int|null $projects_count Present after withSummaryCounts().
+ * @property int|null $active_deployments_count Present after withSummaryCounts().
  */
 #[Fillable(['name', 'slug', 'type', 'personal_user_id', 'limit_profile_id'])]
 class Workspace extends Model
@@ -92,6 +97,41 @@ class Workspace extends Model
     public function projects(): HasMany
     {
         return $this->hasMany(Project::class);
+    }
+
+    /** @return HasManyThrough<Deployment, Project, $this> */
+    public function deployments(): HasManyThrough
+    {
+        return $this->hasManyThrough(Deployment::class, Project::class);
+    }
+
+    /**
+     * Counts WorkspaceResource shows, as two subqueries on the same select, so
+     * a list of workspaces never costs a query per workspace. Deleted projects
+     * waiting for purge are not counted; active deployments are the queued and
+     * running ones the concurrent deployment limit counts.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeWithSummaryCounts(Builder $query): Builder
+    {
+        return $query->withCount(self::summaryCounts());
+    }
+
+    /** For one workspace loaded without withSummaryCounts(). */
+    public function loadSummaryCounts(): self
+    {
+        return $this->loadCount(self::summaryCounts());
+    }
+
+    /** @return array<int|string, string|callable> */
+    private static function summaryCounts(): array
+    {
+        return [
+            'projects',
+            'deployments as active_deployments_count' => fn (Builder $deployments) => $deployments->whereIn('deployments.status', DeploymentStatus::activeCases()),
+        ];
     }
 
     /** @return HasMany<WorkspaceInvitation, $this> */

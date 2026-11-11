@@ -31,7 +31,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. |
 | `workspaces` | Pemilik project: satu workspace pribadi per user (`personal_user_id` unik) dan workspace tim. `slug` unik untuk keduanya. `limit_profile_id` opsional. |
 | `workspace_members` | Anggota workspace dengan peran `owner`, `member`, atau `viewer`. Unik per workspace dan user; ikut terhapus bersama workspace atau user. |
-| `workspace_invitations` | Undangan yang masih tertunda: email (huruf kecil), peran, hash SHA-256 token, pengundang, dan masa berlaku. Diterima, ditolak, atau dicabut berarti barisnya dihapus; yang kedaluwarsa dihapus `workspaces:prune-invitations`. |
+| `workspace_invitations` | Undangan: email (huruf kecil), peran, `status` (`pending`, `accepted`, `declined`, `revoked`), hash SHA-256 token, pengundang, masa berlaku, dan `closed_at`. Diterima, ditolak, dicabut, atau diganti berarti barisnya ditutup, bukan dihapus, supaya tautannya bisa menjelaskan kenapa tidak berlaku. `workspaces:prune-invitations` menghapus setiap baris setelah `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS` lewat dari masa berlakunya. |
 | `limit_profiles` | Profil batas yang bisa dipakai ulang: jumlah project, container berjalan, deployment berjalan, memory dan CPU per project, dan `max_builds_per_hour` yang disiapkan untuk batas build. Tidak bisa dihapus selama dipakai workspace. |
 | `legal_acceptances` | Versi dokumen yang disetujui atau diketahui tiap user, dengan waktunya. Append-only, unik per user, dokumen, dan versi; index itu juga melayani pembacaan per user. Ikut terhapus bersama user. |
 | `usage_signal_records` | Sinyal agregat penggunaan dan abuse (deployment attempts, agent failures, rejected limits, dll.) untuk observabilitas pilot. Append-only, diproses secara berkala oleh scheduler. |
@@ -52,7 +52,7 @@ Index dibuat dari query path yang sudah diketahui:
 - daftar project lama per pembuat: `(user_id, status, created_at)`;
 - cek peran di setiap policy: unique `(workspace_id, user_id)` pada `workspace_members`; workspace milik seorang user dan jumlah tim yang ia miliki: `(user_id, role)`;
 - workspace pribadi seorang user: unique `personal_user_id` pada `workspaces`;
-- undangan untuk email pemanggil: `(email)` pada `workspace_invitations`; satu undangan tertunda per alamat: unique `(workspace_id, email)`; lookup token: unique `token_hash`;
+- undangan untuk email pemanggil: `(email)` pada `workspace_invitations`; satu undangan tertunda per alamat: partial unique `(workspace_id, email) WHERE status = 'pending'`, karena baris yang sudah tertutup untuk alamat yang sama boleh lebih dari satu sampai dibersihkan; lookup token: unique `token_hash`;
 - project yang ikut auto-deploy pada satu repository: `(github_repository_id, auto_deploy)` pada `projects`;
 - daftar notifikasi dan jumlah belum dibaca: `(notifiable_type, notifiable_id, created_at)` dan `(notifiable_type, notifiable_id, read_at)`; retensi: `(created_at)`;
 - ringkasan runtime user: `(user_id, runtime_status)`;

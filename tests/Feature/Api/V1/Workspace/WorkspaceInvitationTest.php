@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Enums\NotificationCategory;
+use App\Enums\WorkspaceInvitationStatus;
 use App\Enums\WorkspaceRole;
 use App\Models\AuditEvent;
 use App\Models\User;
@@ -128,7 +129,10 @@ test('inviting a current member is refused; inviting again replaces the pending 
     $first = $this->actingAs($owner, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'new@example.test', 'role' => 'viewer'])->json('data.id');
     $second = $this->actingAs($owner, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'new@example.test', 'role' => 'member'])->json('data.id');
 
-    expect(WorkspaceInvitation::query()->pluck('id')->all())->toBe([$second])
+    expect(WorkspaceInvitation::query()->pending()->pluck('id')->all())->toBe([$second])
+        ->and(WorkspaceInvitation::query()->findOrFail($first)->status)->toBe(WorkspaceInvitationStatus::Revoked)
+        ->and(AuditEvent::query()->where('action', 'workspace.invitation_revoked')->firstOrFail()->metadata)
+        ->toMatchArray(['invitation_id' => $first, 'reason' => 'replaced'])
         ->and($first)->not->toBe($second);
 
     $this->actingAs($owner, 'web')->getJson("/api/v1/app/workspaces/{$team->id}/invitations")
@@ -152,12 +156,16 @@ test('the token from the email lets any verified account accept, once', function
         ->assertJsonPath('data.role', 'member');
 
     expect($team->roleOf($student))->toBe(WorkspaceRole::Member)
-        ->and(WorkspaceInvitation::query()->exists())->toBeFalse()
+        ->and($invitation->refresh()->status)->toBe(WorkspaceInvitationStatus::Accepted)
+        ->and($invitation->closed_at)->not->toBeNull()
         ->and(AuditEvent::query()->where('action', 'workspace.member_joined')->firstOrFail()->metadata)
         ->toMatchArray(['invitation_id' => $invitation->id, 'member_user_id' => $student->id, 'role' => 'member', 'invited_by' => $owner->id]);
 
-    $this->actingAs(User::factory()->create(), 'web')->postJson("/api/v1/app/workspace-invitations/{$invitation->id}/accept", ['token' => $token])
+    $this->actingAs(User::factory()->create(), 'web')->postJson("/api/v1/app/workspace-invitations/{$invitation->id}/accept", ['token' => 'wrong'])
         ->assertNotFound();
+    $this->actingAs(User::factory()->create(), 'web')->postJson("/api/v1/app/workspace-invitations/{$invitation->id}/accept", ['token' => $token])
+        ->assertConflict()
+        ->assertJsonPath('code', 'INVITATION_ALREADY_ACCEPTED');
 });
 
 test('the invited verified address accepts from the in-app list without the token', function (): void {
@@ -207,6 +215,11 @@ test('an expired invitation is refused, and pruned daily', function (): void {
         ->assertConflict()->assertJsonPath('code', 'INVITATION_EXPIRED');
     $this->actingAs($invitee, 'web')->getJson('/api/v1/app/workspace-invitations')->assertJsonCount(0, 'data');
 
+    // Kept for the retention window after expiry, so the link can still say it expired.
+    $this->artisan('workspaces:prune-invitations')->assertSuccessful();
+    expect(WorkspaceInvitation::query()->exists())->toBeTrue();
+
+    $this->travel(7)->days();
     $this->artisan('workspaces:prune-invitations')->assertSuccessful();
 
     expect(WorkspaceInvitation::query()->exists())->toBeFalse();
@@ -236,20 +249,28 @@ test('the invitee declines and an owner revokes', function (): void {
 
     $this->actingAs($invitee, 'web')->postJson("/api/v1/app/workspace-invitations/{$declined->id}/decline")->assertNoContent();
     expect($team->roleOf($invitee))->toBeNull()
-        ->and(WorkspaceInvitation::query()->exists())->toBeFalse()
+        ->and($declined->refresh()->status)->toBe(WorkspaceInvitationStatus::Declined)
         ->and(AuditEvent::query()->where('action', 'workspace.invitation_declined')->exists())->toBeTrue();
+    $this->actingAs($invitee, 'web')->postJson("/api/v1/app/workspace-invitations/{$declined->id}/decline")
+        ->assertConflict()->assertJsonPath('code', 'INVITATION_DECLINED');
 
     $this->actingAs($owner, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'later@example.test', 'role' => 'member']);
     $token = invitationTokenSentTo('later@example.test');
-    $revoked = WorkspaceInvitation::query()->firstOrFail();
+    $revoked = WorkspaceInvitation::query()->pending()->firstOrFail();
     $otherTeam = teamWorkspace($owner);
 
     $this->actingAs($owner, 'web')->deleteJson("/api/v1/app/workspaces/{$otherTeam->id}/invitations/{$revoked->id}")->assertNotFound();
     $this->actingAs($owner, 'web')->deleteJson("/api/v1/app/workspaces/{$team->id}/invitations/{$revoked->id}")->assertNoContent();
 
     $this->actingAs(User::factory()->create(), 'web')->postJson("/api/v1/app/workspace-invitations/{$revoked->id}/accept", ['token' => $token])
+        ->assertConflict()
+        ->assertJsonPath('code', 'INVITATION_REVOKED');
+    $this->actingAs(User::factory()->create(), 'web')->postJson("/api/v1/app/workspace-invitations/{$revoked->id}/accept", ['token' => 'wrong'])
         ->assertNotFound();
-    expect(AuditEvent::query()->where('action', 'workspace.invitation_revoked')->exists())->toBeTrue();
+    // Already revoked: nothing left to revoke, and the owner's list no longer has it.
+    $this->actingAs($owner, 'web')->deleteJson("/api/v1/app/workspaces/{$team->id}/invitations/{$revoked->id}")->assertNotFound();
+    $this->actingAs($owner, 'web')->getJson("/api/v1/app/workspaces/{$team->id}/invitations")->assertOk()->assertJsonCount(0, 'data');
+    expect(AuditEvent::query()->where('action', 'workspace.invitation_revoked')->count())->toBe(1);
 });
 
 test('an owner invitation is accepted only by the invited verified address, even with the token', function (): void {

@@ -33,14 +33,16 @@ final class UserNotifier
         ?string $projectId = null,
         ?string $deploymentId = null,
         bool $mandatory = false,
+        ?string $invitationId = null,
+        ?string $workspaceId = null,
     ): void {
         if ($user === null || (! $mandatory && ! $user->wantsNotification($category))) {
             return;
         }
 
-        DB::afterCommit(static function () use ($user, $category, $title, $message, $projectId, $deploymentId): void {
+        DB::afterCommit(static function () use ($user, $category, $title, $message, $projectId, $deploymentId, $invitationId, $workspaceId): void {
             try {
-                $user->notify(new UserAlertNotification($category, $title, $message, $projectId, $deploymentId));
+                $user->notify(new UserAlertNotification($category, $title, $message, $projectId, $deploymentId, $invitationId, $workspaceId));
             } catch (Throwable $exception) {
                 report($exception);
             }

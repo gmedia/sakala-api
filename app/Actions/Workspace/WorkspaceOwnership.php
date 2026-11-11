@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Workspace;
 
+use App\Enums\WorkspaceInvitationStatus;
 use App\Enums\WorkspaceRole;
 use App\Enums\WorkspaceType;
 use App\Exceptions\Workspace\LastWorkspaceOwnerException;
@@ -60,15 +61,29 @@ final class WorkspaceOwnership
             return;
         }
 
-        $owned = WorkspaceMember::query()
-            ->where('user_id', $locked->id)
-            ->where('role', WorkspaceRole::Owner)
-            ->whereHas('workspace', fn ($query) => $query->where('type', WorkspaceType::Team))
-            ->count();
+        $owned = self::ownedTeamCount($locked);
 
         if ($owned >= $locked->maxOwnedTeams()) {
             throw new TeamLimitExceededException($locked->maxOwnedTeams(), $owned, $actingForSelf);
         }
+    }
+
+    /**
+     * The same rule without the lock, for showing whether an owner invitation
+     * could be accepted. Accepting checks again under the lock.
+     */
+    public static function canOwnAnotherTeam(User $user): bool
+    {
+        return $user->isAdmin() || self::ownedTeamCount($user) < $user->maxOwnedTeams();
+    }
+
+    private static function ownedTeamCount(User $user): int
+    {
+        return WorkspaceMember::query()
+            ->where('user_id', $user->id)
+            ->where('role', WorkspaceRole::Owner)
+            ->whereHas('workspace', fn ($query) => $query->where('type', WorkspaceType::Team))
+            ->count();
     }
 
     /**
@@ -80,11 +95,12 @@ final class WorkspaceOwnership
     {
         WorkspaceInvitation::query()
             ->with('workspace')
+            ->pending()
             ->where('invited_by', $inviterId)
             ->when($workspace !== null, fn ($query) => $query->where('workspace_id', $workspace?->id))
             ->get()
             ->each(function (WorkspaceInvitation $invitation) use ($actor, $reason): void {
-                $invitation->delete();
+                $invitation->update(['status' => WorkspaceInvitationStatus::Revoked, 'closed_at' => now()]);
 
                 WorkspaceAudit::record($actor, 'workspace.invitation_revoked', $invitation->workspace, [
                     'invitation_id' => $invitation->id,

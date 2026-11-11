@@ -105,6 +105,10 @@ return [
         // Teams one user may own; users.max_owned_teams overrides it per user.
         'max_owned_teams_per_user' => (int) env('SAKALA_MAX_OWNED_TEAMS_PER_USER', 2),
         'invitation_ttl_hours' => (int) env('SAKALA_WORKSPACE_INVITATION_TTL_HOURS', 168),
+        // How long an invitation is kept after its expiry, whether it was
+        // answered, revoked, or left alone, so its link can still say why it
+        // stopped working. workspaces:prune-invitations deletes it afterwards.
+        'invitation_retention_hours' => (int) env('SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS', 168),
         // Limits of a team without a limit profile: deliberately small, so
         // creating teams does not multiply quota. A team that needs more gets a
         // limit profile from an admin. Empty values fall back to these defaults;

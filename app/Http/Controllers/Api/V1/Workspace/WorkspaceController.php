@@ -25,7 +25,8 @@ use Illuminate\Support\Facades\Gate;
 final class WorkspaceController extends Controller
 {
     /**
-     * Workspaces the caller belongs to, the personal one first, each with the caller's role.
+     * Workspaces the caller belongs to, the personal one first, each with the caller's role and its project and active
+     * deployment counts.
      */
     public function index(Request $request, CreatePersonalWorkspaceAction $personalWorkspace): AnonymousResourceCollection
     {
@@ -35,6 +36,7 @@ final class WorkspaceController extends Controller
 
         $workspaces = $user->workspaces()
             ->with('limitProfile')
+            ->withSummaryCounts()
             ->orderByRaw("CASE WHEN workspaces.type = 'personal' THEN 0 ELSE 1 END")
             ->orderBy('workspaces.name')
             ->orderBy('workspaces.id')
@@ -122,6 +124,6 @@ final class WorkspaceController extends Controller
     private function asMember(User $user, Workspace $workspace): Workspace
     {
         /** @var Workspace */
-        return $user->workspaces()->with('limitProfile')->whereKey($workspace->id)->firstOrFail();
+        return $user->workspaces()->with('limitProfile')->withSummaryCounts()->whereKey($workspace->id)->firstOrFail();
     }
 }

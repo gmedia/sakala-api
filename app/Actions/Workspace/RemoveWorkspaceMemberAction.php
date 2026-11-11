@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Actions\Workspace;
 
+use App\Enums\NotificationCategory;
 use App\Exceptions\Workspace\WorkspaceIsPersonalException;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMember;
+use App\Services\Notification\UserNotifier;
 use App\Support\Workspace\WorkspaceAudit;
 use Illuminate\Support\Facades\DB;
 
@@ -15,10 +17,15 @@ use Illuminate\Support\Facades\DB;
  * Removes a member, or the caller when leaving. Access ends with the row: every
  * request checks membership afresh. The last owner can be neither removed nor
  * leave. Projects stay with the workspace, and the invitations the member
- * sent are revoked.
+ * sent are revoked. A removed member gets a `workspace` notification; one who
+ * leaves does not.
  */
 final class RemoveWorkspaceMemberAction
 {
+    public function __construct(
+        private readonly UserNotifier $notifier,
+    ) {}
+
     public function handle(User $actor, Workspace $workspace, WorkspaceMember $member): void
     {
         if ($workspace->isPersonal()) {
@@ -43,6 +50,16 @@ final class RemoveWorkspaceMemberAction
                 'member_user_id' => $locked->user_id,
                 'role' => $locked->role->value,
             ]);
+
+            if (! $leaving) {
+                // No workspace_id: the removed member can no longer open it.
+                $this->notifier->send(
+                    User::query()->find($locked->user_id),
+                    NotificationCategory::Workspace,
+                    'Kamu dikeluarkan dari tim',
+                    "{$actor->name} mengeluarkanmu dari {$workspace->name}. Proyek tim itu tidak bisa kamu buka lagi.",
+                );
+            }
         });
     }
 }

@@ -13,7 +13,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_OAUTH_RATE_LIMIT`: request per menit per IP untuk browser OAuth route.
 - `SAKALA_EMAIL_VERIFICATION_RATE_LIMIT`: request pengiriman ulang email verifikasi per menit berdasarkan email ternormalisasi dan IP (default `5`).
 - `SAKALA_PASSWORD_RESET_RATE_LIMIT`: request lupa dan reset kata sandi per menit berdasarkan email ternormalisasi dan IP (default `5`).
-- `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT`: request ganti kata sandi dan email per menit per user (default `5`).
+- `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT`: request ganti kata sandi dan email, serta membaca, menerima, dan menolak undangan workspace, per menit per user (default `5`, dihitung bersama).
 - `SAKALA_INSPECTION_RATE_LIMIT`: permintaan inspeksi ulang per menit per user (default `5`).
 - `SAKALA_ACCOUNT_EXPORT_RATE_LIMIT`: ekspor data per jam per user (default `3`).
 - `SAKALA_WORKSPACE_INVITATION_RATE_LIMIT`: undangan workspace per jam per user (default `20`), karena setiap undangan mengirim email ke alamat pilihan pengguna.
@@ -25,6 +25,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_DELETED_PROJECT_RETENTION_DAYS`: berapa hari project yang dihapus disimpan sebelum `projects:purge-deleted` menghapusnya permanen (default `30`, minimal `1`). `GET /api/v1/app/pilot-limits` menyajikannya sebagai `deleted_project_retention_days`, jadi console tidak perlu menyimpan salinannya. Lihat [Menghapus Project](API_CONVENTIONS.md#menghapus-project).
 - `SAKALA_MAX_OWNED_TEAMS_PER_USER`: jumlah workspace tim yang boleh dimiliki satu user (default `2`). `users.max_owned_teams` menaikkannya per user.
 - `SAKALA_WORKSPACE_INVITATION_TTL_HOURS`: masa berlaku undangan workspace dalam jam (default `168`).
+- `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS`: berapa jam undangan, tertutup atau tidak, disimpan setelah masa berlakunya sebelum `workspaces:prune-invitations` menghapusnya (default `168`). Selama itu tautannya masih menjelaskan kenapa tidak berlaku. Lihat [Undangan](API_CONVENTIONS.md#undangan).
 - `SAKALA_MAX_PROJECTS_PER_USER`, `SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_USER`, `SAKALA_MAX_CONTAINER_MEMORY_MB`, `SAKALA_MAX_CONTAINER_CPU_MILLIS`: batas workspace pribadi yang tidak punya profil batas. Namanya lebih tua dari workspace; artinya per workspace. `SAKALA_MAX_ACTIVE_CONTAINERS_PER_WORKSPACE` membatasi container berjalan, dan bila kosong sama dengan jumlah project, sehingga tidak pernah membatasi.
 - `SAKALA_TEAM_MAX_PROJECTS` (default `2`), `SAKALA_TEAM_MAX_ACTIVE_CONTAINERS` (default `2`), `SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS` (default `1`): batas workspace tim tanpa profil batas. Sengaja kecil dan tidak mengikuti batas pribadi, supaya membuat tim tidak menggandakan kuota; nilai kosong memakai default ini. `SAKALA_TEAM_MAX_CONTAINER_MEMORY_MB` dan `SAKALA_TEAM_MAX_CONTAINER_CPU_MILLIS` yang kosong memakai batas pribadi. Lihat [Batas Workspace](API_CONVENTIONS.md#batas-workspace).
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.

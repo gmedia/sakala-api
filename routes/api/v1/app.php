@@ -153,6 +153,10 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
     // Invitations addressed to the caller
     Route::get('/workspace-invitations', [WorkspaceInvitationController::class, 'mine'])
         ->name('api.v1.app.workspace-invitations.index');
+    Route::get('/workspace-invitations/{invitation}', [WorkspaceInvitationController::class, 'show'])
+        ->whereUuid('invitation')
+        ->middleware('throttle:account-security')
+        ->name('api.v1.app.workspace-invitations.show');
     Route::post('/workspace-invitations/{invitation}/accept', [WorkspaceInvitationController::class, 'accept'])
         ->whereUuid('invitation')
         ->middleware('throttle:account-security')

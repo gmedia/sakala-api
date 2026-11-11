@@ -22,6 +22,13 @@ final class WorkspaceResource extends JsonResource
     {
         $profile = $this->resource->limit_profile_id === null ? null : $this->resource->limitProfile;
 
+        // Callers load these with withSummaryCounts(); a single workspace without them is counted here.
+        $attributes = $this->resource->getAttributes();
+
+        if (! array_key_exists('projects_count', $attributes) || ! array_key_exists('active_deployments_count', $attributes)) {
+            $this->resource->loadSummaryCounts();
+        }
+
         return [
             'id' => $this->resource->id,
             'name' => $this->resource->name,
@@ -36,6 +43,13 @@ final class WorkspaceResource extends JsonResource
              * The limit profile attached by an admin, or null for the default of the workspace type.
              */
             'limit_profile' => $profile === null ? null : ['id' => $profile->id, 'name' => $profile->name],
+            /** Projects in the workspace, not counting deleted ones waiting for purge. */
+            'projects_count' => (int) $this->resource->projects_count,
+            /**
+             * Deployments queued or running in the workspace right now, the number its concurrent deployment limit
+             * counts.
+             */
+            'active_deployments_count' => (int) $this->resource->active_deployments_count,
             'created_at' => $this->resource->created_at?->toAtomString(),
         ];
     }

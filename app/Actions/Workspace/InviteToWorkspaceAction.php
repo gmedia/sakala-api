@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Workspace;
 
 use App\Enums\NotificationCategory;
+use App\Enums\WorkspaceInvitationStatus;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Workspace\AlreadyWorkspaceMemberException;
 use App\Exceptions\Workspace\WorkspaceIsPersonalException;
@@ -22,9 +23,11 @@ use Throwable;
 
 /**
  * Invites an address with a role. Inviting the same address again replaces the
- * pending invitation: a new token, a new expiry, the new role, and a new email,
- * so the earlier link stops working. An account already using the address, with
- * the email verified, also sees an in-app notice; it never contains the token.
+ * pending invitation: a new token, a new expiry, the new role, and a new email.
+ * The earlier one is closed as revoked, so its link answers INVITATION_REVOKED.
+ * An account already using the address, with the email verified, also sees an
+ * in-app notice, unless it switched the `workspace` category off; it never
+ * contains the token. The email is always sent: it is the invitation.
  */
 final class InviteToWorkspaceAction
 {
@@ -54,7 +57,20 @@ final class InviteToWorkspaceAction
                 throw new AlreadyWorkspaceMemberException;
             }
 
-            WorkspaceInvitation::query()->where('workspace_id', $workspace->id)->where('email', $email)->delete();
+            WorkspaceInvitation::query()
+                ->pending()
+                ->where('workspace_id', $workspace->id)
+                ->where('email', $email)
+                ->get()
+                ->each(function (WorkspaceInvitation $replaced) use ($actor, $workspace): void {
+                    $replaced->update(['status' => WorkspaceInvitationStatus::Revoked, 'closed_at' => now()]);
+
+                    WorkspaceAudit::record($actor, 'workspace.invitation_revoked', $workspace, [
+                        'invitation_id' => $replaced->id,
+                        'role' => $replaced->role->value,
+                        'reason' => 'replaced',
+                    ]);
+                });
 
             $invitation = WorkspaceInvitation::query()->create([
                 'workspace_id' => $workspace->id,
@@ -93,7 +109,8 @@ final class InviteToWorkspaceAction
                 $invitee,
                 NotificationCategory::Workspace,
                 'Undangan workspace tim',
-                "{$actor->name} mengundangmu bergabung ke {$workspace->name}. Buka daftar undangan untuk menerima atau menolaknya.",
+                "{$actor->name} mengundangmu bergabung ke {$workspace->name}. Buka undangannya untuk menerima atau menolak.",
+                invitationId: $invitation->id,
             );
 
             return $invitation->load(['workspace', 'inviter']);

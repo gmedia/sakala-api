@@ -4,21 +4,28 @@ declare(strict_types=1);
 
 namespace App\Actions\Workspace;
 
+use App\Enums\NotificationCategory;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Workspace\WorkspaceIsPersonalException;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMember;
+use App\Services\Notification\UserNotifier;
 use App\Support\Workspace\WorkspaceAudit;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Owners change roles. Demoting the last owner is refused, promoting someone
  * to owner respects their owned-team cap, and an owner who is demoted loses
- * the invitations they sent.
+ * the invitations they sent. The member gets a `workspace` notification unless
+ * they changed their own role.
  */
 final class ChangeWorkspaceMemberRoleAction
 {
+    public function __construct(
+        private readonly UserNotifier $notifier,
+    ) {}
+
     public function handle(User $actor, Workspace $workspace, WorkspaceMember $member, WorkspaceRole $role): WorkspaceMember
     {
         if ($workspace->isPersonal()) {
@@ -60,6 +67,16 @@ final class ChangeWorkspaceMemberRoleAction
                 'from' => $previous->value,
                 'to' => $role->value,
             ]);
+
+            if ($locked->user_id !== $actor->id) {
+                $this->notifier->send(
+                    User::query()->find($locked->user_id),
+                    NotificationCategory::Workspace,
+                    'Peranmu di tim berubah',
+                    "{$actor->name} mengubah peranmu di {$workspace->name} dari {$previous->label()} menjadi {$role->label()}.",
+                    workspaceId: $workspace->id,
+                );
+            }
 
             return $locked;
         });

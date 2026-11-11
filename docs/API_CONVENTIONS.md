@@ -80,10 +80,13 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek. | `workspaces` (`id`, `name`, `slug`) |
 | `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek. | `projects` |
 | `TEAM_LIMIT_EXCEEDED` | `422` | Menjadi owner satu tim lagi akan melewati batas tim yang dimiliki: membuat tim, menerima undangan owner, atau dijadikan owner. | `limit`, `current` |
-| `INVITATION_EMAIL_MISMATCH` | `403` | Menerima undangan sebagai `owner` dari akun yang email terverifikasinya bukan alamat undangan, walaupun membawa token. | - |
+| `INVITATION_EMAIL_MISMATCH` | `403` | Menerima undangan sebagai `owner` dari akun yang email terverifikasinya bukan alamat undangan, walaupun membawa token. Saat membaca undangan, kode ini muncul di `accept_error_code`, bukan sebagai error. | - |
 | `EMAIL_VERIFICATION_REQUIRED` | `403` | Membuat atau bergabung ke tim dengan email yang belum diverifikasi. | - |
 | `ALREADY_WORKSPACE_MEMBER` | `409` | Mengundang alamat milik anggota, atau menerima undangan saat sudah menjadi anggota. | - |
-| `INVITATION_EXPIRED` | `409` | Menerima undangan yang sudah kedaluwarsa. | - |
+| `INVITATION_EXPIRED` | `409` | Membaca, menerima, atau menolak undangan yang sudah kedaluwarsa, dengan bukti yang benar. | - |
+| `INVITATION_ALREADY_ACCEPTED` | `409` | Membaca, menerima, atau menolak undangan yang sudah diterima, dengan bukti yang benar. | - |
+| `INVITATION_DECLINED` | `409` | Membaca, menerima, atau menolak undangan yang sudah ditolak, dengan bukti yang benar. | - |
+| `INVITATION_REVOKED` | `409` | Membaca, menerima, atau menolak undangan yang dicabut owner, diganti undangan baru ke alamat yang sama, atau ikut dicabut karena pengundangnya kehilangan peran owner, dengan bukti yang benar. | - |
 | `ORIGIN_NOT_ALLOWED` | `403` | `/broadcasting/auth` dari origin selain Console. Lihat [Autentikasi](AUTHENTICATION.md#cookie-dan-aplikasi-pengguna). | - |
 | `ADMIN_SELF_DEMOTION` | `409` | Admin mencabut peran admin dari akunnya sendiri lewat API admin. | - |
 | `LAST_ADMIN` | `409` | Mencabut peran admin akan membuat Sakala tanpa admin. | - |
@@ -389,7 +392,7 @@ Tim selalu punya setidaknya satu owner: pemilik terakhir tidak bisa keluar, dike
 
 | Endpoint | Siapa | Hasil |
 | --- | --- | --- |
-| `GET /api/v1/app/workspaces` | Pengguna | Workspace pemanggil, yang pribadi lebih dulu, masing-masing dengan `role` pemanggil. |
+| `GET /api/v1/app/workspaces` | Pengguna | Workspace pemanggil, yang pribadi lebih dulu, masing-masing dengan `role` pemanggil, `projects_count`, dan `active_deployments_count`. |
 | `POST /api/v1/app/workspaces` | Email terverifikasi | `201`. Body `name` (maks. 100) dan `slug` opsional (format username, maks. 50, unik; dibuat dari nama bila kosong). Pemanggil menjadi owner. |
 | `GET /api/v1/app/workspaces/{workspace}` | Anggota | Workspace dengan `role` pemanggil. |
 | `PATCH /api/v1/app/workspaces/{workspace}` | Owner tim | Body `name`. `slug` tidak berubah. |
@@ -398,10 +401,11 @@ Tim selalu punya setidaknya satu owner: pemilik terakhir tidak bisa keluar, dike
 | `GET /api/v1/app/workspaces/{workspace}/members` | Anggota | `id` (ID keanggotaan), `role`, `joined_at`, `user` (`id`, `name`, `username`, `avatar_url`). `user.email` hanya untuk owner. |
 | `PATCH /api/v1/app/workspaces/{workspace}/members/{member}` | Owner tim | Body `role`. |
 | `DELETE /api/v1/app/workspaces/{workspace}/members/{member}` | Owner tim | `204`. Keanggotaan dari workspace lain dijawab `404`. |
-| `GET /api/v1/app/workspaces/{workspace}/invitations` | Owner tim | Undangan yang masih tertunda, termasuk yang kedaluwarsa sampai dibersihkan. |
+| `GET /api/v1/app/workspaces/{workspace}/invitations` | Owner tim | Undangan yang masih tertunda, termasuk yang kedaluwarsa sampai dibersihkan. Yang sudah diterima, ditolak, atau dicabut tidak ikut. |
 | `POST /api/v1/app/workspaces/{workspace}/invitations` | Owner tim | `201`. Body `email` dan `role`. Lihat "Undangan". |
-| `DELETE /api/v1/app/workspaces/{workspace}/invitations/{invitation}` | Owner tim | `204`. Tautan di email langsung tidak berlaku. |
-| `GET /api/v1/app/workspace-invitations` | Pengguna | Undangan yang belum kedaluwarsa untuk email terverifikasi pemanggil. |
+| `DELETE /api/v1/app/workspaces/{workspace}/invitations/{invitation}` | Owner tim | `204`. Tautan di email langsung tidak berlaku dan menjawab `INVITATION_REVOKED`. Undangan yang sudah tidak tertunda dijawab `404`. |
+| `GET /api/v1/app/workspace-invitations` | Pengguna | Undangan tertunda yang belum kedaluwarsa untuk email terverifikasi pemanggil. |
+| `GET /api/v1/app/workspace-invitations/{invitation}` | Pemegang tautan | Detail undangan tanpa alamat email. Query `token` opsional. Lihat "Membaca undangan". |
 | `POST /api/v1/app/workspace-invitations/{invitation}/accept` | Penerima | `WorkspaceResource` dengan peran barunya. Body `token` opsional. |
 | `POST /api/v1/app/workspace-invitations/{invitation}/decline` | Penerima | `204`. Body `token` opsional. |
 
@@ -413,16 +417,41 @@ User dengan email terverifikasi boleh membuat tim (`403 EMAIL_VERIFICATION_REQUI
 
 ### Undangan
 
-Owner mengundang alamat email dengan peran. API mengirim email lewat mailer yang sama dengan email akun, jadi endpoint ini dijawab `503 EMAIL_DELIVERY_UNAVAILABLE` saat pengiriman email mati, dan dibatasi `SAKALA_WORKSPACE_INVITATION_RATE_LIMIT` per jam per user. Email berisi tautan `SAKALA_CONSOLE_URL/workspace-invitations/{id}?token=...`; token hanya ada di email, dan baris undangan menyimpan hash SHA-256-nya. Undangan berlaku `SAKALA_WORKSPACE_INVITATION_TTL_HOURS` (default 168 jam), lalu dihapus `workspaces:prune-invitations` yang berjalan harian. Mengundang alamat yang sama lagi mengganti undangan yang tertunda: token, masa berlaku, peran, dan emailnya baru, dan tautan lama tidak berlaku lagi. Alamat milik anggota dijawab `409 ALREADY_WORKSPACE_MEMBER`.
+Owner mengundang alamat email dengan peran. API mengirim email lewat mailer yang sama dengan email akun, jadi endpoint ini dijawab `503 EMAIL_DELIVERY_UNAVAILABLE` saat pengiriman email mati, dan dibatasi `SAKALA_WORKSPACE_INVITATION_RATE_LIMIT` per jam per user. Email berisi tautan `SAKALA_CONSOLE_URL/workspace-invitations/{id}?token=...`; token hanya ada di email, dan baris undangan menyimpan hash SHA-256-nya. Undangan berlaku `SAKALA_WORKSPACE_INVITATION_TTL_HOURS` (default 168 jam). Mengundang alamat yang sama lagi mengganti undangan yang tertunda: token, masa berlaku, peran, dan emailnya baru, dan tautan lama menjawab `INVITATION_REVOKED`. Alamat milik anggota dijawab `409 ALREADY_WORKSPACE_MEMBER`.
 
-Akun yang sudah memakai alamat itu dengan email terverifikasi juga menerima notifikasi `workspace`, tanpa token. Undangan bisa diterima dengan dua cara:
+Menerima, menolak, mencabut, atau mengganti undangan menutup barisnya (`status` menjadi `accepted`, `declined`, atau `revoked`, dengan `closed_at`), tidak menghapusnya, supaya pemegang tautan tahu kenapa tautannya tidak berlaku lagi. Setiap undangan, tertutup atau tidak, dihapus `workspaces:prune-invitations` (harian) setelah lewat `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS` (default 168 jam) dari masa berlakunya. Setelah itu tautannya menjawab `404`.
+
+Akun yang sudah memakai alamat itu dengan email terverifikasi juga menerima notifikasi `workspace` berisi `invitation_id`, tanpa token, kecuali kategori `workspace` dimatikan. Email undangan selalu dikirim, karena email itulah undangannya. Undangan bisa diterima dengan dua cara:
 
 - dengan `token` dari email, dari akun terverifikasi mana pun, karena tautan itu buktinya, seperti undangan email pada umumnya;
 - tanpa token, oleh akun yang email terverifikasinya sama dengan alamat undangan.
 
 Undangan sebagai `owner` lebih ketat: hanya akun yang email terverifikasinya sama dengan alamat undangan (tanpa membedakan huruf besar dan kecil) yang bisa menerimanya, dengan atau tanpa token. Tautan yang diteruskan ke orang lain tidak boleh menyerahkan tim; akun lain yang membawa token dijawab `403 INVITATION_EMAIL_MISMATCH`. Undangan `member` dan `viewer` tetap bisa diterima dengan token dari akun terverifikasi mana pun.
 
-Selain itu jawabannya `404`, sehingga ID undangan tidak membocorkan apa pun. Akun yang belum terverifikasi dijawab `403 EMAIL_VERIFICATION_REQUIRED`, undangan kedaluwarsa `409 INVITATION_EXPIRED`, dan anggota yang sudah ada `409 ALREADY_WORKSPACE_MEMBER`. Menerima atau menolak menghabiskan undangan.
+Membaca, menerima, dan menolak memeriksa dengan urutan yang sama:
+
+1. Tanpa token yang benar (dibandingkan dalam waktu konstan) dan bukan alamat undangan yang terverifikasi: `404` dengan body yang sama persis seperti ID yang tidak ada, apa pun status undangannya. Pemegang token yang salah tidak bisa tahu undangan itu ada.
+2. Akun yang belum terverifikasi: `403 EMAIL_VERIFICATION_REQUIRED`.
+3. Sudah diterima, ditolak, atau dicabut: `409 INVITATION_ALREADY_ACCEPTED`, `INVITATION_DECLINED`, atau `INVITATION_REVOKED`.
+4. Lewat masa berlaku: `409 INVITATION_EXPIRED`.
+
+Setelah itu, menerima masih bisa dijawab `403 INVITATION_EMAIL_MISMATCH` (undangan `owner` dari akun lain), `409 ALREADY_WORKSPACE_MEMBER`, atau `422 TEAM_LIMIT_EXCEEDED` (undangan `owner`). Menerima atau menolak menutup undangan. Menolak undangan yang sudah kedaluwarsa kini dijawab `409 INVITATION_EXPIRED`, karena tidak ada lagi yang perlu ditolak.
+
+#### Membaca undangan
+
+`GET /api/v1/app/workspace-invitations/{invitation}?token=` dipakai halaman tautan undangan di Console, sehingga undangan tetap bisa dibuka walaupun dikirim ke alamat lain dan tidak muncul di daftar undangan akun itu. Endpoint ini memakai bukti dan urutan jawaban di atas, dan rate limit yang sama dengan menerima dan menolak (`SAKALA_ACCOUNT_SECURITY_RATE_LIMIT` per menit per user, dihitung bersama). Jawabannya `WorkspaceInvitationDetailsResource`:
+
+| Field | Tipe | Arti |
+| --- | --- | --- |
+| `id` | string (UUID) | ID undangan. |
+| `role` | `owner`, `member`, atau `viewer` | Peran yang ditawarkan. |
+| `expires_at` | string (ISO 8601) | Batas waktu menerima. |
+| `created_at` | string (ISO 8601) atau `null` | Waktu undangan dibuat. |
+| `workspace` | object | `id`, `name`, `slug` tim. |
+| `invited_by` | object atau `null` | `id`, `name`, `username` pengundang; `null` bila akunnya sudah dihapus. |
+| `restricted_to_invited_email` | boolean | `true` untuk undangan `owner`: hanya akun dengan alamat undangan yang terverifikasi yang bisa menerimanya. Alamatnya tidak pernah disertakan. |
+| `can_accept` | boolean | Apakah akun ini bisa menerimanya sekarang. |
+| `accept_error_code` | `INVITATION_EMAIL_MISMATCH`, `ALREADY_WORKSPACE_MEMBER`, `TEAM_LIMIT_EXCEEDED`, atau `null` | Kode yang akan dijawab bila akun ini menerima sekarang; `null` bila `can_accept` bernilai `true`. Menerima tetap memeriksa ulang di bawah row lock. |
 
 ### Batas Workspace
 
@@ -466,7 +495,16 @@ Perubahan dicatat di `audit_events` dengan subject workspace, hanya berisi ID da
 
 ## Notifikasi
 
-Notifikasi in-app memakai database notification Laravel. Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email), dan `workspace` (undangan tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`.
+Notifikasi in-app memakai database notification Laravel. Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email), dan `workspace` (tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`, default `true`.
+
+Kategori `workspace` dikirim untuk:
+
+- undangan ke alamat terverifikasi akun, dengan `invitation_id`;
+- undangan yang diterima, ke pengundangnya, dengan `invitation_id` dan `workspace_id`;
+- perubahan peran oleh owner lain, ke anggota itu, dengan `workspace_id`;
+- dikeluarkan dari tim oleh owner, ke anggota itu, tanpa `workspace_id` karena timnya tidak bisa dibuka lagi.
+
+Keluar sendiri atau mengubah peran sendiri tidak mengirim apa pun. Email undangan tidak terpengaruh preferensi ini.
 
 Notifikasi project sampai ke owner dan member workspace-nya, tidak ke viewer; di workspace pribadi itu berarti pemiliknya, sama seperti sebelumnya. Kabar deployment (`deployment_success`, `deployment_failure`) hanya sampai ke orang yang memintanya selama ia masih owner atau member, dan ke semua owner serta member bila tidak.
 
@@ -480,7 +518,7 @@ Notifikasi project sampai ke owner dan member workspace-nya, tidak ke viewer; di
 
 Satu crash menghasilkan satu notifikasi `project_issue`: heartbeat berikutnya yang masih melaporkan crash tidak mengirim lagi, begitu juga setelah redeploy gagal, dan pemulihan tidak mengirim apa pun. Crash baru setelah workload pulih mengirim lagi. Selama ada deployment baru yang berjalan, heartbeat tidak mengubah `runtime_status`.
 
-Bentuk item: `id`, `category`, `title`, `message`, `project_id`, `deployment_id`, `read_at`, `created_at`. Kategori yang dimatikan tidak membuat notifikasi sama sekali, kecuali pemberitahuan penangguhan. Notifikasi baru juga dibroadcast pada channel privat `users.{id}` dengan event `notification.created` dan field yang sama. Kiriman terjadi setelah transaksi commit, dan kegagalannya dilaporkan tanpa menggagalkan laporan agent yang memicunya.
+Bentuk item: `id`, `category`, `title`, `message`, `project_id`, `deployment_id`, `invitation_id`, `workspace_id`, `read_at`, `created_at`. Empat ID itu string atau `null`; `invitation_id` dan `workspace_id` hanya diisi notifikasi `workspace`, dan notifikasi lama tidak memilikinya. Kategori yang dimatikan tidak membuat notifikasi sama sekali, kecuali pemberitahuan penangguhan. Notifikasi baru juga dibroadcast pada channel privat `users.{id}` dengan event `notification.created` dan field yang sama. Kiriman terjadi setelah transaksi commit, dan kegagalannya dilaporkan tanpa menggagalkan laporan agent yang memicunya.
 
 Tidak ada data contoh di luar test. Notifikasi lebih tua dari `SAKALA_NOTIFICATION_RETENTION_DAYS` dihapus `notifications:prune`, dijadwalkan harian.
 

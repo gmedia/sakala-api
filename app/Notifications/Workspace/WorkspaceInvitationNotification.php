@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Notifications\Workspace;
 
+use App\Enums\WorkspaceRole;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -50,10 +51,6 @@ final class WorkspaceInvitationNotification extends Notification implements Shou
 
     private function roleLabel(): string
     {
-        return match ($this->role) {
-            'owner' => 'pemilik',
-            'viewer' => 'pengamat',
-            default => 'anggota',
-        };
+        return (WorkspaceRole::tryFrom($this->role) ?? WorkspaceRole::Member)->label();
     }
 }

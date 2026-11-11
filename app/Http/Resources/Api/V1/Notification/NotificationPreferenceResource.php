@@ -15,7 +15,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 final class NotificationPreferenceResource extends JsonResource
 {
     /**
-     * @return array{deployment_success: bool, deployment_failure: bool, project_issue: bool, account_security: bool}
+     * @return array{deployment_success: bool, deployment_failure: bool, project_issue: bool, account_security: bool, workspace: bool}
      */
     public function toArray(Request $request): array
     {
@@ -30,6 +30,11 @@ final class NotificationPreferenceResource extends JsonResource
             'project_issue' => $preferences[NotificationCategory::ProjectIssue->value],
             /** @var bool */
             'account_security' => $preferences[NotificationCategory::AccountSecurity->value],
+            /**
+             * Invitations to an account's verified address, and changes to its team memberships. Invitation emails are
+             * sent regardless, since they are the invitation itself.
+             */
+            'workspace' => $preferences[NotificationCategory::Workspace->value],
         ];
     }
 }

@@ -318,7 +318,13 @@ test('preferences default to on and update per category', function (): void {
             'deployment_failure' => true,
             'project_issue' => true,
             'account_security' => true,
+            'workspace' => true,
         ]]);
+
+    $this->patchJson(route('api.v1.app.notification-preferences.update'), ['workspace' => false])
+        ->assertOk()
+        ->assertJsonPath('data.workspace', false)
+        ->assertJsonPath('data.account_security', true);
 
     $this->patchJson(route('api.v1.app.notification-preferences.update'), ['deployment_success' => false])
         ->assertOk()
