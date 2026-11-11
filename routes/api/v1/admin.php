@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\PilotValidationMetricsController;
 use App\Http\Controllers\Api\V1\Admin\ProjectControlController;
 use App\Http\Controllers\Api\V1\Admin\UsageSignalsController;
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function (): void {
 
     // Dashboard
+    Route::get('overview', OverviewController::class);
 
     // Projects, with the stop, suspend, unsuspend, and reconcile controls
     Route::post('projects/{project}/stop', [ProjectControlController::class, 'stop']);

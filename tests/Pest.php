@@ -55,6 +55,7 @@ expect()->extend('toBeOne', function () {
     return $this->toBe(1);
 });
 
+require_once __DIR__.'/Support/AdminFixtures.php';
 require_once __DIR__.'/Support/AgentHeartbeatPayload.php';
 require_once __DIR__.'/Support/AgentProtocolFixtures.php';
 require_once __DIR__.'/Support/PgsqlConcurrency.php';
