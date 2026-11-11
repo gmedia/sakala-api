@@ -9,6 +9,7 @@ use App\Console\Commands\MarkOfflineAgentNodesCommand;
 use App\Console\Commands\PruneDeploymentLogsCommand;
 use App\Console\Commands\PruneNotificationsCommand;
 use App\Console\Commands\PruneUsageSignalsCommand;
+use App\Console\Commands\PruneWorkspaceInvitationsCommand;
 use App\Console\Commands\PurgeDeletedProjectsCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -50,6 +51,11 @@ Schedule::command(PruneNotificationsCommand::class)
     ->onOneServer();
 
 Schedule::command(PurgeDeletedProjectsCommand::class)
+    ->daily()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(PruneWorkspaceInvitationsCommand::class)
     ->daily()
     ->withoutOverlapping()
     ->onOneServer();

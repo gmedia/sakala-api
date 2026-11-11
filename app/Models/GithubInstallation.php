@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property string $id
  * @property int $github_installation_id
+ * @property string $account_type `User` or `Organization`, as GitHub reports it.
  * @property GithubInstallationStatus $status
  */
 #[Fillable(['github_installation_id', 'account_id', 'account_login', 'account_type', 'repository_selection', 'permissions', 'status', 'suspended_at', 'removed_at'])]

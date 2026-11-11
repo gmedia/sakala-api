@@ -8,6 +8,7 @@ use App\Enums\DeploymentStatus;
 use App\Enums\NotificationCategory;
 use App\Enums\RuntimeStatus;
 use App\Enums\UserRole;
+use App\Enums\WorkspaceRole;
 use App\Http\Requests\Api\V1\Auth\DeleteAccountRequest;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
@@ -20,6 +21,9 @@ use App\Models\LegalAcceptance;
 use App\Models\OAuthAccount;
 use App\Models\Project;
 use App\Models\User;
+use App\Models\Workspace;
+use App\Models\WorkspaceInvitation;
+use App\Models\WorkspaceMember;
 use App\Notifications\Account\AccountDeletedNotification;
 use App\Services\Notification\UserNotifier;
 use Illuminate\Database\QueryException;
@@ -339,4 +343,82 @@ test('without email delivery the account still goes and nothing is sent', functi
 
     Notification::assertNothingSent();
     expect($user->fresh())->toBeNull();
+});
+
+test('the last owner of a team that still has projects cannot delete the account, and nothing is touched', function (): void {
+    $user = User::factory()->create();
+    $team = teamWorkspace($user, [[User::factory()->create(), WorkspaceRole::Member]], ['name' => 'Tim Facility']);
+    Project::factory()->inWorkspace($team)->create();
+    $personalProject = Project::factory()->for($user)->create();
+
+    deleteAccount($this, $user)
+        ->assertConflict()
+        ->assertJsonPath('code', 'LAST_WORKSPACE_OWNER')
+        ->assertJsonPath('workspaces.0.id', $team->id)
+        ->assertJsonPath('workspaces.0.name', 'Tim Facility');
+
+    expect(User::query()->whereKey($user->id)->exists())->toBeTrue()
+        ->and(Project::query()->whereKey($personalProject->id)->exists())->toBeTrue();
+});
+
+test('deleting an account removes the personal workspace and memberships, deletes empty teams it owned alone, and leaves other teams', function (): void {
+    $user = User::factory()->create();
+    $coOwner = User::factory()->create();
+    $personal = $user->personalWorkspace()->firstOrFail();
+    $personalProject = Project::factory()->for($user)->create();
+    $emptyTeam = teamWorkspace($user, [[User::factory()->create(), WorkspaceRole::Viewer]]);
+    $sharedTeam = teamWorkspace($coOwner, [[$user, WorkspaceRole::Owner]]);
+    $teamProject = Project::factory()->inWorkspace($sharedTeam, $user)->create();
+    $memberTeam = teamWorkspace(User::factory()->create(), [[$user, WorkspaceRole::Member]]);
+
+    deleteAccount($this, $user)->assertNoContent();
+
+    expect(Workspace::query()->whereKey($personal->id)->exists())->toBeFalse()
+        ->and(Workspace::query()->whereKey($emptyTeam->id)->exists())->toBeFalse()
+        ->and(Workspace::query()->whereKey($sharedTeam->id)->exists())->toBeTrue()
+        ->and(Workspace::query()->whereKey($memberTeam->id)->exists())->toBeTrue()
+        ->and(WorkspaceMember::query()->where('user_id', $user->id)->exists())->toBeFalse()
+        ->and(Project::query()->whereKey($personalProject->id)->exists())->toBeFalse()
+        ->and(Project::withTrashed()->whereKey($personalProject->id)->first()?->workspace_id)->toBeNull()
+        // The team keeps the project; only its creator is gone.
+        ->and(Project::query()->whereKey($teamProject->id)->first()?->user_id)->toBeNull()
+        ->and(Project::query()->whereKey($teamProject->id)->first()?->workspace_id)->toBe($sharedTeam->id)
+        ->and(AuditEvent::query()->where('action', 'workspace.deleted')->where('subject_id', $emptyTeam->id)->exists())->toBeTrue();
+});
+
+test('an installation a team project still uses survives the deletion of the account that connected it', function (): void {
+    $user = User::factory()->create();
+    $team = teamWorkspace(User::factory()->create(), [[$user, WorkspaceRole::Member]]);
+    $installation = GithubInstallation::factory()->create(['account_type' => 'Organization']);
+    $installation->users()->attach($user, ['last_verified_at' => now()]);
+    Project::factory()->inWorkspace($team, $user)->create(['github_installation_id' => $installation->id, 'github_repository_id' => 9]);
+
+    deleteAccount($this, $user)->assertNoContent();
+
+    expect(GithubInstallation::query()->whereKey($installation->id)->exists())->toBeTrue();
+});
+
+test('deleting an account without a personal workspace never touches ownerless projects', function (): void {
+    $user = User::factory()->create();
+    $user->personalWorkspace()->firstOrFail()->delete();
+    $ownerless = Project::factory()->create();
+    $variable = EnvironmentVariable::factory()->for($ownerless)->create();
+    $ownerless->delete();
+    Project::withTrashed()->whereKey($ownerless->id)->update(['user_id' => null, 'workspace_id' => null]);
+
+    deleteAccount($this, $user)->assertNoContent();
+
+    expect(EnvironmentVariable::query()->whereKey($variable->id)->exists())->toBeTrue();
+});
+
+test('deleting an account revokes the invitations it sent', function (): void {
+    config(['sakala.email_delivery_enabled' => true]);
+    Notification::fake();
+    $user = User::factory()->create();
+    $team = teamWorkspace(User::factory()->create(), [[$user, WorkspaceRole::Owner]]);
+    $this->actingAs($user, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'x@example.test', 'role' => 'member'])->assertCreated();
+
+    deleteAccount($this, $user)->assertNoContent();
+
+    expect(WorkspaceInvitation::query()->count())->toBe(0);
 });

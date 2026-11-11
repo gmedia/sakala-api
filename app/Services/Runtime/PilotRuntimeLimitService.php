@@ -9,29 +9,85 @@ use App\Data\Runtime\LogBoundsData;
 use App\Data\Runtime\PilotQuotaLimitsData;
 use App\Data\Runtime\RuntimeResourceLimitsData;
 use App\Data\Runtime\RuntimeTimeoutLimitsData;
+use App\Data\Runtime\WorkspaceLimitsData;
+use App\Enums\WorkspaceType;
+use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\ProjectLimitExceededException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
+use App\Models\Workspace;
+use Illuminate\Database\Eloquent\Builder;
 
 class PilotRuntimeLimitService
 {
+    public const TEAM_DEFAULT_MAX_PROJECTS = 2;
+
+    public const TEAM_DEFAULT_MAX_ACTIVE_CONTAINERS = 2;
+
+    public const TEAM_DEFAULT_MAX_ACTIVE_DEPLOYMENTS = 1;
+
     /**
-     * Resolve effective runtime limits based on requested limits and pilot configuration.
+     * The workspace's limit profile, or the default for its type. A personal
+     * workspace without a profile runs under exactly the pilot limits every
+     * account had before workspaces. A team without one gets the small team
+     * defaults (2 projects, 2 running containers, 1 deployment at a time), never
+     * the personal values, so creating teams does not multiply quota.
+     */
+    public function limitsFor(Workspace $workspace): WorkspaceLimitsData
+    {
+        $profile = $workspace->limit_profile_id === null ? null : $workspace->limitProfile;
+
+        if ($profile !== null) {
+            return WorkspaceLimitsData::fromProfile($profile);
+        }
+
+        $maxProjects = (int) config('sakala.pilot_limits.max_projects_per_user', 3);
+        $personal = new WorkspaceLimitsData(
+            max_projects: $maxProjects,
+            max_active_containers: self::configuredOr('sakala.pilot_limits.max_active_containers_per_workspace', $maxProjects),
+            max_active_deployments: (int) config('sakala.pilot_limits.max_active_deployments_per_user', 2),
+            max_memory_mb: (int) config('sakala.pilot_limits.resources.max_memory_mb', 512),
+            max_cpu_millis: (int) config('sakala.pilot_limits.resources.max_cpu_millis', 1000),
+            max_builds_per_hour: null,
+        );
+
+        if ($workspace->type === WorkspaceType::Personal) {
+            return $personal;
+        }
+
+        $team = static fn (string $key, int $fallback): int => self::configuredOr("sakala.workspaces.team_limits.{$key}", $fallback);
+
+        return new WorkspaceLimitsData(
+            max_projects: $team('max_projects', self::TEAM_DEFAULT_MAX_PROJECTS),
+            max_active_containers: $team('max_active_containers', self::TEAM_DEFAULT_MAX_ACTIVE_CONTAINERS),
+            max_active_deployments: $team('max_active_deployments', self::TEAM_DEFAULT_MAX_ACTIVE_DEPLOYMENTS),
+            max_memory_mb: $team('max_memory_mb', $personal->max_memory_mb),
+            max_cpu_millis: $team('max_cpu_millis', $personal->max_cpu_millis),
+            max_builds_per_hour: null,
+        );
+    }
+
+    /**
+     * Resolve effective runtime limits from the requested resources and the
+     * caps of the workspace that owns the project. The default never exceeds
+     * the cap, so a profile with a small cap still deploys without a request.
      *
      * @throws ResourceLimitExceededException
      */
     public function resolveEffectiveLimits(
         ?RuntimeResourceLimitsData $requested = null,
-        ?User $user = null,
+        ?Workspace $workspace = null,
     ): EffectiveRuntimeLimitsData {
-        $defaultMemory = (int) config('sakala.pilot_limits.resources.default_memory_mb', 256);
-        $maxMemory = (int) config('sakala.pilot_limits.resources.max_memory_mb', 512);
+        $limits = $workspace === null ? null : $this->limitsFor($workspace);
 
-        $defaultCpu = (int) config('sakala.pilot_limits.resources.default_cpu_millis', 500);
-        $maxCpu = (int) config('sakala.pilot_limits.resources.max_cpu_millis', 1000);
+        $maxMemory = $limits->max_memory_mb ?? (int) config('sakala.pilot_limits.resources.max_memory_mb', 512);
+        $defaultMemory = min((int) config('sakala.pilot_limits.resources.default_memory_mb', 256), $maxMemory);
+
+        $maxCpu = $limits->max_cpu_millis ?? (int) config('sakala.pilot_limits.resources.max_cpu_millis', 1000);
+        $defaultCpu = min((int) config('sakala.pilot_limits.resources.default_cpu_millis', 500), $maxCpu);
 
         $defaultPids = (int) config('sakala.pilot_limits.resources.default_pids_limit', 128);
         $maxPids = (int) config('sakala.pilot_limits.resources.max_pids_limit', 256);
@@ -82,34 +138,44 @@ class PilotRuntimeLimitService
     }
 
     /**
-     * Check whether a user is allowed to create another project under pilot quota.
+     * Whether the workspace may hold another project. Admins acting anywhere
+     * are not limited, as before workspaces.
+     *
+     * The caller holds the workspace row lock inside a transaction, so two
+     * creations cannot both read the count below the limit.
      *
      * @throws ProjectLimitExceededException
      */
-    public function checkProjectCreationLimit(User $user): void
+    public function checkProjectCreationLimit(User $actor, Workspace $workspace): void
     {
-        if ($user->isAdmin()) {
+        if ($actor->isAdmin()) {
             return;
         }
 
-        $maxProjects = (int) config('sakala.pilot_limits.max_projects_per_user', 3);
-
-        // Assumes caller holds a lock on the user record (e.g. User::lockForUpdate()) within an active transaction for atomicity
-        $currentCount = Project::where('user_id', $user->id)->count();
+        $maxProjects = $this->limitsFor($workspace)->max_projects;
+        $currentCount = Project::query()->where('workspace_id', $workspace->id)->count();
 
         if ($currentCount >= $maxProjects) {
-            throw new ProjectLimitExceededException($maxProjects, $currentCount);
+            throw new ProjectLimitExceededException(
+                limit: $maxProjects,
+                current: $currentCount,
+                workspaceId: $workspace->id,
+                team: ! $workspace->isPersonal(),
+            );
         }
     }
 
     /**
-     * Check whether a project deployment can be triggered under active deployment limits.
+     * Check whether a project deployment can be triggered under the workspace's
+     * limits. The caller holds the workspace and project row locks inside a
+     * transaction.
      *
      * @throws ActiveDeploymentLimitExceededException
+     * @throws ActiveContainerLimitExceededException
      */
-    public function checkActiveDeploymentLimit(User $user, Project $project): void
+    public function checkActiveDeploymentLimit(User $actor, Project $project): void
     {
-        if ($user->isAdmin()) {
+        if ($actor->isAdmin()) {
             return;
         }
 
@@ -126,44 +192,84 @@ class PilotRuntimeLimitService
             );
         }
 
-        $maxPerUser = (int) config('sakala.pilot_limits.max_active_deployments_per_user', 2);
-        $userActiveCount = Deployment::whereHas('project', function ($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })
-            ->active()
-            ->count();
+        $workspace = $project->workspace;
 
-        if ($userActiveCount >= $maxPerUser) {
+        if ($workspace === null) {
+            return;
+        }
+
+        $limits = $this->limitsFor($workspace);
+        $workspaceActiveCount = $this->activeDeploymentsIn($workspace);
+
+        if ($workspaceActiveCount >= $limits->max_active_deployments) {
             throw new ActiveDeploymentLimitExceededException(
-                limit: $maxPerUser,
-                current: $userActiveCount,
-                scope: 'user',
+                limit: $limits->max_active_deployments,
+                current: $workspaceActiveCount,
+                // `user` is what the console already knows for a personal workspace.
+                scope: $workspace->isPersonal() ? 'user' : 'workspace',
             );
+        }
+
+        // Redeploying a project that already serves replaces its container.
+        if ($project->active_deployment_id !== null) {
+            return;
+        }
+
+        $containers = $this->activeContainersIn($workspace, except: $project);
+
+        if ($containers >= $limits->max_active_containers) {
+            throw new ActiveContainerLimitExceededException($limits->max_active_containers, $containers);
         }
     }
 
     /**
-     * Get summary of quotas and current usage for the given user.
+     * Quotas and current usage of one workspace, for the console.
      */
-    public function getPilotQuotaLimits(User $user): PilotQuotaLimitsData
+    public function getPilotQuotaLimits(Workspace $workspace): PilotQuotaLimitsData
     {
-        $maxProjects = (int) config('sakala.pilot_limits.max_projects_per_user', 3);
-        $maxActiveUser = (int) config('sakala.pilot_limits.max_active_deployments_per_user', 2);
-        $maxActiveProject = (int) config('sakala.pilot_limits.max_active_deployments_per_project', 1);
-
-        $currentProjects = Project::where('user_id', $user->id)->count();
-        $currentActiveDeployments = Deployment::whereHas('project', function ($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })
-            ->active()
-            ->count();
+        $limits = $this->limitsFor($workspace);
 
         return new PilotQuotaLimitsData(
-            max_projects_per_user: $maxProjects,
-            max_active_deployments_per_user: $maxActiveUser,
-            max_active_deployments_per_project: $maxActiveProject,
-            current_projects_count: $currentProjects,
-            current_active_deployments_count: $currentActiveDeployments,
+            workspace_id: $workspace->id,
+            max_projects_per_user: $limits->max_projects,
+            max_active_deployments_per_user: $limits->max_active_deployments,
+            max_active_deployments_per_project: (int) config('sakala.pilot_limits.max_active_deployments_per_project', 1),
+            current_projects_count: Project::query()->where('workspace_id', $workspace->id)->count(),
+            current_active_deployments_count: $this->activeDeploymentsIn($workspace),
+            max_active_containers: $limits->max_active_containers,
+            current_active_containers_count: $this->activeContainersIn($workspace),
+            limits: $limits,
         );
+    }
+
+    /** An unset or empty variable (`KEY=` in .env) means "use the fallback", never 0. */
+    private static function configuredOr(string $key, int $fallback): int
+    {
+        $value = config($key);
+
+        return filled($value) ? (int) $value : $fallback;
+    }
+
+    private function activeDeploymentsIn(Workspace $workspace): int
+    {
+        return Deployment::query()
+            ->whereIn('project_id', Project::query()->select('id')->where('workspace_id', $workspace->id))
+            ->active()
+            ->count();
+    }
+
+    /**
+     * Projects that serve, or are being deployed and will serve, so two
+     * deployments racing for the last slot cannot both pass.
+     */
+    private function activeContainersIn(Workspace $workspace, ?Project $except = null): int
+    {
+        return Project::query()
+            ->where('workspace_id', $workspace->id)
+            ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except?->id))
+            ->where(fn (Builder $query) => $query
+                ->whereNotNull('active_deployment_id')
+                ->orWhereHas('deployments', fn (Builder $deployments) => $deployments->active()))
+            ->count();
     }
 }

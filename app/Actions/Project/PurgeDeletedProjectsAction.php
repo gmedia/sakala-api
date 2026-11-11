@@ -18,6 +18,7 @@ use App\Models\Project;
 use App\Models\RetiredProjectSlug;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -211,8 +212,8 @@ final class PurgeDeletedProjectsAction
         $commands = $this->commandsOf($project)->delete();
         $deployments = Deployment::query()->where('project_id', $project->id)->delete();
 
-        // No owner left means the account was deleted, notifications included.
-        $project->user?->notifications()->where('data->project_id', $project->id)->delete();
+        // Everyone who was told about the project, members who left included.
+        DatabaseNotification::query()->where('data->project_id', $project->id)->delete();
 
         RetiredProjectSlug::query()->insertOrIgnore(['slug' => $project->slug, 'retired_at' => now()]);
 

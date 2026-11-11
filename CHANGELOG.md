@@ -4,6 +4,26 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- Workspaces own projects (#122). Every user has one personal workspace, created with the account and backfilled for existing users by migration, which also moves their projects into it; `projects.user_id` stays as the creator. Teams are workspaces of type `team` with roles `owner`, `member`, and `viewer`. Creating a project without `workspace_id` still uses the personal workspace, so solo use is unchanged.
+- Workspace endpoints under `api/v1/app`: list, create, show, rename, and delete teams (`workspaces`), leave a team, list members, change roles, remove members, invite by email, list and revoke invitations, and list, accept, or decline invitations addressed to you (`workspace-invitations`). Users with a verified email may own up to `SAKALA_MAX_OWNED_TEAMS_PER_USER` teams (default 2); `users.max_owned_teams` raises it per user. The cap applies to creating a team, accepting an owner invitation, and being promoted to owner.
+- Invitation tokens are single use, stored as a SHA-256 hash, valid for `SAKALA_WORKSPACE_INVITATION_TTL_HOURS` (default 168), sent through the existing mailer (`503 EMAIL_DELIVERY_UNAVAILABLE` while email is off), limited by `SAKALA_WORKSPACE_INVITATION_RATE_LIMIT` per hour, and pruned daily by `workspaces:prune-invitations`. An existing account with the invited verified address also gets an in-app notification in the new `workspace` category. Owner invitations are accepted only by the invited verified address (`403 INVITATION_EMAIL_MISMATCH`). An owner who leaves, is removed or demoted, or deletes the account revokes the invitations they sent.
+- Limit profiles (`limit_profiles`): max projects, max running containers, max concurrent deployments, per-project memory and CPU caps, and `max_builds_per_hour` reserved for #124. A personal workspace without one keeps exactly the previous pilot limits. A team without one gets small team defaults (2 projects, 2 running containers, 1 deployment at a time, from `SAKALA_TEAM_MAX_*`), so creating teams does not multiply quota.
+- New error codes: `INVITATION_EMAIL_MISMATCH`, `WORKSPACE_IS_PERSONAL`, `LAST_WORKSPACE_OWNER`, `WORKSPACE_NOT_EMPTY`, `TEAM_LIMIT_EXCEEDED`, `EMAIL_VERIFICATION_REQUIRED`, `ALREADY_WORKSPACE_MEMBER`, `INVITATION_EXPIRED`, and `ACTIVE_CONTAINER_LIMIT_EXCEEDED`. `ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED` gains `scope: workspace` for teams.
+- Additive fields: `workspace` on project resources (detail, list, and create), `workspace_id` on project create and as a filter on the project list, and `workspace_id`, `limit_profile`, `quotas.max_active_containers`, and `quotas.current_active_containers_count` on `GET app/pilot-limits`, which also accepts `workspace_id`. Account export gains `account.workspaces`.
+- Audit events for workspace creation, rename, and deletion, membership, role, invitation, and limit profile changes.
+
+### Changed
+
+- Every project-scoped endpoint authorizes through workspace membership: any member reads, owners and members change and deploy, viewers never change anything or read a secret value. Non-members keep the generic 403. Admins keep their powers.
+- Limits count per workspace under a row lock on the workspace instead of the user. Project creation locks the user and then the workspace; deployment creation locks the workspace and then the project.
+- The project list without `workspace_id` covers every workspace the caller belongs to; for a user without teams that is the same list as before.
+- Project notifications reach the workspace's owners and members (in a personal workspace, its owner, as before). Deployment notifications go to the person who requested the deployment while they can still act on the project.
+- GitHub access for team projects rests on a current owner or member who is linked to the project's installation with a GitHub identity (the creator first, then the longest-standing owner, then member); with nobody left it is revoked. On an organisation installation that person only anchors the access; elsewhere their token must still read the repository. A repository removed from an installation now refuses the credential lease with `409 repository_access_revoked` instead of a server error.
+- Deleting an account deletes the personal workspace and its projects, removes memberships, deletes empty teams the account owned alone, keeps team projects it created without a creator, and is refused with `409 LAST_WORKSPACE_OWNER` while it is the last owner of a team that still has projects. Every team the account owns is locked before sole ownership is decided, so two owners leaving at once cannot leave a team without one.
+- A push to a team project deploys as its creator while they can deploy there, otherwise as the longest-standing owner.
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

@@ -18,5 +18,7 @@ final readonly class CreateProjectData
         /** @var array<string, int|string|null> */
         public array $buildConfiguration = [],
         public bool $autoDeploy = false,
+        /** Null means the creator's personal workspace. */
+        public ?string $workspaceId = null,
     ) {}
 }

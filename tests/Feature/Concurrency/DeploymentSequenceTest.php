@@ -39,7 +39,7 @@ beforeEach(function () {
     ]);
 });
 
-test('concurrent deployments for the same user across projects are serialized by the user row lock', function () {
+test('concurrent deployments in the same workspace across projects are serialized by the workspace row lock', function () {
     Queue::fake();
 
     config([
@@ -99,7 +99,7 @@ test('concurrent deployments for the same user across projects are serialized by
 
         try {
             // Drive the real action on session B while transaction A still holds the
-            // user row lock. It must stall on the lock before it can count deployments.
+            // workspace row lock. It must stall on the lock before it can count deployments.
             DB::setDefaultConnection($secondary);
 
             $action->handle(
@@ -109,7 +109,7 @@ test('concurrent deployments for the same user across projects are serialized by
             );
         } catch (QueryException $e) {
             // SQLSTATE 55P03 = lock_not_available: session B is genuinely held by the
-            // user row lock taken by transaction A inside CreateDeploymentAction.
+            // workspace row lock taken by transaction A inside CreateDeploymentAction.
             expect($e->getCode())->toBe('55P03');
 
             $secondRequestException = $e;
@@ -133,7 +133,7 @@ test('concurrent deployments for the same user across projects are serialized by
     }
 
     // Once transaction A is committed, a fresh request for project B acquires the
-    // now-free lock and observes the committed deployment, enforcing the user quota.
+    // now-free lock and observes the committed deployment, enforcing the workspace quota.
     $quotaException = null;
 
     expect(fn () => $action->handle(

@@ -5,9 +5,16 @@ declare(strict_types=1);
 namespace App\Policies;
 
 use App\Enums\ProjectStatus;
+use App\Enums\WorkspaceRole;
 use App\Models\Project;
 use App\Models\User;
 
+/**
+ * Access goes through the workspace that owns the project: any member reads,
+ * owners and members change and deploy, viewers never change anything and never
+ * read a secret value (revealing one is `update`). Admins keep every power.
+ * Everyone else gets the generic 403.
+ */
 final class ProjectPolicy
 {
     /**
@@ -35,7 +42,7 @@ final class ProjectPolicy
      */
     public function view(User $user, Project $project): bool
     {
-        return $user->id === $project->user_id;
+        return $this->roleOf($user, $project) !== null;
     }
 
     /**
@@ -47,11 +54,12 @@ final class ProjectPolicy
     }
 
     /**
-     * Determine whether the user can update the model.
+     * Determine whether the user can update the model, its environment
+     * variables included, and read a secret value.
      */
     public function update(User $user, Project $project): bool
     {
-        return $user->id === $project->user_id;
+        return $this->managesProjects($user, $project);
     }
 
     /**
@@ -59,7 +67,7 @@ final class ProjectPolicy
      */
     public function delete(User $user, Project $project): bool
     {
-        return $user->id === $project->user_id;
+        return $this->managesProjects($user, $project);
     }
 
     /**
@@ -71,7 +79,7 @@ final class ProjectPolicy
             return false;
         }
 
-        return $user->id === $project->user_id;
+        return $this->managesProjects($user, $project);
     }
 
     /**
@@ -80,7 +88,7 @@ final class ProjectPolicy
      */
     public function cancelDeployment(User $user, Project $project): bool
     {
-        return $user->id === $project->user_id;
+        return $this->managesProjects($user, $project);
     }
 
     /**
@@ -114,5 +122,15 @@ final class ProjectPolicy
     public function reconcile(User $user, Project $project): bool
     {
         return false;
+    }
+
+    private function managesProjects(User $user, Project $project): bool
+    {
+        return $this->roleOf($user, $project)?->managesProjects() === true;
+    }
+
+    private function roleOf(User $user, Project $project): ?WorkspaceRole
+    {
+        return $project->workspace_id === null ? null : $project->workspace?->roleOf($user);
     }
 }

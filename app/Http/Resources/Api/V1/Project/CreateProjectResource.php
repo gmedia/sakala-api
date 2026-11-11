@@ -6,6 +6,7 @@ namespace App\Http\Resources\Api\V1\Project;
 
 use App\Models\Project;
 use App\Support\Project\ProjectPreviewPresenter;
+use App\Support\Workspace\WorkspaceSummaryPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -49,6 +50,10 @@ final class CreateProjectResource extends JsonResource
             /** @var bool */
             'auto_deploy' => (bool) $this->resource->auto_deploy,
             'inspection_error_code' => $this->resource->inspection_error_code,
+            /**
+             * The workspace that owns the project. Null only for a project that is being purged.
+             */
+            'workspace' => WorkspaceSummaryPresenter::forProject($this->resource),
             'created_at' => $this->resource->created_at->toAtomString(),
         ];
     }

@@ -6,7 +6,7 @@ Panduan ini berlaku untuk AI agent dan Codex yang bekerja di `sakala-api`.
 
 - Repository ini adalah Laravel API/control plane, bukan frontend.
 - Jangan menambahkan Blade UI, Inertia, Fortify starter flow, Vite, Tailwind, atau package JavaScript.
-- Jangan menambahkan Team/Membership sebelum kontrak domain disetujui.
+- Project dimiliki workspace (pribadi atau tim, lihat `docs/API_CONVENTIONS.md#workspace`). Otorisasi project selalu lewat keanggotaan dan peran workspace, bukan `projects.user_id`; kolom itu hanya pembuat. Batas dihitung per workspace.
 - Console browser memakai Sanctum SPA cookie; agent/machine client memakai bearer token terpisah.
 - Console dan API tidak boleh mengakses Docker socket. Runtime operation hanya milik `sakala-agent`.
 - Jangan hardcode secret, credential, token, atau origin produksi.
@@ -30,7 +30,7 @@ Panduan ini berlaku untuk AI agent dan Codex yang bekerja di `sakala-api`.
 - Alokasi deployment sequence, claim command, dan perubahan state yang bersaing wajib dilakukan dalam transaction.
 - Secret memakai encrypted cast atau hash satu arah dan harus disembunyikan dari serialization.
 - Seeder development harus idempotent, bebas credential nyata, dan dibatasi ke environment `local`/`testing`.
-- Jangan menambahkan workspace/team, custom domain, atau layanan managed sebelum kontrak MVP berubah.
+- Jangan menambahkan custom domain atau layanan managed sebelum kontrak MVP berubah.
 
 ## Laravel Conventions
 

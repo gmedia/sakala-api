@@ -7,6 +7,7 @@ namespace App\Http\Resources\Api\V1\Project;
 use App\Models\Project;
 use App\Support\Project\ProjectPreviewPresenter;
 use App\Support\Project\ProjectSuspensionPresenter;
+use App\Support\Workspace\WorkspaceSummaryPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -77,6 +78,10 @@ final class ProjectResource extends JsonResource
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()
                 : null,
+            /**
+             * The workspace that owns the project. Null only for a project that is being purged.
+             */
+            'workspace' => WorkspaceSummaryPresenter::forProject($this->resource),
             'created_at' => $this->resource->created_at?->toAtomString(),
             'updated_at' => $this->resource->updated_at?->toAtomString(),
         ];

@@ -111,12 +111,11 @@ final class UnsuspendProjectAction
                 tags: ['action_code' => 'manual_unsuspend'],
             );
 
-            $this->notifier->send(
-                $locked->user,
+            $this->notifier->sendToProject(
+                $locked,
                 NotificationCategory::ProjectIssue,
                 'Proyek dibuka kembali',
                 "{$locked->name} sudah tidak ditangguhkan. Deploy ulang untuk menjalankannya lagi.",
-                $locked->id,
                 mandatory: true,
             );
 

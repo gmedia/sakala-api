@@ -76,17 +76,19 @@ test('it allows project creation within quota and throws when exceeded', functio
 
     config(['sakala.pilot_limits.max_projects_per_user' => 2]);
 
+    $workspace = $user->personalWorkspace()->firstOrFail();
+
     // 0 projects: allowed
-    $this->service->checkProjectCreationLimit($user);
+    $this->service->checkProjectCreationLimit($user, $workspace);
 
     // Create 1 project: allowed
     Project::factory()->for($user)->create();
-    $this->service->checkProjectCreationLimit($user);
+    $this->service->checkProjectCreationLimit($user, $workspace);
 
     // Create 2nd project: at limit, next attempt throws
     Project::factory()->for($user)->create();
 
-    expect(fn () => $this->service->checkProjectCreationLimit($user))
+    expect(fn () => $this->service->checkProjectCreationLimit($user, $workspace))
         ->toThrow(ProjectLimitExceededException::class);
 });
 
@@ -126,7 +128,7 @@ test('it allows admin to bypass project quota and active deployment limits', fun
     ]);
 
     // Admin should not throw
-    $this->service->checkProjectCreationLimit($admin);
+    $this->service->checkProjectCreationLimit($admin, $admin->personalWorkspace()->firstOrFail());
     $this->service->checkActiveDeploymentLimit($admin, $project);
 
     expect(true)->toBeTrue();

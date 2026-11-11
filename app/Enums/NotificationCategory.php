@@ -10,4 +10,5 @@ enum NotificationCategory: string
     case DeploymentFailure = 'deployment_failure';
     case ProjectIssue = 'project_issue';
     case AccountSecurity = 'account_security';
+    case Workspace = 'workspace';
 }

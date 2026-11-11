@@ -14,6 +14,7 @@ use App\Enums\RepositoryAccess;
 use App\Enums\RepositoryAccessState;
 use App\Enums\UsageSignalType;
 use App\Exceptions\GitHub\GithubRateLimitedException;
+use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
@@ -24,6 +25,7 @@ use App\Models\Deployment;
 use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Services\Agent\AgentNodeSchedulerService;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\GitHub\GithubRepositoryAccessService;
@@ -69,6 +71,7 @@ final class CreateDeploymentAction
     private const LIMIT_EXCEPTION_MAP = [
         ActiveDeploymentLimitExceededException::class => [
             'user' => 'max_active_deployments_per_user',
+            'workspace' => 'max_active_deployments_per_workspace',
             'project' => 'max_active_deployments_per_project',
         ],
         ResourceLimitExceededException::class => [
@@ -149,11 +152,11 @@ final class CreateDeploymentAction
             return $existing;
         }
 
-        // Early and clear for the owner. The lease checks again, and is also what
-        // decides when GitHub cannot answer here.
+        // Early and clear for whoever deploys. The lease checks again, and is
+        // also what decides when GitHub cannot answer here.
         if ($project->github_installation_id !== null
             && $project->github_repository_id !== null
-            && $this->repositoryAccess->forOwner($project) === RepositoryAccessState::Revoked) {
+            && $this->repositoryAccess->forProject($project) === RepositoryAccessState::Revoked) {
             throw new RepositoryAccessRevokedException;
         }
 
@@ -173,12 +176,14 @@ final class CreateDeploymentAction
                 $commit,
                 &$created
             ) {
-                // Lock user record to ensure atomic active deployment quota
-                // across different projects
-                User::query()
-                    ->whereKey($user->id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
+                // The workspace row first: its quotas span all of its projects,
+                // so two deployments in one workspace are counted one at a time.
+                if ($project->workspace_id !== null) {
+                    Workspace::query()
+                        ->whereKey($project->workspace_id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+                }
 
                 /** @var Project $lockedProject */
                 $lockedProject = Project::query()
@@ -200,7 +205,7 @@ final class CreateDeploymentAction
                     throw new ProjectSuspendedException;
                 }
 
-                // Enforce active deployment limits under user and project lock
+                // Enforce the workspace's limits under the workspace and project lock
                 $this->runtimeLimitService->checkActiveDeploymentLimit(
                     $user,
                     $lockedProject,
@@ -209,7 +214,7 @@ final class CreateDeploymentAction
                 // Resolve effective runtime limits
                 $effectiveLimits = $this->runtimeLimitService->resolveEffectiveLimits(
                     $data->requested_resources,
-                    $user,
+                    $lockedProject->workspace,
                 );
 
                 $sequence = (int) $lockedProject->deployments()->max('sequence') + 1;
@@ -307,6 +312,15 @@ final class CreateDeploymentAction
                 count: 1,
                 scope: $e->scope,
                 tags: ['limit_name' => $limitName],
+            );
+
+            throw $e;
+        } catch (ActiveContainerLimitExceededException $e) {
+            $this->recordAction->handle(
+                type: UsageSignalType::RejectedLimits,
+                count: 1,
+                scope: 'workspace',
+                tags: ['limit_name' => 'max_active_containers'],
             );
 
             throw $e;

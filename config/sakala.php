@@ -28,6 +28,8 @@ return [
         'inspection' => (int) env('SAKALA_INSPECTION_RATE_LIMIT', 5),
         // Per hour, unlike the others: an export is the heaviest read a user can ask for.
         'account_export' => (int) env('SAKALA_ACCOUNT_EXPORT_RATE_LIMIT', 3),
+        // Per hour per user: each invitation sends an email to an address the user chose.
+        'workspace_invitations' => (int) env('SAKALA_WORKSPACE_INVITATION_RATE_LIMIT', 20),
     ],
 
     // Current versions of the published documents, stored per user on acceptance.
@@ -99,10 +101,32 @@ return [
         'repeat_failure_threshold' => (int) env('SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD', 3),
     ],
 
+    'workspaces' => [
+        // Teams one user may own; users.max_owned_teams overrides it per user.
+        'max_owned_teams_per_user' => (int) env('SAKALA_MAX_OWNED_TEAMS_PER_USER', 2),
+        'invitation_ttl_hours' => (int) env('SAKALA_WORKSPACE_INVITATION_TTL_HOURS', 168),
+        // Limits of a team without a limit profile: deliberately small, so
+        // creating teams does not multiply quota. A team that needs more gets a
+        // limit profile from an admin. Empty values fall back to these defaults;
+        // memory and CPU fall back to the personal caps.
+        'team_limits' => [
+            'max_projects' => env('SAKALA_TEAM_MAX_PROJECTS', 2),
+            'max_active_containers' => env('SAKALA_TEAM_MAX_ACTIVE_CONTAINERS', 2),
+            'max_active_deployments' => env('SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS', 1),
+            'max_memory_mb' => env('SAKALA_TEAM_MAX_CONTAINER_MEMORY_MB'),
+            'max_cpu_millis' => env('SAKALA_TEAM_MAX_CONTAINER_CPU_MILLIS'),
+        ],
+    ],
+
+    // Limits of a personal workspace without a limit profile; the per_user names
+    // predate workspaces and now mean "per workspace".
     'pilot_limits' => [
         'max_projects_per_user' => (int) env('SAKALA_MAX_PROJECTS_PER_USER', 3),
         'max_active_deployments_per_user' => (int) env('SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_USER', 2),
         'max_active_deployments_per_project' => (int) env('SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT', 1),
+        // Projects serving or being deployed at once. Null follows max_projects_per_user,
+        // which can never bind, so the default changes nothing.
+        'max_active_containers_per_workspace' => env('SAKALA_MAX_ACTIVE_CONTAINERS_PER_WORKSPACE'),
         'resources' => [
             'default_memory_mb' => (int) env('SAKALA_DEFAULT_CONTAINER_MEMORY_MB', 256),
             'max_memory_mb' => (int) env('SAKALA_MAX_CONTAINER_MEMORY_MB', 512),

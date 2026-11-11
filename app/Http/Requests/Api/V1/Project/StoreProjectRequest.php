@@ -8,9 +8,12 @@ use App\Data\Project\CreateProjectData;
 use App\Enums\GithubRepositorySource;
 use App\Http\Requests\Concerns\ValidatesBuildConfiguration;
 use App\Models\Project;
+use App\Models\Workspace;
 use App\Rules\GithubRepositoryUrl;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 final class StoreProjectRequest extends FormRequest
 {
@@ -38,7 +41,18 @@ final class StoreProjectRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()->can('create', Project::class);
+        if (! $this->user()->can('create', Project::class)) {
+            return false;
+        }
+
+        // Unknown IDs fall through to validation; a workspace the caller cannot
+        // create projects in is the generic 403, like another person's project.
+        $workspaceId = $this->input('workspace_id');
+        $workspace = is_string($workspaceId) && Str::isUuid($workspaceId)
+            ? Workspace::query()->find($workspaceId)
+            : null;
+
+        return $workspace === null || $this->user()->can('createProject', $workspace);
     }
 
     /**
@@ -57,6 +71,8 @@ final class StoreProjectRequest extends FormRequest
             'repository.installation_id' => ['required_if:repository.type,github_installation', 'prohibited_unless:repository.type,github_installation', 'uuid'],
             'repository.repository_id' => ['required_if:repository.type,github_installation', 'prohibited_unless:repository.type,github_installation', 'integer', 'min:1'],
             'branch' => ['required', 'string', 'max:255'],
+            // Optional: without it the project goes to the caller's personal workspace.
+            'workspace_id' => ['sometimes', 'nullable', 'uuid', Rule::exists('workspaces', 'id')],
             ...$this->buildConfigurationRules(),
         ];
     }
@@ -76,6 +92,7 @@ final class StoreProjectRequest extends FormRequest
             githubRepositoryId: isset($repository['repository_id']) ? (int) $repository['repository_id'] : null,
             buildConfiguration: $this->buildConfiguration(),
             autoDeploy: $this->boolean('auto_deploy'),
+            workspaceId: $this->validated('workspace_id'),
         );
     }
 }

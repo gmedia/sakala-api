@@ -97,12 +97,11 @@ final class ReconcileCrashedWorkloadsAction
             if ($nextStatus === RuntimeStatus::Crashed && $deployment->crash_notified_at === null) {
                 $deployment->update(['crash_notified_at' => now()]);
 
-                $this->notifier->send(
-                    $project->user,
+                $this->notifier->sendToProject(
+                    $project,
                     NotificationCategory::ProjectIssue,
                     'Aplikasi berhenti',
                     "{$project->name} berhenti sendiri dan mungkin sedang dimulai ulang, jadi aksesnya bisa terputus-putus. Buka log deployment untuk melihat penyebabnya.",
-                    $project->id,
                     $deployment->id,
                 );
             }

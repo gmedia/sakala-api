@@ -1,6 +1,6 @@
 # Database
 
-Sakala API memakai PostgreSQL sebagai source of truth untuk metadata control plane. Schema MVP sengaja tidak memasukkan workspace/team, custom domain, managed database, atau storage karena fitur tersebut belum termasuk kontrak MVP.
+Sakala API memakai PostgreSQL sebagai source of truth untuk metadata control plane. Schema sengaja belum memasukkan custom domain, managed database, atau storage karena fitur tersebut belum termasuk kontrak MVP.
 
 ## Identitas
 
@@ -29,10 +29,14 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `deployment_events` | Timeline state yang dilaporkan agent. |
 | `deployment_logs` | Output redacted dari build/runtime. |
 | `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. |
+| `workspaces` | Pemilik project: satu workspace pribadi per user (`personal_user_id` unik) dan workspace tim. `slug` unik untuk keduanya. `limit_profile_id` opsional. |
+| `workspace_members` | Anggota workspace dengan peran `owner`, `member`, atau `viewer`. Unik per workspace dan user; ikut terhapus bersama workspace atau user. |
+| `workspace_invitations` | Undangan yang masih tertunda: email (huruf kecil), peran, hash SHA-256 token, pengundang, dan masa berlaku. Diterima, ditolak, atau dicabut berarti barisnya dihapus; yang kedaluwarsa dihapus `workspaces:prune-invitations`. |
+| `limit_profiles` | Profil batas yang bisa dipakai ulang: jumlah project, container berjalan, deployment berjalan, memory dan CPU per project, dan `max_builds_per_hour` yang disiapkan untuk batas build. Tidak bisa dihapus selama dipakai workspace. |
 | `legal_acceptances` | Versi dokumen yang disetujui atau diketahui tiap user, dengan waktunya. Append-only, unik per user, dokumen, dan versi; index itu juga melayani pembacaan per user. Ikut terhapus bersama user. |
 | `usage_signal_records` | Sinyal agregat penggunaan dan abuse (deployment attempts, agent failures, rejected limits, dll.) untuk observabilitas pilot. Append-only, diproses secara berkala oleh scheduler. |
 
-Project dimiliki langsung oleh user selama MVP. Project dari GitHub App menyimpan installation UUID dan repository ID; project URL publik tidak memerlukan installation. Model workspace/team baru boleh ditambahkan setelah ownership dan policy multi-user disetujui.
+Project dimiliki workspace (`projects.workspace_id`), dan `projects.user_id` adalah pembuatnya. Keduanya nullable hanya untuk project yang sudah dihapus dan menunggu purge setelah akun atau timnya hilang; foreign key keduanya `RESTRICT`, jadi project hidup menahan penghapusan workspace dan user. Migrasi `move_projects_into_workspaces` membuat workspace pribadi untuk setiap user yang sudah ada (slug sama dengan username) dalam batch per 500 user, lalu memindahkan project dengan satu `UPDATE`; rollback ditolak setelah ada tim. Project dari GitHub App menyimpan installation UUID dan repository ID; project URL publik tidak memerlukan installation. Lihat [Workspace](API_CONVENTIONS.md#workspace).
 
 ## Status dan Enum
 
@@ -44,7 +48,11 @@ Nilai `AgentCommandType`, `AgentCommandStatus`, `DeploymentEventLevel`, dan `Log
 
 Index dibuat dari query path yang sudah diketahui:
 
-- daftar project user: `(user_id, status, created_at)`;
+- daftar project workspace dan jumlah project untuk kuota: `(workspace_id, created_at)` pada `projects`;
+- daftar project lama per pembuat: `(user_id, status, created_at)`;
+- cek peran di setiap policy: unique `(workspace_id, user_id)` pada `workspace_members`; workspace milik seorang user dan jumlah tim yang ia miliki: `(user_id, role)`;
+- workspace pribadi seorang user: unique `personal_user_id` pada `workspaces`;
+- undangan untuk email pemanggil: `(email)` pada `workspace_invitations`; satu undangan tertunda per alamat: unique `(workspace_id, email)`; lookup token: unique `token_hash`;
 - project yang ikut auto-deploy pada satu repository: `(github_repository_id, auto_deploy)` pada `projects`;
 - daftar notifikasi dan jumlah belum dibaca: `(notifiable_type, notifiable_id, created_at)` dan `(notifiable_type, notifiable_id, read_at)`; retensi: `(created_at)`;
 - ringkasan runtime user: `(user_id, runtime_status)`;

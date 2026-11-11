@@ -7,6 +7,7 @@ namespace App\Actions\Project;
 use App\Data\Project\GetProjectCollectionData;
 use App\Models\Project;
 use App\Models\User;
+use App\Models\WorkspaceMember;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 final class GetProjectCollectionAction
@@ -18,9 +19,13 @@ final class GetProjectCollectionAction
         User $user,
         GetProjectCollectionData $data
     ): LengthAwarePaginator {
+        // Projects of the workspaces the user belongs to, or of the one asked
+        // for. A solo user belongs only to the personal workspace, so the list
+        // is what it was before workspaces.
         $query = Project::query()
-            ->with(['latestDeployment', 'latestSuspendRequest'])
-            ->whereBelongsTo($user)
+            ->with(['latestDeployment', 'latestSuspendRequest', 'workspace'])
+            ->whereIn('workspace_id', WorkspaceMember::query()->select('workspace_id')->where('user_id', $user->id))
+            ->when($data->workspaceId !== null, fn ($query) => $query->where('workspace_id', $data->workspaceId))
             ->when(
                 filled($data->search),
                 fn ($query) => $query->where('name', 'ILIKE', "%{$data->search}%")

@@ -22,22 +22,35 @@ final class PilotLimitsResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $limits = $this->resource->limits;
+
         return [
+            /** The workspace these quotas and maximums belong to. */
+            'workspace_id' => $this->resource->workspace_id,
+            /**
+             * The limit profile attached to the workspace, or null when it runs under the default for its type.
+             */
+            'limit_profile' => $limits->profile === null ? null : [
+                'id' => $limits->profile->id,
+                'name' => $limits->profile->name,
+            ],
             'quotas' => [
                 'max_projects_per_user' => $this->resource->max_projects_per_user,
                 'max_active_deployments_per_user' => $this->resource->max_active_deployments_per_user,
                 'max_active_deployments_per_project' => $this->resource->max_active_deployments_per_project,
                 'current_projects_count' => $this->resource->current_projects_count,
                 'current_active_deployments_count' => $this->resource->current_active_deployments_count,
+                'max_active_containers' => $this->resource->max_active_containers,
+                'current_active_containers_count' => $this->resource->current_active_containers_count,
             ],
             'runtime_defaults' => [
-                'memory_mb' => (int) config('sakala.pilot_limits.resources.default_memory_mb', 256),
-                'cpu_millis' => (int) config('sakala.pilot_limits.resources.default_cpu_millis', 500),
+                'memory_mb' => min((int) config('sakala.pilot_limits.resources.default_memory_mb', 256), $limits->max_memory_mb),
+                'cpu_millis' => min((int) config('sakala.pilot_limits.resources.default_cpu_millis', 500), $limits->max_cpu_millis),
                 'pids_limit' => (int) config('sakala.pilot_limits.resources.default_pids_limit', 128),
             ],
             'runtime_maximums' => [
-                'memory_mb' => (int) config('sakala.pilot_limits.resources.max_memory_mb', 512),
-                'cpu_millis' => (int) config('sakala.pilot_limits.resources.max_cpu_millis', 1000),
+                'memory_mb' => $limits->max_memory_mb,
+                'cpu_millis' => $limits->max_cpu_millis,
                 'pids_limit' => (int) config('sakala.pilot_limits.resources.max_pids_limit', 256),
             ],
             'timeouts' => [

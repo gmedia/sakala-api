@@ -15,10 +15,14 @@ final class ProjectLimitExceededException extends RuntimeException
         public readonly int $limit,
         public readonly int $current,
         string $message = '',
+        public readonly ?string $workspaceId = null,
+        bool $team = false,
     ) {
-        $msg = $message !== ''
-            ? $message
-            : sprintf('Kamu sudah mencapai batas %d proyek selama fase pilot. Hapus proyek yang tidak dipakai untuk membuat proyek baru.', $limit);
+        $msg = match (true) {
+            $message !== '' => $message,
+            $team => sprintf('Workspace tim ini sudah mencapai batas %d proyek. Hapus proyek yang tidak dipakai untuk membuat proyek baru.', $limit),
+            default => sprintf('Kamu sudah mencapai batas %d proyek selama fase pilot. Hapus proyek yang tidak dipakai untuk membuat proyek baru.', $limit),
+        };
 
         parent::__construct($msg);
     }
