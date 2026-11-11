@@ -48,7 +48,7 @@ EXPOSE 9000
 
 CMD ["php-fpm", "-F"]
 
-FROM nginxinc/nginx-unprivileged:1.29-alpine AS web
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS web
 
 COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=app /var/www/html/public /var/www/html/public
