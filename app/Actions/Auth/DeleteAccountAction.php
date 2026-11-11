@@ -7,6 +7,7 @@ namespace App\Actions\Auth;
 use App\Actions\Profile\RemoveAvatarAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\PurgeDeletedProjectsAction;
+use App\Actions\Workspace\WorkspaceOwnership;
 use App\Enums\WorkspaceRole;
 use App\Enums\WorkspaceType;
 use App\Exceptions\Auth\AccountDeletionConflictException;
@@ -69,9 +70,13 @@ final class DeleteAccountAction
         for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
             // Outside the final transaction: each delete commits on its own, and
             // cancelling attempts afterwards needs that commit to have happened.
-            Project::query()
-                ->where('workspace_id', $personalId)
-                ->each(fn (Project $project) => $this->deleteProject->handle($project, $user));
+            // Without a personal workspace there is nothing to delete here: a null
+            // ID must never become `workspace_id IS NULL`.
+            if ($personalId !== null) {
+                Project::query()
+                    ->where('workspace_id', $personalId)
+                    ->each(fn (Project $project) => $this->deleteProject->handle($project, $user));
+            }
 
             $this->removeAvatar->handle($user);
 
@@ -104,9 +109,11 @@ final class DeleteAccountAction
 
             $emptyTeams = $this->assertNoTeamLeftWithoutOwner($user, lock: true);
 
-            $projects = Project::onlyTrashed()->where('workspace_id', $personalId)->get();
+            $projects = $personalId === null
+                ? new Collection
+                : Project::onlyTrashed()->where('workspace_id', $personalId)->get();
             $projects->each(fn (Project $project) => $this->purge->eraseSecrets($project));
-            Project::onlyTrashed()->where('workspace_id', $personalId)->update(['user_id' => null, 'workspace_id' => null]);
+            Project::onlyTrashed()->whereKey($projects->modelKeys())->update(['user_id' => null, 'workspace_id' => null]);
 
             foreach ($emptyTeams as $team) {
                 Project::onlyTrashed()->where('workspace_id', $team->id)->get()
@@ -120,6 +127,7 @@ final class DeleteAccountAction
             Project::withTrashed()->where('user_id', $user->id)->update(['user_id' => null]);
 
             WorkspaceMember::query()->where('user_id', $user->id)->delete();
+            WorkspaceOwnership::revokeInvitationsSentBy($user, $user->id, reason: 'account_deleted');
 
             if ($personalId !== null) {
                 Workspace::query()->whereKey($personalId)->delete();
@@ -161,32 +169,39 @@ final class DeleteAccountAction
     /**
      * Teams the user owns alone. Those that still have projects refuse the
      * deletion; the empty ones are returned to be deleted with the account.
-     * With $lock the team rows are locked, in ID order, inside the caller's
-     * transaction, so a project created meanwhile is either seen or blocked.
+     *
+     * With $lock every team the user owns is locked, in ID order, before sole
+     * ownership is decided. Leaving, removing, and demoting take the same row
+     * lock, so a co-owner leaving at the same moment is either seen or waits:
+     * two owners can never both conclude the other one stays.
      *
      * @return Collection<int, Workspace>
      */
     private function assertNoTeamLeftWithoutOwner(User $user, bool $lock): Collection
     {
-        $teams = Workspace::query()
+        $owned = Workspace::query()
             ->where('type', WorkspaceType::Team)
-            ->whereHas('members', fn (Builder $query) => $query
+            ->whereIn('id', WorkspaceMember::query()
+                ->select('workspace_id')
                 ->where('user_id', $user->id)
-                ->where('role', WorkspaceRole::Owner))
-            ->whereDoesntHave('members', fn (Builder $query) => $query
-                ->where('user_id', '!=', $user->id)
                 ->where('role', WorkspaceRole::Owner))
             ->orderBy('id')
             ->when($lock, fn (Builder $query) => $query->lockForUpdate())
             ->get();
 
-        $withProjects = $teams->filter(fn (Workspace $team): bool => $team->projects()->exists());
+        $soleOwned = $owned->filter(fn (Workspace $team): bool => ! WorkspaceMember::query()
+            ->where('workspace_id', $team->id)
+            ->where('role', WorkspaceRole::Owner)
+            ->where('user_id', '!=', $user->id)
+            ->exists())->values();
+
+        $withProjects = $soleOwned->filter(fn (Workspace $team): bool => $team->projects()->exists());
 
         if ($withProjects->isNotEmpty()) {
             throw new LastWorkspaceOwnerException($withProjects->values(), accountDeletion: true);
         }
 
-        return $teams;
+        return $soleOwned;
     }
 
     private function sendConfirmation(string $email): void

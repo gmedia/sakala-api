@@ -110,3 +110,16 @@ test('an export is rate limited per user', function (): void {
 
     $this->actingAs(User::factory()->create(), 'web')->getJson(route('api.v1.auth.account.export'))->assertOk();
 });
+
+test('an account without a personal workspace exports no projects, never the ownerless ones', function (): void {
+    $user = User::factory()->create();
+    $user->personalWorkspace()->firstOrFail()->delete();
+    $ownerless = Project::factory()->create();
+    $ownerless->delete();
+    Project::withTrashed()->whereKey($ownerless->id)->update(['user_id' => null, 'workspace_id' => null]);
+
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')->actingAs($user, 'web')
+        ->getJson(route('api.v1.auth.account.export'))
+        ->assertOk()
+        ->assertJsonCount(0, 'data.projects');
+});

@@ -22,6 +22,7 @@ use App\Models\OAuthAccount;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\WorkspaceInvitation;
 use App\Models\WorkspaceMember;
 use App\Notifications\Account\AccountDeletedNotification;
 use App\Services\Notification\UserNotifier;
@@ -395,4 +396,29 @@ test('an installation a team project still uses survives the deletion of the acc
     deleteAccount($this, $user)->assertNoContent();
 
     expect(GithubInstallation::query()->whereKey($installation->id)->exists())->toBeTrue();
+});
+
+test('deleting an account without a personal workspace never touches ownerless projects', function (): void {
+    $user = User::factory()->create();
+    $user->personalWorkspace()->firstOrFail()->delete();
+    $ownerless = Project::factory()->create();
+    $variable = EnvironmentVariable::factory()->for($ownerless)->create();
+    $ownerless->delete();
+    Project::withTrashed()->whereKey($ownerless->id)->update(['user_id' => null, 'workspace_id' => null]);
+
+    deleteAccount($this, $user)->assertNoContent();
+
+    expect(EnvironmentVariable::query()->whereKey($variable->id)->exists())->toBeTrue();
+});
+
+test('deleting an account revokes the invitations it sent', function (): void {
+    config(['sakala.email_delivery_enabled' => true]);
+    Notification::fake();
+    $user = User::factory()->create();
+    $team = teamWorkspace(User::factory()->create(), [[$user, WorkspaceRole::Owner]]);
+    $this->actingAs($user, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'x@example.test', 'role' => 'member'])->assertCreated();
+
+    deleteAccount($this, $user)->assertNoContent();
+
+    expect(WorkspaceInvitation::query()->count())->toBe(0);
 });

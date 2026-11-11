@@ -10,6 +10,7 @@ use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Collects the account's own data, its personal workspace's projects and its
@@ -27,7 +28,10 @@ final class ExportAccountDataAction
         // The personal workspace's projects. Team projects belong to the team.
         $user->load('workspaces');
         $personalId = $user->personalWorkspace()->value('id');
-        $projects = Project::withTrashed()->where('workspace_id', $personalId)->latest('id')->limit($max + 1)->get();
+        // Never `workspace_id IS NULL`: those are other accounts' ownerless rows.
+        $projects = $personalId === null
+            ? new Collection
+            : Project::withTrashed()->where('workspace_id', $personalId)->latest('id')->limit($max + 1)->get();
         $projectIds = $projects->pluck('id')->all();
         $deployments = Deployment::query()->whereIn('project_id', $projectIds)->latest('id')->limit($max + 1)->get();
         $variables = EnvironmentVariable::query()->whereIn('project_id', $projectIds)->latest('id')->limit($max + 1)->get();
