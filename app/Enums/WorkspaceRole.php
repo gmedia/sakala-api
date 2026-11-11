@@ -20,6 +20,16 @@ enum WorkspaceRole: string
         return $this !== self::Viewer;
     }
 
+    /** The Indonesian name used in emails and notifications. */
+    public function label(): string
+    {
+        return match ($this) {
+            self::Owner => 'pemilik',
+            self::Member => 'anggota',
+            self::Viewer => 'pengamat',
+        };
+    }
+
     public function managesWorkspace(): bool
     {
         return $this === self::Owner;

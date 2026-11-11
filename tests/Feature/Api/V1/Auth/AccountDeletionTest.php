@@ -8,6 +8,7 @@ use App\Enums\DeploymentStatus;
 use App\Enums\NotificationCategory;
 use App\Enums\RuntimeStatus;
 use App\Enums\UserRole;
+use App\Enums\WorkspaceInvitationStatus;
 use App\Enums\WorkspaceRole;
 use App\Http\Requests\Api\V1\Auth\DeleteAccountRequest;
 use App\Models\AgentCommand;
@@ -420,5 +421,7 @@ test('deleting an account revokes the invitations it sent', function (): void {
 
     deleteAccount($this, $user)->assertNoContent();
 
-    expect(WorkspaceInvitation::query()->count())->toBe(0);
+    $invitation = WorkspaceInvitation::query()->firstOrFail();
+    expect($invitation->status)->toBe(WorkspaceInvitationStatus::Revoked)
+        ->and($invitation->invited_by)->toBeNull();
 });

@@ -20,6 +20,8 @@ final class UserAlertNotification extends Notification
         public readonly string $message,
         public readonly ?string $projectId = null,
         public readonly ?string $deploymentId = null,
+        public readonly ?string $invitationId = null,
+        public readonly ?string $workspaceId = null,
     ) {}
 
     /** @return list<string> */
@@ -39,7 +41,7 @@ final class UserAlertNotification extends Notification
         return 'notification.created';
     }
 
-    /** @return array{category: string, title: string, message: string, project_id: string|null, deployment_id: string|null} */
+    /** @return array{category: string, title: string, message: string, project_id: string|null, deployment_id: string|null, invitation_id: string|null, workspace_id: string|null} */
     public function toArray(object $notifiable): array
     {
         return [
@@ -48,6 +50,8 @@ final class UserAlertNotification extends Notification
             'message' => $this->message,
             'project_id' => $this->projectId,
             'deployment_id' => $this->deploymentId,
+            'invitation_id' => $this->invitationId,
+            'workspace_id' => $this->workspaceId,
         ];
     }
 

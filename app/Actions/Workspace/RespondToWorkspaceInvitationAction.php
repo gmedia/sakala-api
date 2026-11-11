@@ -4,26 +4,25 @@ declare(strict_types=1);
 
 namespace App\Actions\Workspace;
 
+use App\Enums\NotificationCategory;
+use App\Enums\WorkspaceInvitationStatus;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Workspace\AlreadyWorkspaceMemberException;
-use App\Exceptions\Workspace\EmailVerificationRequiredException;
 use App\Exceptions\Workspace\InvitationEmailMismatchException;
-use App\Exceptions\Workspace\InvitationExpiredException;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceInvitation;
 use App\Models\WorkspaceMember;
+use App\Services\Notification\UserNotifier;
 use App\Support\Workspace\WorkspaceAudit;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * Accepts or declines an invitation. The caller proves it is theirs with the
  * token from the email, which works from any verified account (the link is the
  * credential, as with most email invitations), or by having verified the
- * invited address on their own account. Anything else is a plain 404, so an ID
- * reveals nothing. Either answer uses the invitation up.
+ * invited address on their own account; see WorkspaceInvitationAccess for the
+ * order of the answers. Either answer closes the invitation for good.
  *
  * An owner invitation is accepted only by the invited verified address, token
  * or not, and only within the acceptor's owned-team cap: a forwarded link must
@@ -31,9 +30,17 @@ use Illuminate\Support\Str;
  */
 final class RespondToWorkspaceInvitationAction
 {
+    public function __construct(
+        private readonly UserNotifier $notifier,
+    ) {}
+
     public function accept(User $user, WorkspaceInvitation $invitation, ?string $token): Workspace
     {
-        $this->authorise($user, $invitation, $token, accepting: true);
+        $byEmail = WorkspaceInvitationAccess::prove($user, $invitation, $token);
+
+        if ($invitation->role === WorkspaceRole::Owner && ! $byEmail) {
+            throw new InvitationEmailMismatchException;
+        }
 
         return DB::transaction(function () use ($user, $invitation): Workspace {
             // The user row before the workspace row, the order every path keeps.
@@ -43,11 +50,9 @@ final class RespondToWorkspaceInvitationAction
             /** @var WorkspaceInvitation $locked */
             $locked = WorkspaceInvitation::query()->whereKey($invitation->id)->lockForUpdate()->firstOrFail();
 
-            if ($locked->isExpired()) {
-                throw new InvitationExpiredException;
-            }
+            WorkspaceInvitationAccess::ensureOpen($locked);
 
-            // Kept, so the address it was meant for can still use it.
+            // Left open, so the address it was meant for can still use it.
             if (WorkspaceMember::query()->where('workspace_id', $workspace->id)->where('user_id', $user->id)->exists()) {
                 throw new AlreadyWorkspaceMemberException;
             }
@@ -62,7 +67,7 @@ final class RespondToWorkspaceInvitationAction
                 'role' => $locked->role,
             ]);
 
-            $locked->delete();
+            $locked->update(['status' => WorkspaceInvitationStatus::Accepted, 'closed_at' => now()]);
 
             WorkspaceAudit::record($user, 'workspace.member_joined', $workspace, [
                 'invitation_id' => $locked->id,
@@ -71,45 +76,38 @@ final class RespondToWorkspaceInvitationAction
                 'invited_by' => $locked->invited_by,
             ]);
 
+            // Only owners invite, and an owner who loses the role takes their
+            // pending invitations along, so the inviter is still an owner here.
+            $this->notifier->send(
+                $locked->invited_by === null ? null : User::query()->find($locked->invited_by),
+                NotificationCategory::Workspace,
+                'Undangan diterima',
+                "{$user->name} bergabung ke {$workspace->name} sebagai {$locked->role->label()}.",
+                invitationId: $locked->id,
+                workspaceId: $workspace->id,
+            );
+
             /** @var Workspace */
-            return $user->workspaces()->whereKey($workspace->id)->firstOrFail();
+            return $user->workspaces()->withSummaryCounts()->whereKey($workspace->id)->firstOrFail();
         });
     }
 
     public function decline(User $user, WorkspaceInvitation $invitation, ?string $token): void
     {
-        $this->authorise($user, $invitation, $token, accepting: false);
+        WorkspaceInvitationAccess::prove($user, $invitation, $token);
 
         DB::transaction(function () use ($user, $invitation): void {
-            $deleted = WorkspaceInvitation::query()->whereKey($invitation->id)->delete();
+            /** @var WorkspaceInvitation $locked */
+            $locked = WorkspaceInvitation::query()->whereKey($invitation->id)->lockForUpdate()->firstOrFail();
 
-            if ($deleted === 0) {
-                throw (new ModelNotFoundException)->setModel(WorkspaceInvitation::class);
-            }
+            WorkspaceInvitationAccess::ensureOpen($locked);
+
+            $locked->update(['status' => WorkspaceInvitationStatus::Declined, 'closed_at' => now()]);
 
             WorkspaceAudit::record($user, 'workspace.invitation_declined', $invitation->workspace, [
-                'invitation_id' => $invitation->id,
-                'role' => $invitation->role->value,
+                'invitation_id' => $locked->id,
+                'role' => $locked->role->value,
             ]);
         });
-    }
-
-    private function authorise(User $user, WorkspaceInvitation $invitation, ?string $token, bool $accepting): void
-    {
-        $byToken = $token !== null && $token !== ''
-            && hash_equals($invitation->token_hash, WorkspaceInvitation::hashToken($token));
-        $byEmail = $user->hasVerifiedEmail() && Str::lower($user->email) === $invitation->email;
-
-        if (! $byToken && ! $byEmail) {
-            throw (new ModelNotFoundException)->setModel(WorkspaceInvitation::class);
-        }
-
-        if (! $user->hasVerifiedEmail()) {
-            throw new EmailVerificationRequiredException;
-        }
-
-        if ($accepting && $invitation->role === WorkspaceRole::Owner && ! $byEmail) {
-            throw new InvitationEmailMismatchException;
-        }
     }
 }

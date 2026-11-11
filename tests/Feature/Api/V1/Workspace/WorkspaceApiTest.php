@@ -349,7 +349,8 @@ test('an owner who loses the role takes their pending invitations with them', fu
     $secondMembership = $team->members()->where('user_id', $second->id)->firstOrFail();
     $this->actingAs($first, 'web')->patchJson("/api/v1/app/workspaces/{$team->id}/members/{$secondMembership->id}", ['role' => 'member'])->assertOk();
 
-    expect(WorkspaceInvitation::query()->pluck('email')->all())->toBe(['c@example.test'])
+    expect(WorkspaceInvitation::query()->pending()->pluck('email')->all())->toBe(['c@example.test'])
+        ->and(WorkspaceInvitation::query()->where('status', 'revoked')->orderBy('email')->pluck('email')->all())->toBe(['a@example.test', 'b@example.test'])
         ->and(AuditEvent::query()->where('action', 'workspace.invitation_revoked')->count())->toBe(2);
 
     $this->actingAs($first, 'web')->postJson("/api/v1/app/workspaces/{$team->id}/leave")->assertConflict();
@@ -357,5 +358,5 @@ test('an owner who loses the role takes their pending invitations with them', fu
     $firstMembership = $team->members()->where('user_id', $first->id)->firstOrFail();
     $this->actingAs($second, 'web')->deleteJson("/api/v1/app/workspaces/{$team->id}/members/{$firstMembership->id}")->assertNoContent();
 
-    expect(WorkspaceInvitation::query()->count())->toBe(0);
+    expect(WorkspaceInvitation::query()->pending()->count())->toBe(0);
 });
