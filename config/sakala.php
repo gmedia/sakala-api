@@ -10,6 +10,10 @@ return [
     // The public site that serves /privasi and /syarat, linked from every email footer.
     'landing_url' => env('SAKALA_LANDING_URL', 'https://sakala.dev'),
 
+    // The logo in every email header: an absolute HTTPS URL to a 280 x 118 PNG,
+    // shown at 140 x 59. sakala.dev serves it from a path that never changes.
+    'mail_logo_url' => env('SAKALA_MAIL_LOGO_URL', 'https://sakala.dev/email/sakala-logo@2x.png'),
+
     // Whether email can really reach people. When the env is unset or empty it
     // follows mail.default (same env and default as config/mail.php): the log
     // and array mailers deliver nothing. Local development sets it to true on

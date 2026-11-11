@@ -27,7 +27,7 @@
 body, .wrapper, .page-cell { background-color: #0d1411 !important; }
 .card { background-color: #17211b !important; border-color: #2c3a31 !important; }
 h1, p, li { color: #e6ede8 !important; }
-a, .wordmark { color: #5fbfb5 !important; }
+a, .wordmark, .logo { color: #5fbfb5 !important; }
 .fallback, .footer p { color: #a3b0a7 !important; }
 .footer a, .fallback a { color: #5fbfb5 !important; }
 .button-cell { background-color: #0f766e !important; }
@@ -38,7 +38,7 @@ a, .wordmark { color: #5fbfb5 !important; }
 [data-ogsb] body, [data-ogsb] .wrapper, [data-ogsb] .page-cell { background-color: #0d1411 !important; }
 [data-ogsb] .card { background-color: #17211b !important; border-color: #2c3a31 !important; }
 [data-ogsc] h1, [data-ogsc] p { color: #e6ede8 !important; }
-[data-ogsc] a, [data-ogsc] .wordmark { color: #5fbfb5 !important; }
+[data-ogsc] a, [data-ogsc] .wordmark, [data-ogsc] .logo { color: #5fbfb5 !important; }
 [data-ogsc] .fallback, [data-ogsc] .footer p { color: #a3b0a7 !important; }
 [data-ogsc] .button { color: #ffffff !important; }
 </style>

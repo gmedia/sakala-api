@@ -45,11 +45,22 @@ body {
 .wordmark {
     color: #0f766e;
     display: inline-block;
+    text-decoration: none;
+}
+
+/* The alt text is the fallback wordmark when images are blocked. */
+.logo {
+    border: 0;
+    color: #0f766e;
+    display: block;
     font-size: 24px;
     font-weight: 600;
+    height: 59px;
     letter-spacing: -0.01em;
     line-height: 32px;
+    outline: none;
     text-decoration: none;
+    width: 140px;
 }
 
 .card {
