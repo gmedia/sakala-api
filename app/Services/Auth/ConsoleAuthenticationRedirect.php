@@ -66,6 +66,11 @@ final class ConsoleAuthenticationRedirect
         ]);
     }
 
+    public function project(string $projectId): string
+    {
+        return $this->url('/projects/'.rawurlencode($projectId));
+    }
+
     public function login(): string
     {
         return $this->url('/login');

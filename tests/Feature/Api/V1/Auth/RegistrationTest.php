@@ -126,7 +126,7 @@ test('the existing account email tells the owner to sign in, not to verify', fun
     $owner = User::factory()->create(['name' => 'Owner']);
     $mail = (new ExistingAccountRegistrationNotification)->toMail($owner);
 
-    expect($mail->subject)->toBe('Email kamu sudah punya akun Sakala')
+    expect($mail->subject)->toBe('Email kamu sudah terdaftar di Sakala')
         ->and($mail->actionUrl)->toBe(config('sakala.console_url').'/login');
 });
 

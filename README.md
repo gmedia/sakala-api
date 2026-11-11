@@ -87,6 +87,7 @@ Padanan Sail tersedia melalui `make up`, `make test`, dan target lain di `Makefi
 - [Agent API](docs/AGENT_API.md)
 - [Development](docs/DEVELOPMENT.md)
 - [Kebijakan Retensi Log](docs/LOG_RETENTION.md)
+- [Email](docs/EMAIL.md)
 - [Security](SECURITY.md)
 
 Sakala API menggunakan Apache License 2.0. GMEDIA mendukung Sakala sebagai founding sponsor dan initial infrastructure supporter; lihat [governance](GOVERNANCE.md) dan [sponsor](SPONSORS.md).

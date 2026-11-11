@@ -1,25 +1,20 @@
-<x-mail::message>
-# {{ $greeting }}
+<x-mail::message :title="$subject ?? 'Sakala'" :preheader="$preheader ?? null" :headline="$headline ?? null" :reason="$reason ?? null">
+@if (filled($greeting ?? null))
+{{ $greeting }}
 
+@endif
 @foreach ($introLines as $line)
 {{ $line }}
 
 @endforeach
-
 @isset($actionText)
 <x-mail::button :url="$actionUrl" color="primary">
 {{ $actionText }}
 </x-mail::button>
-@endisset
 
+@endisset
 @foreach ($outroLines as $line)
 {{ $line }}
 
 @endforeach
-
-@isset($actionText)
-<x-slot:subcopy>
-Kalau tombolnya tidak bisa diklik, salin tautan ini ke browser: <a href="{{ $actionUrl }}" style="word-break: break-all;">{{ $displayableActionUrl }}</a>
-</x-slot:subcopy>
-@endisset
 </x-mail::message>

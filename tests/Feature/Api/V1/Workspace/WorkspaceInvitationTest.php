@@ -65,7 +65,7 @@ test('an owner invites an email address and only a hash of the token is stored',
         ->and(AuditEvent::query()->where('action', 'workspace.invitation_created')->firstOrFail()->metadata)
         ->toBe(['invitation_id' => $invitation->id, 'role' => 'member']);
 
-    $mail = (new WorkspaceInvitationNotification($invitation->id, $token, 'Tim Facility', $owner->name, 'member', 168))
+    $mail = (new WorkspaceInvitationNotification($invitation->id, $token, 'Tim Facility', $owner->name, 'member', 168, $invitation->expires_at))
         ->toMail(new AnonymousNotifiable);
     expect($mail->actionUrl)->toContain("/workspace-invitations/{$invitation->id}?token=");
 });

@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Notifications\Auth;
 
+use App\Notifications\Messages\SakalaMailMessage;
 use App\Services\Auth\ConsoleAuthenticationRedirect;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
-use Illuminate\Notifications\Messages\MailMessage;
 
 final class ResetPasswordNotification extends ResetPassword implements ShouldQueueAfterCommit
 {
@@ -22,16 +22,23 @@ final class ResetPasswordNotification extends ResetPassword implements ShouldQue
         );
     }
 
-    public function toMail($notifiable): MailMessage
+    /**
+     * No clock time here: the token's age counts from the request, and a queued
+     * mail can leave later than that.
+     */
+    public function toMail($notifiable): SakalaMailMessage
     {
-        $expiration = (int) config('auth.passwords.users.expire', 60);
+        $minutes = (int) config('auth.passwords.users.expire', 60);
 
-        return (new MailMessage)
-            ->subject('Reset kata sandi akun Sakala')
+        return (new SakalaMailMessage)
+            ->subject('Permintaan reset kata sandi akun Sakala')
+            ->preheader("Buat kata sandi baru lewat tautan yang berlaku {$minutes} menit.")
+            ->headline('Buat kata sandi baru')
             ->greeting("Halo {$notifiable->name},")
-            ->line('Ada permintaan untuk mereset kata sandi akun Sakala kamu. Klik tombol di bawah untuk membuat kata sandi baru.')
-            ->action('Reset kata sandi', $this->resetUrl($notifiable))
-            ->line("Tautan ini berlaku selama {$expiration} menit.")
-            ->line('Kalau bukan kamu yang meminta, abaikan email ini. Kata sandimu tidak berubah.');
+            ->line('Klik tombol di bawah untuk membuat kata sandi baru untuk akun Sakala kamu.')
+            ->action('Buat kata sandi baru', $this->resetUrl($notifiable))
+            ->line("Tautan ini berlaku {$minutes} menit sejak permintaan dibuat dan hanya bisa dipakai sekali.")
+            ->line('Kalau bukan kamu yang meminta, abaikan email ini. Kata sandimu tidak berubah selama tautan ini tidak dipakai.')
+            ->reason('Kamu menerima email ini karena ada permintaan reset kata sandi untuk akun Sakala dengan alamat ini.');
     }
 }
