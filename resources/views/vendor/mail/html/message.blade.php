@@ -3,9 +3,7 @@
 <x-mail::layout :title="$title" :preheader="$preheader">
 {{-- Header --}}
 <x-slot:header>
-<x-mail::header :url="config('sakala.console_url')">
-Sakala
-</x-mail::header>
+<x-mail::header :url="config('sakala.console_url')" :logo="config('sakala.mail_logo_url')" />
 </x-slot:header>
 
 {{-- Body --}}

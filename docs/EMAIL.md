@@ -22,15 +22,15 @@ Notifikasi lain, misalnya deployment gagal atau perubahan peran di tim, hanya mu
 
 Setiap notifikasi membangun `App\Notifications\Messages\SakalaMailMessage`, yaitu `MailMessage` dengan tiga tambahan: `preheader()` untuk teks pratinjau di daftar inbox, `headline()` untuk judul di kartu, dan `reason()` untuk kalimat di footer yang menjelaskan kenapa alamat itu menerima email. Template-nya ada di `resources/views/vendor/notifications/email.blade.php` dan komponen `resources/views/vendor/mail/`. Laravel menempelkan CSS dari `resources/views/vendor/mail/html/themes/sakala.css` ke atribut `style` setiap elemen (`config/mail.php`, `markdown.theme`).
 
-Susunannya satu kolom, paling lebar 600 px: wordmark Sakala, kartu putih berisi judul, isi, satu tombol utama dengan tautan cadangan tepat di bawahnya, lalu footer. Footer berisi alasan email dikirim, identitas pengirim sesuai halaman legal (Sakala Maintainers, dengan GMEDIA sebagai founding sponsor), serta tautan ke `/privasi` dan `/syarat` di `SAKALA_LANDING_URL`.
+Susunannya satu kolom, paling lebar 600 px: logo Sakala, kartu putih berisi judul, isi, satu tombol utama dengan tautan cadangan tepat di bawahnya, lalu footer. Footer berisi alasan email dikirim, identitas pengirim sesuai halaman legal (Sakala Maintainers, dengan GMEDIA sebagai founding sponsor), serta tautan ke `/privasi` dan `/syarat` di `SAKALA_LANDING_URL`.
 
 Keputusan yang perlu dijaga:
 
-- **Tanpa gambar.** Brand Sakala hanya punya logo SVG, dan Gmail serta Outlook tidak menampilkan SVG. Header memakai wordmark teks berwarna teal, jadi tidak ada logo transparan yang hilang di dark mode dan tidak ada gambar yang diblokir. Kalau nanti landing menyajikan PNG logo, pakai URL HTTPS absolut dengan `width`, `height`, dan `alt="Sakala"`.
+- **Satu gambar, yaitu logo.** Gmail dan Outlook tidak menampilkan SVG, jadi header memakai PNG dari `SAKALA_MAIL_LOGO_URL` (default `https://sakala.dev/email/sakala-logo@2x.png`, disajikan landing dari path yang tidak berubah antar build). Berkasnya 280 x 118 px dan tampil 140 x 59 px lewat atribut `width` dan `height`, jadi tetap tajam di layar 2x dan layout tidak bergeser selama gambar dimuat. Logonya ada di atas tile putih bersudut bulat, sehingga tetap terbaca di klien gelap yang tidak membalik warna gambar. Kalau gambar diblokir, `alt="Sakala"` tampil sebagai wordmark teal 24 px (`#5fbfb5` di dark mode). Instalasi self-hosted yang memakai logo sendiri mengarahkan `SAKALA_MAIL_LOGO_URL` ke PNG HTTPS dengan rasio yang sama, 280 x 118 px. Klien email memuat gambar ini dari server tersebut, dan Gmail lewat proxy-nya sendiri.
 - **Tanpa pelacak.** Sakala tidak menambahkan piksel atau tautan pelacak. Provider SMTP bisa saja menambahkannya sendiri; matikan fitur itu di dashboard provider.
 - **Font sistem.** Tidak ada web font; Outlook desktop dipaksa memakai Segoe UI atau Arial.
 - **Outlook desktop.** Layout memakai tabel. Tombol punya kembaran VML (`v:roundrect`) di dalam komentar `<!--[if mso]>`, karena mesin Word mengabaikan padding pada tautan.
-- **Dark mode.** `color-scheme: light dark` diumumkan di meta dan CSS. Warna gelap ada di blok `<style>` di `layout.blade.php` (Apple Mail dan iOS Mail lewat `prefers-color-scheme`, Outlook.com lewat `[data-ogsc]` dan `[data-ogsb]`). Gmail tidak membaca keduanya dan memakai warna terang atau inversinya sendiri, yang tetap terbaca karena tidak ada gambar.
+- **Dark mode.** `color-scheme: light dark` diumumkan di meta dan CSS. Warna gelap ada di blok `<style>` di `layout.blade.php` (Apple Mail dan iOS Mail lewat `prefers-color-scheme`, Outlook.com lewat `[data-ogsc]` dan `[data-ogsb]`). Gmail tidak membaca keduanya dan memakai warna terang atau inversinya sendiri, yang tetap terbaca karena logo membawa latar putihnya sendiri.
 - **Mobile.** Di bawah 480 px tombol melebar penuh dan padding mengecil. Tinggi tombol 50 px, di atas batas target sentuh 44 px.
 
 Warna diambil dari token Console (`sakala-console/src/app.css`). Setiap pasangan teks lolos WCAG 2.2 AA (minimal 4,5:1):
@@ -39,11 +39,11 @@ Warna diambil dari token Console (`sakala-console/src/app.css`). Setiap pasangan
 | --- | --- | --- |
 | Isi `#17211b` | Kartu `#ffffff` | 16,54:1 |
 | Footer dan tautan cadangan `#6b6b6b` | Halaman `#f8faf7` / kartu `#ffffff` | 5,08:1 / 5,33:1 |
-| Tautan dan wordmark `#0f766e` | Kartu `#ffffff` / halaman `#f8faf7` | 5,47:1 / 5,21:1 |
+| Tautan dan wordmark cadangan `#0f766e` | Kartu `#ffffff` / halaman `#f8faf7` | 5,47:1 / 5,21:1 |
 | Tombol `#ffffff` | `#0f766e` | 5,47:1 |
 | Gelap: isi `#e6ede8` | Kartu `#17211b` | 13,89:1 |
 | Gelap: footer `#a3b0a7` | Kartu `#17211b` / halaman `#0d1411` | 7,34:1 / 8,29:1 |
-| Gelap: tautan dan wordmark `#5fbfb5` | Kartu `#17211b` / halaman `#0d1411` | 7,57:1 / 8,54:1 |
+| Gelap: tautan dan wordmark cadangan `#5fbfb5` | Kartu `#17211b` / halaman `#0d1411` | 7,57:1 / 8,54:1 |
 
 ## Menulis email
 

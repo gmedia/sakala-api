@@ -7,6 +7,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `APP_URL`: URL API.
 - `SAKALA_CONSOLE_URL`: URL console first-party.
 - `SAKALA_LANDING_URL`: situs publik yang menyajikan `/privasi` dan `/syarat` (default `https://sakala.dev`). Footer setiap email menautkan keduanya. Deployment self-hosted mengisinya dengan situsnya sendiri.
+- `SAKALA_MAIL_LOGO_URL`: URL HTTPS absolut ke PNG logo di header setiap email (default `https://sakala.dev/email/sakala-logo@2x.png`). Gambarnya 280 x 118 px dan tampil 140 x 59 px. Deployment self-hosted boleh membiarkan default-nya atau mengarahkannya ke PNG sendiri dengan ukuran yang sama; detailnya di [Email](EMAIL.md#layout).
 - `SAKALA_API_RATE_LIMIT`: request per menit per user untuk route API yang sudah login (default `240`, yaitu 4 request per detik). Satu halaman deployment yang memantau status, event, dan log memakai kira-kira 60 sampai 90 request per menit, jadi 60 sudah habis oleh dua tab, sedangkan 240 masih memberi ruang untuk beberapa tab.
 - `SAKALA_API_GUEST_RATE_LIMIT`: request per menit per IP untuk route API tanpa login (default `60`). Limiter login, registrasi, email verifikasi, dan reset kata sandi berjalan terpisah di atasnya dan tidak berubah.
 - `SAKALA_LOGIN_RATE_LIMIT`: percobaan login per menit berdasarkan email ternormalisasi dan IP.

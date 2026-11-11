@@ -6,12 +6,14 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Added
 
+- `SAKALA_MAIL_LOGO_URL` (default `https://sakala.dev/email/sakala-logo@2x.png`): the PNG logo in every email header. Self-hosted installs can point it at their own 280 x 118 PNG. See `docs/EMAIL.md`.
 - `php artisan mail:preview` renders every email with sample data to HTML and text files without sending anything, and refuses to run in production. See `docs/EMAIL.md`.
 - `SAKALA_LANDING_URL` (default `https://sakala.dev`): the site whose `/privasi` and `/syarat` every email footer links to.
 
 ### Changed
 
-- All nine transactional emails (verification, password reset, existing account on register, the three email change notices, workspace invitation, project suspension, and account deletion) share one branded layout: a Sakala wordmark, a single 600 px column, one primary button with an Outlook-safe VML twin and a text link below it, readable light and dark colors that hold WCAG 2.2 AA contrast, and a footer that says why the address got the mail, who sends it, and links the privacy notice and terms. No images and no tracking pixels.
+- The email header logo is a 140 x 59 PNG on a white tile that stays readable in dark mode. When images are blocked, its alt text "Sakala" shows in the same teal at 24 px. The logo is the only image; there is still no tracking pixel. Needs the landing release that serves `/email/sakala-logo@2x.png`.
+- All nine transactional emails (verification, password reset, existing account on register, the three email change notices, workspace invitation, project suspension, and account deletion) share one branded layout: the Sakala logo, a single 600 px column, one primary button with an Outlook-safe VML twin and a text link below it, readable light and dark colors that hold WCAG 2.2 AA contrast, and a footer that says why the address got the mail, who sends it, and links the privacy notice and terms. No tracking pixels.
 - Every email has a hidden preview text and a heading, and its copy was rewritten: the subject says what happened, the first sentence what to do, and links state their expiry in minutes or days and, where the time is exact, in WIB.
 - The suspension email links to the project in the Console, and the invitation email explains what the offered role can do.
 

@@ -29,6 +29,7 @@ uses(RefreshDatabase::class);
 const MAIL_CONSOLE = 'https://console.example.test';
 const MAIL_API = 'https://api.example.test';
 const MAIL_SITE = 'https://site.example.test';
+const MAIL_LOGO = 'https://cdn.example.test/email/sakala-logo@2x.png';
 
 beforeEach(function (): void {
     // The real templates must not depend on either name being right.
@@ -38,6 +39,7 @@ beforeEach(function (): void {
         'mail.default' => 'array',
         'sakala.console_url' => MAIL_CONSOLE,
         'sakala.landing_url' => MAIL_SITE,
+        'sakala.mail_logo_url' => MAIL_LOGO,
         'sakala.email_delivery_enabled' => true,
         'sakala.rate_limits.register' => 100,
     ]);
@@ -101,8 +103,10 @@ function expectWellFormedMail(Email $email, ?string $link, array $secrets = []):
         ->and($html)->toContain('href="'.MAIL_SITE.'/privasi"')
         ->and($html)->toContain('href="'.MAIL_SITE.'/syarat"')
         ->and($html)->toContain('Kamu menerima email ini karena')
-        ->and($html)->not->toContain('<img')
-        ->and($html)->not->toMatch('/\ssrc=/');
+        // The logo is the only image: no tracking pixel, nothing else to load.
+        ->and(substr_count($html, '<img'))->toBe(1)
+        ->and(preg_match_all('/\ssrc="([^"]*)"/', $html, $sources))->toBe(1)
+        ->and($sources[1])->toBe([MAIL_LOGO]);
 
     if ($link !== null) {
         expect($text)->toContain($link)
@@ -327,6 +331,7 @@ test('every email uses the shared layout, in Indonesian, with at most one button
         ->and($html)->toContain('class="preheader"')
         ->and($html)->toContain('<h1')
         ->and($html)->toContain('<a href="'.MAIL_CONSOLE.'" class="wordmark"')
+        ->and($html)->toMatch('#<img src="'.preg_quote(MAIL_LOGO, '#').'" width="140" height="59" alt="Sakala" class="logo" style="([^"]*)"#')
         ->and($html)->toContain('PT Media Sarana Data (GMEDIA)')
         ->and($buttons)->toBeLessThanOrEqual(1)
         ->and(substr_count($html, '<v:roundrect'))->toBe($buttons, 'Outlook gets the same button')
@@ -346,6 +351,38 @@ test('every email uses the shared layout, in Indonesian, with at most one button
     expect(strip_tags($html))->not->toMatch('/\b[A-Z]{7,}\b/')
         ->and($text)->not->toMatch('/\b[A-Z]{7,}\b/');
 })->with('catalog');
+
+test('the logo stays readable when images are blocked: the alt text is the teal wordmark', function (): void {
+    $catalog = app(MailPreviewCatalog::class);
+    $preview = $catalog->previews()['verify-email'];
+    $html = $catalog->render($catalog->mail($preview['notification'], $preview['notifiable']))['html'];
+
+    expect(preg_match('#<img src="[^"]*" width="140" height="59" alt="Sakala" class="logo" style="([^"]*)"#', $html, $match))->toBe(1);
+
+    $style = str_replace(' ', '', $match[1]);
+
+    expect($style)->toContain('display:block')
+        ->and($style)->toContain('border:0')
+        ->and($style)->toContain('color:#0f766e')
+        ->and($style)->toContain('font-size:24px')
+        // Dark mode keeps the fallback readable.
+        ->and($html)->toContain('.logo { color: #5fbfb5 !important; }')
+        ->and($html)->toContain('[data-ogsc] .logo { color: #5fbfb5 !important; }');
+});
+
+test('the logo comes from sakala.dev unless the install points elsewhere', function (): void {
+    $defaults = require config_path('sakala.php');
+
+    expect($defaults['mail_logo_url'])->toBe('https://sakala.dev/email/sakala-logo@2x.png');
+
+    config(['sakala.mail_logo_url' => 'https://mail.example.org/brand/logo.png']);
+    $catalog = app(MailPreviewCatalog::class);
+    $preview = $catalog->previews()['account-deleted'];
+    $html = $catalog->render($catalog->mail($preview['notification'], $preview['notifiable']))['html'];
+
+    expect($html)->toContain('<img src="https://mail.example.org/brand/logo.png" width="140" height="59" alt="Sakala"')
+        ->and($html)->not->toContain('sakala.dev/email');
+});
 
 test('mail:preview writes every email to files and sends nothing', function (): void {
     NotificationFacade::fake();
