@@ -125,6 +125,13 @@ class AppServiceProvider extends ServiceProvider
                 ->by('account-export:'.(string) $identifier);
         });
 
+        RateLimiter::for('workspace-invitations', function (Request $request): Limit {
+            $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
+
+            return Limit::perHour((int) config('sakala.rate_limits.workspace_invitations', 20))
+                ->by('workspace-invitations:'.(string) $identifier);
+        });
+
         RateLimiter::for('inspection', function (Request $request): Limit {
             $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
 

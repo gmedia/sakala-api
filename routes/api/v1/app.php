@@ -13,6 +13,10 @@ use App\Http\Controllers\Api\V1\Project\DomainPreviewController;
 use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
+use App\Http\Controllers\Api\V1\Workspace\WorkspaceController;
+use App\Http\Controllers\Api\V1\Workspace\WorkspaceInvitationController;
+use App\Http\Controllers\Api\V1\Workspace\WorkspaceMemberController;
+use App\Http\Middleware\EnsureEmailDeliveryAvailable;
 use App\Http\Middleware\EnsureLegalAcceptance;
 use Illuminate\Support\Facades\Route;
 
@@ -110,6 +114,53 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
         ->name('api.v1.app.notification-preferences.show');
     Route::patch('/notification-preferences', [NotificationPreferenceController::class, 'update'])
         ->name('api.v1.app.notification-preferences.update');
+
+    // Workspace routes
+    Route::get('/workspaces', [WorkspaceController::class, 'index'])
+        ->name('api.v1.app.workspaces.index');
+    Route::post('/workspaces', [WorkspaceController::class, 'store'])
+        ->name('api.v1.app.workspaces.store');
+    Route::get('/workspaces/{workspace}', [WorkspaceController::class, 'show'])
+        ->whereUuid('workspace')
+        ->name('api.v1.app.workspaces.show');
+    Route::patch('/workspaces/{workspace}', [WorkspaceController::class, 'update'])
+        ->whereUuid('workspace')
+        ->name('api.v1.app.workspaces.update');
+    Route::delete('/workspaces/{workspace}', [WorkspaceController::class, 'destroy'])
+        ->whereUuid('workspace')
+        ->name('api.v1.app.workspaces.destroy');
+    Route::post('/workspaces/{workspace}/leave', [WorkspaceController::class, 'leave'])
+        ->whereUuid('workspace')
+        ->name('api.v1.app.workspaces.leave');
+
+    Route::scopeBindings()->whereUuid(['workspace', 'member', 'invitation'])->group(function (): void {
+        Route::get('/workspaces/{workspace}/members', [WorkspaceMemberController::class, 'index'])
+            ->name('api.v1.app.workspaces.members.index');
+        Route::patch('/workspaces/{workspace}/members/{member}', [WorkspaceMemberController::class, 'update'])
+            ->name('api.v1.app.workspaces.members.update');
+        Route::delete('/workspaces/{workspace}/members/{member}', [WorkspaceMemberController::class, 'destroy'])
+            ->name('api.v1.app.workspaces.members.destroy');
+
+        Route::get('/workspaces/{workspace}/invitations', [WorkspaceInvitationController::class, 'index'])
+            ->name('api.v1.app.workspaces.invitations.index');
+        Route::post('/workspaces/{workspace}/invitations', [WorkspaceInvitationController::class, 'store'])
+            ->middleware([EnsureEmailDeliveryAvailable::class, 'throttle:workspace-invitations'])
+            ->name('api.v1.app.workspaces.invitations.store');
+        Route::delete('/workspaces/{workspace}/invitations/{invitation}', [WorkspaceInvitationController::class, 'destroy'])
+            ->name('api.v1.app.workspaces.invitations.destroy');
+    });
+
+    // Invitations addressed to the caller
+    Route::get('/workspace-invitations', [WorkspaceInvitationController::class, 'mine'])
+        ->name('api.v1.app.workspace-invitations.index');
+    Route::post('/workspace-invitations/{invitation}/accept', [WorkspaceInvitationController::class, 'accept'])
+        ->whereUuid('invitation')
+        ->middleware('throttle:account-security')
+        ->name('api.v1.app.workspace-invitations.accept');
+    Route::post('/workspace-invitations/{invitation}/decline', [WorkspaceInvitationController::class, 'decline'])
+        ->whereUuid('invitation')
+        ->middleware('throttle:account-security')
+        ->name('api.v1.app.workspace-invitations.decline');
 
     // Profile routes
     Route::patch('/profile', [ProfileController::class, 'update'])
