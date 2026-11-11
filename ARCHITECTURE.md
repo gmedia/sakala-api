@@ -27,7 +27,7 @@ Semua kontrak baru memakai JSON dan versi mayor di URL. Route dikelompokkan berd
 
 PostgreSQL menyimpan metadata control plane dan durable agent command. Entitas yang melewati boundary API/agent memakai UUIDv7, sedangkan event/log/audit append-only memakai bigint internal. Nilai status didefinisikan sebagai backed enum PHP dan disimpan sebagai string agar kontrak dapat berkembang tanpa migrasi native enum database.
 
-Project dimiliki user secara langsung pada MVP. Workspace/team dan custom domain sengaja belum dimodelkan. Lihat [desain database](docs/DATABASE.md) untuk relasi, pola query, idempotensi, dan strategi index, serta [kebijakan retensi log pilot](docs/LOG_RETENTION.md) untuk batas retensi, model akses, dan prosedur pembersihan log.
+Project dimiliki workspace: setiap user punya satu workspace pribadi, dan tim adalah workspace dengan anggota berperan `owner`, `member`, atau `viewer` (lihat [Workspace](docs/API_CONVENTIONS.md#workspace)). Custom domain sengaja belum dimodelkan. Lihat [desain database](docs/DATABASE.md) untuk relasi, pola query, idempotensi, dan strategi index, serta [kebijakan retensi log pilot](docs/LOG_RETENTION.md) untuk batas retensi, model akses, dan prosedur pembersihan log.
 
 ## Authentication
 
@@ -485,7 +485,7 @@ POST /api/agent/v1/commands/{command}/complete
 -> audit
 ```
 
-Pemilik project bisa membatalkan deployment. Command yang belum diklaim langsung `Cancelled`; yang sedang berjalan hanya dicatat, lalu agent membacanya dari `cancel_requested` pada poll berikutnya dan menjawab `fail` dengan `runtime_cancelled`.
+Owner dan member workspace project bisa membatalkan deployment. Command yang belum diklaim langsung `Cancelled`; yang sedang berjalan hanya dicatat, lalu agent membacanya dari `cancel_requested` pada poll berikutnya dan menjawab `fail` dengan `runtime_cancelled`.
 
 Jika gagal:
 

@@ -53,8 +53,9 @@ Batasan hak akses terhadap log dan event ditegakkan secara ketat pada layer Poli
 +---------------------+-------------------+-----------------------------------+
 | Persona / Actor     | Mode Akses        | Boundary & Otorisasi              |
 +---------------------+-------------------+-----------------------------------+
-| Project Owner       | Read-only         | Terbatas hanya pada project milik  |
-| (Console User)      |                   | sendiri ($user->id === project->user_id). |
+| Anggota Workspace   | Read-only         | Terbatas pada project workspace   |
+| (Console User)      |                   | tempat ia menjadi anggota, peran  |
+|                     |                   | apa pun (owner, member, viewer).  |
 |                     |                   | Endpoint: GET /api/v1/app/projects/.../logs |
 |                     |                   | WebSocket: private-deployment.{id}|
 +---------------------+-------------------+-----------------------------------+
@@ -75,7 +76,7 @@ Batasan hak akses terhadap log dan event ditegakkan secara ketat pada layer Poli
 
 ### Detail Persona
 
-1. **Project Owner (Pengguna Console)**:
+1. **Anggota Workspace (Pengguna Console)**: owner, member, dan viewer workspace pemilik project. Akses hilang begitu keanggotaannya berakhir.
    - Mengakses log melalui endpoint `GET /api/v1/app/projects/{project}/deployments/{deployment}/logs` dan `GET /api/v1/app/projects/{project}/deployments/{deployment}/events`.
    - Menggunakan autentikasi session cookie Sanctum SPA.
    - Hak akses divalidasi oleh `ProjectPolicy@view`. Akses terhadap project milik pengguna lain ditolak dengan respons `403 Forbidden`.

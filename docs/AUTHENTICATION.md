@@ -189,17 +189,18 @@ Tabel `legal_acceptances` menyimpan satu baris per user, dokumen, dan versi, den
 
 | Yang terjadi | Keterangan |
 | --- | --- |
-| Proyek | Lewat jalur [Menghapus Project](API_CONVENTIONS.md#menghapus-project): workload dihentikan, attempt dibatalkan, baris menunggu `projects:purge-deleted`. Selama menunggu, `projects.user_id` bernilai `null`. Environment variable dan salinannya dihapus saat itu juga, tidak menunggu masa simpan. |
+| Proyek di workspace pribadi | Lewat jalur [Menghapus Project](API_CONVENTIONS.md#menghapus-project): workload dihentikan, attempt dibatalkan, baris menunggu `projects:purge-deleted`. Selama menunggu, `projects.user_id` dan `projects.workspace_id` bernilai `null`. Environment variable dan salinannya dihapus saat itu juga, tidak menunggu masa simpan. |
+| Workspace | Workspace pribadi dan semua keanggotaan dihapus. Tim yang dimiliki sendirian dan sudah kosong ikut dihapus. Tim lain tetap ada, dan project tim yang dibuat akun ini tetap milik timnya dengan `user_id` kosong. |
 | Dihapus saat itu juga | Baris user, OAuth account dan tokennya, feedback, notifikasi, persetujuan dokumen, personal access token, semua session, token reset kata sandi, relasi GitHub installation, dan avatar. `pending_email` hilang bersama baris user, jadi tautan ganti email dan verifikasi yang lama menjadi tidak berlaku. |
-| GitHub installation | Baris installation ikut dihapus bila tidak ada user lain atau proyek milik user lain yang memakainya. Akses GitHub App di sisi GitHub dicabut sendiri oleh pengguna. |
+| GitHub installation | Baris installation ikut dihapus bila tidak ada user lain yang terhubung dan tidak ada proyek hidup yang memakainya, termasuk proyek tim. Akses GitHub App di sisi GitHub dicabut sendiri oleh pengguna. |
 | Yang tetap ada | `audit_events` berisi ID, termasuk event `account.deleted` tanpa email; `retired_project_slugs`; `usage_signal_records` sampai masa simpannya habis; `deployments` milik proyek sampai purge dengan `requested_by` kosong. |
 | Email konfirmasi | Dikirim ke alamat lama bila `sakala.email_delivery_enabled` aktif. Penghapusan tidak bergantung pada email ini. |
 
-Akun admin dijawab `409 ADMIN_ACCOUNT_CANNOT_BE_DELETED`: peran admin dicabut dulu, supaya tidak ada deployment yang kehilangan satu-satunya admin. Proses bisa diulang kalau terputus, karena setiap langkahnya aman dijalankan lagi. Bila proyek baru terus muncul selama proses, jawabannya `409 ACCOUNT_DELETION_CONFLICT`; foreign key `projects.user_id` tetap `RESTRICT`, sehingga proyek yang masih hidup tidak bisa kehilangan pemilik.
+Pemilik terakhir tim yang masih punya proyek dijawab `409 LAST_WORKSPACE_OWNER` dengan `workspaces` berisi tim tersebut, sebelum apa pun dihapus: jadikan anggota lain owner atau hapus proyeknya dulu. Akun admin dijawab `409 ADMIN_ACCOUNT_CANNOT_BE_DELETED`: peran admin dicabut dulu, supaya tidak ada deployment yang kehilangan satu-satunya admin. Proses bisa diulang kalau terputus, karena setiap langkahnya aman dijalankan lagi. Bila proyek baru terus muncul selama proses, jawabannya `409 ACCOUNT_DELETION_CONFLICT`; foreign key `projects.user_id` dan `projects.workspace_id` tetap `RESTRICT`, sehingga proyek yang masih hidup tidak bisa kehilangan workspace di tengah proses.
 
 ### Ekspor Data
 
-`GET /api/v1/auth/account/export` hanya menerima session, dengan `Cache-Control: no-store`. Isinya data milik akun itu dalam `data`: `account` (termasuk `legal_acceptances`, `oauth_accounts`, `github_installations`), `projects` (termasuk yang masih dalam masa simpan setelah dihapus), `deployments`, `environment_variables`, `notifications`, dan `feedback`.
+`GET /api/v1/auth/account/export` hanya menerima session, dengan `Cache-Control: no-store`. Isinya data milik akun itu dalam `data`: `account` (termasuk `legal_acceptances`, `oauth_accounts`, `github_installations`, dan `workspaces` dengan peran serta waktu bergabung), `projects` dari workspace pribadi (termasuk yang masih dalam masa simpan setelah dihapus; project tim milik timnya dan tidak ikut), `deployments`, `environment_variables`, `notifications`, dan `feedback`.
 
 Environment variable hanya berisi nama, `is_secret`, dan `project_id`, tidak pernah nilainya, juga untuk variabel non-secret. Token OAuth dan hash kata sandi tidak pernah ikut. Log deployment dan jejak audit tidak termasuk.
 
@@ -243,8 +244,9 @@ temporary_credential`, agent yang memiliki command meminta
 `POST /api/agent/v1/commands/{command}/repository-credential` dan menerima
 installation token GitHub App yang dibatasi ke satu repository dengan
 `contents:read`. API memverifikasi kepemilikan command, status command,
-installation yang masih aktif, dan bahwa pemilik project masih terhubung ke
-installation sebelum mencetak token. Token ini tidak di-cache, tidak disimpan,
+installation yang masih aktif, dan bahwa orang yang menjadi sandaran akses
+project masih terhubung ke installation sebelum mencetak token (project tim dari
+installation organisasi bersandar pada installation itu sendiri). Token ini tidak di-cache, tidak disimpan,
 dan hanya dicatat sebagai audit event tanpa nilai tokennya. Lihat
 [Agent API](AGENT_API.md#repository-credential).
 

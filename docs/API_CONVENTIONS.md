@@ -60,24 +60,32 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 
 | `code` | HTTP | Kapan | Field tambahan |
 | --- | --- | --- | --- |
-| `PROJECT_LIMIT_EXCEEDED` | `422` | Kuota project selama pilot habis. | `limit`, `current` |
-| `ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED` | `422` | Batas deployment yang sedang berjalan tercapai. | `scope` (`project` atau `user`), `limit`, `current` |
+| `PROJECT_LIMIT_EXCEEDED` | `422` | Kuota project workspace habis. | `limit`, `current` |
+| `ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED` | `422` | Batas deployment yang sedang berjalan tercapai. | `scope` (`project`, `user` untuk workspace pribadi, atau `workspace` untuk tim), `limit`, `current` |
+| `ACTIVE_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy project yang belum melayani akan melewati batas container berjalan workspace. Redeploy project yang sudah melayani tidak pernah kena. | `limit`, `current` |
 | `RESOURCE_LIMIT_EXCEEDED` | `422` | Resource yang diminta di luar batas pilot. | `resource`, `requested`, `maximum` |
 | `PROJECT_SUSPENDED` | `409` | Deploy atau inspeksi ulang pada project yang ditangguhkan admin. | - |
 | `DEPLOYMENT_ALREADY_FINISHED` | `409` | Membatalkan deployment yang sudah `succeeded` atau `failed`. | `status` |
 | `GITHUB_RATE_LIMITED` | `503` | GitHub membatasi permintaan Sakala dan tidak ada jawaban tersimpan. Header `Retry-After` berisi detik tunggu. | `retry_after` |
 | `AVATAR_STORAGE_UNAVAILABLE` | `503` | Foto profil tidak bisa disimpan karena penyimpanan tidak tersedia. | - |
 | `EMAIL_DELIVERY_UNAVAILABLE` | `503` | Endpoint yang tugasnya mengirim email dipanggil saat pengiriman email mati. Lihat [Autentikasi](AUTHENTICATION.md#pengiriman-email). | - |
-| `REPOSITORY_ACCESS_REVOKED` | `409` | Deploy project GitHub App saat pemilik project tidak lagi punya akses ke repository. | - |
+| `REPOSITORY_ACCESS_REVOKED` | `409` | Deploy project GitHub App saat orang yang menjadi sandaran aksesnya tidak lagi punya akses ke repository atau sudah keluar dari tim. Lihat [Akses GitHub untuk project tim](#akses-github-untuk-project-tim). | - |
 | `invalid_reset_token` | `422` | Token reset kata sandi salah atau kedaluwarsa, atau emailnya tidak dikenal. | - |
 | `email_not_verified` | `403` | Login dengan kata sandi benar, tetapi email belum diverifikasi. Lihat [Autentikasi](AUTHENTICATION.md). | - |
 | `LEGAL_ACCEPTANCE_REQUIRED` | `403` | Membuat proyek, inspeksi ulang, atau deploy sebelum menyetujui versi terbaru. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen). | - |
 | `REAUTHENTICATION_REQUIRED` | `403` | Akun tanpa kata sandi menghapus akun tanpa login baru di provider. Lihat [Menghapus Akun](AUTHENTICATION.md#menghapus-akun). | - |
 | `ADMIN_ACCOUNT_CANNOT_BE_DELETED` | `409` | Admin menghapus akunnya sendiri. | - |
 | `ACCOUNT_DELETION_CONFLICT` | `409` | Proyek baru terus muncul selama akun dihapus. Aman diulang. | - |
+| `WORKSPACE_IS_PERSONAL` | `409` | Mengganti nama, menghapus, meninggalkan, atau mengundang ke workspace pribadi. | - |
+| `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek. | `workspaces` (`id`, `name`, `slug`) |
+| `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek. | `projects` |
+| `TEAM_LIMIT_EXCEEDED` | `422` | Membuat tim saat jumlah tim yang dimiliki sudah di batas. | `limit`, `current` |
+| `EMAIL_VERIFICATION_REQUIRED` | `403` | Membuat atau bergabung ke tim dengan email yang belum diverifikasi. | - |
+| `ALREADY_WORKSPACE_MEMBER` | `409` | Mengundang alamat milik anggota, atau menerima undangan saat sudah menjadi anggota. | - |
+| `INVITATION_EXPIRED` | `409` | Menerima undangan yang sudah kedaluwarsa. | - |
 | `ORIGIN_NOT_ALLOWED` | `403` | `/broadcasting/auth` dari origin selain Console. Lihat [Autentikasi](AUTHENTICATION.md#cookie-dan-aplikasi-pengguna). | - |
 
-Pemilik project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
+Anggota workspace project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
 
 ## Bahasa
 
@@ -104,7 +112,7 @@ Scramble menginfer dokumentasi dari route, validation rules pada Form Request, r
 
 Instalasi GitHub App selalu kembali ke `/projects/new` di console: `?github_installation=connected` saat berhasil, atau `?github_installation=error&error=<kode>` dengan kode `github_app_not_configured`, `github_invalid_state`, `github_invalid_installation`, `github_access_denied`, atau `github_provider_failure`. Tamu diarahkan ke `/login` di console, bukan ke halaman error API.
 
-Webhook `push` membuat deployment untuk project yang `auto_deploy`-nya aktif bila repository, installation, dan branch cocok, memakai commit dari payload dengan `trigger = webhook`. Signature diverifikasi lebih dulu, dan `X-GitHub-Delivery` membuat pengiriman ulang tidak melakukan apa-apa. Project yang ditangguhkan atau yang kena batas deployment aktif dilewati: webhook tetap `200`, tindakan dicatat di audit (`project.auto_deploy_skipped`), dan pemilik mendapat notifikasi `project_issue`. Pengiriman yang dilewati tidak dicoba ulang. GitHub App harus berlangganan event `push`.
+Webhook `push` membuat deployment untuk project yang `auto_deploy`-nya aktif bila repository, installation, dan branch cocok, memakai commit dari payload dengan `trigger = webhook`. Deployment itu atas nama pemilik workspace pribadi, atau di tim atas nama pembuat project selama ia masih owner atau member, lalu owner tim yang paling lama. Signature diverifikasi lebih dulu, dan `X-GitHub-Delivery` membuat pengiriman ulang tidak melakukan apa-apa. Project yang ditangguhkan atau yang kena batas deployment aktif dilewati: webhook tetap `200`, tindakan dicatat di audit (`project.auto_deploy_skipped`), dan owner serta member workspace mendapat notifikasi `project_issue`. Pengiriman yang dilewati tidak dicoba ulang. GitHub App harus berlangganan event `push`.
 
 ## Project Preview
 
@@ -154,7 +162,7 @@ Broadcast `deployment.log.created` membawa `sequence` untuk urutan semua event r
 
 ## Membatalkan Deployment
 
-`POST /api/v1/app/projects/{project}/deployments/{deployment}/cancel` (pemilik atau admin; tetap boleh saat project ditangguhkan, karena hanya menghentikan pekerjaan).
+`POST /api/v1/app/projects/{project}/deployments/{deployment}/cancel` (owner atau member workspace, atau admin; tetap boleh saat project ditangguhkan, karena hanya menghentikan pekerjaan).
 
 | Keadaan | Response | Hasil |
 | --- | --- | --- |
@@ -186,6 +194,7 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 | `suspension` | object atau `null` | Terisi selama `status` bernilai `suspended`, dan `null` di luar itu, termasuk setelah penangguhan dibuka. Ada juga di `GET /api/v1/app/projects`. Lihat "Pemberitahuan dan Membuka Penangguhan". |
 | `redeploy_required` | boolean | `true` bila environment variable atau konfigurasi build berubah setelah deployment aktif dibuat. |
 | `stack` | object atau `null` | Lihat "Inspeksi". |
+| `workspace` | object atau `null` | Workspace pemilik project: `id`, `name`, `slug`, `type` (`personal` atau `team`). Ada juga di daftar project dan respons pembuatan project. `null` hanya untuk project yang sedang menunggu purge tanpa workspace. Peran pemanggil ada di `GET /api/v1/app/workspaces`. |
 
 Isi `latest_deployment`:
 
@@ -217,7 +226,7 @@ Field konfigurasi diterima pada `POST` dan `PATCH /api/v1/app/projects`. Pada `P
 
 ### Inspeksi
 
-`POST /api/v1/app/projects/{project}/inspection` (pemilik; dibatasi `SAKALA_INSPECTION_RATE_LIMIT` per menit) menjawab `202` dengan `ProjectResource`. Hasilnya menyusul lewat `preview_status`. Inspeksi yang sedang berjalan atau sudah selesai untuk commit yang sama dipakai ulang; yang gagal, kedaluwarsa, atau dibatalkan dicoba lagi. Project yang ditangguhkan dijawab `409 PROJECT_SUSPENDED`.
+`POST /api/v1/app/projects/{project}/inspection` (owner atau member workspace; dibatasi `SAKALA_INSPECTION_RATE_LIMIT` per menit) menjawab `202` dengan `ProjectResource`. Hasilnya menyusul lewat `preview_status`. Inspeksi yang sedang berjalan atau sudah selesai untuk commit yang sama dipakai ulang; yang gagal, kedaluwarsa, atau dibatalkan dicoba lagi. Project yang ditangguhkan dijawab `409 PROJECT_SUSPENDED`.
 
 `stack` ada pada `ProjectResource`, `CreateProjectResource`, dan daftar project, bernilai `null` sampai inspeksi berhasil:
 
@@ -232,7 +241,7 @@ Field konfigurasi diterima pada `POST` dan `PATCH /api/v1/app/projects`. Pada `P
 
 Inspeksi dijalankan pada `root_directory` project. Setelah direktori itu diganti, `stack` kembali `null` karena hasil lama menggambarkan folder lain, dan console perlu meminta inspeksi ulang. Commit yang sama dengan direktori berbeda dihitung sebagai inspeksi baru. Agent v0.2.0 mengabaikan field ini dan selalu menginspeksi root repository.
 
-Filter `GET /api/v1/app/projects?filter=` menerima `7_days`, `30_days`, `90_days`, dan `all`.
+Filter `GET /api/v1/app/projects?filter=` menerima `7_days`, `30_days`, `90_days`, dan `all`. Tanpa `workspace_id`, daftar berisi project dari semua workspace pemanggil, jadi pengguna tanpa tim melihat daftar yang sama seperti sebelum workspace. `workspace_id` membatasinya ke satu workspace dan dijawab `403` bila pemanggil bukan anggotanya.
 
 `GET /api/v1/app/projects/domain-preview?name=` menjawab `{ "data": { "slug", "domain" } }` memakai generator yang sama dengan pembuatan project, termasuk suffix bentrok dan domain lingkungan. Hasilnya tidak dipesan, jadi domain akhir bisa berbeda bila ada yang mengambilnya lebih dulu. Nama yang dicadangkan dijawab `422` pada `name`.
 
@@ -250,9 +259,9 @@ Yang sengaja tetap ada: slug di `retired_project_slugs`, supaya alamat lama tida
 
 ### Environment Variable
 
-`POST` menerima `is_secret` (default `true`). `PATCH .../environment-variables/{id}` menerima `value` dan `is_secret`, keduanya opsional. `value` ada di response hanya untuk variabel non-secret; variabel secret tidak punya key itu dan tetap dibaca lewat `GET .../value`. `POST` dan `PATCH` menyertakan `redeploy_required`, karena deployment berjalan memakai nilai saat ia dibuat.
+Semua anggota workspace membaca daftar variabel; menambah, mengubah, menghapus, dan membaca nilai secret lewat `GET .../value` hanya untuk owner dan member, jadi viewer tidak pernah melihat nilai secret. `POST` menerima `is_secret` (default `true`). `PATCH .../environment-variables/{id}` menerima `value` dan `is_secret`, keduanya opsional. `value` ada di response hanya untuk variabel non-secret; variabel secret tidak punya key itu dan tetap dibaca lewat `GET .../value`. `POST` dan `PATCH` menyertakan `redeploy_required`, karena deployment berjalan memakai nilai saat ia dibuat.
 
-Setiap `GET .../value` untuk variabel secret mencatat `environment_variable.value_revealed` di `audit_events` sebelum nilainya dikirim: pelaku, project, `variable_id`, `variable_name`, dan `by_project_owner`, tidak pernah nilainya. Bila catatan gagal ditulis, nilainya tidak dikirim. Alamat IP dan user agent hanya disimpan untuk admin yang membaca project orang lain. Variabel non-secret tidak dicatat, karena nilainya sudah ada di daftar.
+Setiap `GET .../value` untuk variabel secret mencatat `environment_variable.value_revealed` di `audit_events` sebelum nilainya dikirim: pelaku, project, `variable_id`, `variable_name`, dan `by_project_owner` (`true` bila pembacanya owner atau member workspace project), tidak pernah nilainya. Bila catatan gagal ditulis, nilainya tidak dikirim. Alamat IP dan user agent hanya disimpan untuk admin yang membaca project dari workspace yang bukan miliknya. Variabel non-secret tidak dicatat, karena nilainya sudah ada di daftar.
 
 `ProjectStatus` adalah status control plane dan terpisah dari runtime: `draft` (default) dan `active` (deployment pertama sukses) serta `suspended` (admin). Nilai `failed` masih ada di enum tetapi tidak pernah ditulis; kegagalan deploy hanya tampak di `runtime_status`.
 
@@ -270,9 +279,9 @@ Endpoint project control menyediakan kontrol runtime yang hanya dapat digunakan 
 
 ### Pemberitahuan dan Membuka Penangguhan
 
-Suspend baru mengirim notifikasi `project_issue` ke pemilik berisi `reason` apa adanya dan kontak `SAKALA_ABUSE_EMAIL`, juga email bila `sakala.email_delivery_enabled` aktif. Notifikasi ini mengabaikan preferensi kategori, dan tidak dikirim ulang saat request diulang dengan `Idempotency-Key` yang sama. Karena `reason` sampai ke pemilik, jangan menulis identitas pelapor di dalamnya.
+Suspend baru mengirim notifikasi `project_issue` ke owner dan member workspace project berisi `reason` apa adanya dan kontak `SAKALA_ABUSE_EMAIL`, juga email bila `sakala.email_delivery_enabled` aktif. Notifikasi ini mengabaikan preferensi kategori, dan tidak dikirim ulang saat request diulang dengan `Idempotency-Key` yang sama. Karena `reason` sampai ke mereka, jangan menulis identitas pelapor di dalamnya.
 
-Selama ditangguhkan, pemilik dan admin juga membaca alasannya dari `suspension` di `ProjectResource` dan `GET /api/v1/app/projects`. Pengguna lain tetap menerima `403` pada detail project, dan daftar project hanya berisi project miliknya.
+Selama ditangguhkan, anggota workspace dan admin juga membaca alasannya dari `suspension` di `ProjectResource` dan `GET /api/v1/app/projects`. Pengguna lain tetap menerima `403` pada detail project, dan daftar project hanya berisi project dari workspace-nya.
 
 | Field | Tipe | Keterangan |
 | --- | --- | --- |
@@ -358,9 +367,99 @@ Header `Idempotency-Key` opsional dengan semantik yang sama dengan project contr
 
 Header `Idempotency-Key` pada semua operasi control (stop, suspend, reconcile, drain, resume, cleanup) ditolak `409` bila sudah dipakai command mana pun, bukan hanya oleh record control yang sama.
 
+## Workspace
+
+Setiap project dimiliki satu workspace. Setiap user punya tepat satu workspace pribadi (`type = personal`) yang dibuat bersama akunnya; user lama mendapatkannya lewat migrasi, dan project mereka pindah ke sana. `projects.user_id` tetap ada sebagai pembuat project. Tim adalah workspace `type = team` dengan anggota dalam peran:
+
+| Peran | Boleh |
+| --- | --- |
+| `owner` | Semua yang boleh dilakukan member, ditambah mengganti nama dan menghapus tim, mengundang, mengubah peran, dan mengeluarkan anggota. |
+| `member` | Membuat, men-deploy, membatalkan deployment, meminta inspeksi, mengubah, dan menghapus project tim, termasuk environment variable dan nilai secret. |
+| `viewer` | Membaca project, deployment, event, dan log. Tidak pernah melihat nilai secret dan tidak pernah mengubah apa pun. |
+
+Admin tetap punya semua kuasanya atas project. Pengguna di luar workspace menerima `403` generik tanpa `code` pada project dan workspace itu, sama seperti project orang lain sebelumnya; ID yang tidak ada menjadi `404`. Akses diperiksa ulang di setiap request, jadi anggota yang keluar atau dikeluarkan langsung kehilangan akses, sementara project tetap milik workspace. Langganan realtime `deployment.{id}` yang sudah terbuka baru berhenti saat tersambung ulang.
+
+Tim selalu punya setidaknya satu owner: pemilik terakhir tidak bisa keluar, dikeluarkan, atau diturunkan (`409 LAST_WORKSPACE_OWNER`). Workspace pribadi tidak bisa diganti namanya, dihapus, ditinggalkan, atau diberi anggota (`409 WORKSPACE_IS_PERSONAL`).
+
+| Endpoint | Siapa | Hasil |
+| --- | --- | --- |
+| `GET /api/v1/app/workspaces` | Pengguna | Workspace pemanggil, yang pribadi lebih dulu, masing-masing dengan `role` pemanggil. |
+| `POST /api/v1/app/workspaces` | Email terverifikasi | `201`. Body `name` (maks. 100) dan `slug` opsional (format username, maks. 50, unik; dibuat dari nama bila kosong). Pemanggil menjadi owner. |
+| `GET /api/v1/app/workspaces/{workspace}` | Anggota | Workspace dengan `role` pemanggil. |
+| `PATCH /api/v1/app/workspaces/{workspace}` | Owner tim | Body `name`. `slug` tidak berubah. |
+| `DELETE /api/v1/app/workspaces/{workspace}` | Owner tim | `204`, hanya bila tidak ada project; selain itu `409 WORKSPACE_NOT_EMPTY`. Project yang sudah dihapus menunggu purge tanpa workspace, dan environment variable-nya langsung dihapus. |
+| `POST /api/v1/app/workspaces/{workspace}/leave` | Anggota tim | `204`. |
+| `GET /api/v1/app/workspaces/{workspace}/members` | Anggota | `id` (ID keanggotaan), `role`, `joined_at`, `user` (`id`, `name`, `username`, `avatar_url`). `user.email` hanya untuk owner. |
+| `PATCH /api/v1/app/workspaces/{workspace}/members/{member}` | Owner tim | Body `role`. |
+| `DELETE /api/v1/app/workspaces/{workspace}/members/{member}` | Owner tim | `204`. Keanggotaan dari workspace lain dijawab `404`. |
+| `GET /api/v1/app/workspaces/{workspace}/invitations` | Owner tim | Undangan yang masih tertunda, termasuk yang kedaluwarsa sampai dibersihkan. |
+| `POST /api/v1/app/workspaces/{workspace}/invitations` | Owner tim | `201`. Body `email` dan `role`. Lihat "Undangan". |
+| `DELETE /api/v1/app/workspaces/{workspace}/invitations/{invitation}` | Owner tim | `204`. Tautan di email langsung tidak berlaku. |
+| `GET /api/v1/app/workspace-invitations` | Pengguna | Undangan yang belum kedaluwarsa untuk email terverifikasi pemanggil. |
+| `POST /api/v1/app/workspace-invitations/{invitation}/accept` | Penerima | `WorkspaceResource` dengan peran barunya. Body `token` opsional. |
+| `POST /api/v1/app/workspace-invitations/{invitation}/decline` | Penerima | `204`. Body `token` opsional. |
+
+`WorkspaceResource` berisi `id`, `name`, `slug`, `type`, `role` (peran pemanggil), `limit_profile` (`id`, `name`, atau `null` untuk default tipenya), dan `created_at`.
+
+### Membuat Tim
+
+User dengan email terverifikasi boleh membuat tim (`403 EMAIL_VERIFICATION_REQUIRED` bila belum). Jumlah tim yang dimiliki dibatasi `SAKALA_MAX_OWNED_TEAMS_PER_USER` (default 2); `users.max_owned_teams` menaikkannya per user dan diatur lewat API admin. Yang dihitung adalah tim tempat user menjadi owner, di bawah row lock user, jadi dua request tidak bisa sama-sama lolos dari slot terakhir (`422 TEAM_LIMIT_EXCEEDED`). Admin tidak dibatasi, sama seperti kuota project.
+
+### Undangan
+
+Owner mengundang alamat email dengan peran. API mengirim email lewat mailer yang sama dengan email akun, jadi endpoint ini dijawab `503 EMAIL_DELIVERY_UNAVAILABLE` saat pengiriman email mati, dan dibatasi `SAKALA_WORKSPACE_INVITATION_RATE_LIMIT` per jam per user. Email berisi tautan `SAKALA_CONSOLE_URL/workspace-invitations/{id}?token=...`; token hanya ada di email, dan baris undangan menyimpan hash SHA-256-nya. Undangan berlaku `SAKALA_WORKSPACE_INVITATION_TTL_HOURS` (default 168 jam), lalu dihapus `workspaces:prune-invitations` yang berjalan harian. Mengundang alamat yang sama lagi mengganti undangan yang tertunda: token, masa berlaku, peran, dan emailnya baru, dan tautan lama tidak berlaku lagi. Alamat milik anggota dijawab `409 ALREADY_WORKSPACE_MEMBER`.
+
+Akun yang sudah memakai alamat itu dengan email terverifikasi juga menerima notifikasi `workspace`, tanpa token. Undangan bisa diterima dengan dua cara:
+
+- dengan `token` dari email, dari akun terverifikasi mana pun, karena tautan itu buktinya, seperti undangan email pada umumnya;
+- tanpa token, oleh akun yang email terverifikasinya sama dengan alamat undangan.
+
+Selain itu jawabannya `404`, sehingga ID undangan tidak membocorkan apa pun. Akun yang belum terverifikasi dijawab `403 EMAIL_VERIFICATION_REQUIRED`, undangan kedaluwarsa `409 INVITATION_EXPIRED`, dan anggota yang sudah ada `409 ALREADY_WORKSPACE_MEMBER`. Menerima atau menolak menghabiskan undangan.
+
+### Batas Workspace
+
+Batas dihitung per workspace, tidak pernah per anggota, dan datang dari profil batas (`limit_profiles`) yang dipasang admin ke workspace. Workspace tanpa profil memakai default tipenya:
+
+| Batas | Workspace pribadi tanpa profil | Tim tanpa profil |
+| --- | --- | --- |
+| Jumlah project | `SAKALA_MAX_PROJECTS_PER_USER` (3) | `SAKALA_TEAM_MAX_PROJECTS`, bila kosong sama dengan pribadi |
+| Container berjalan | `SAKALA_MAX_ACTIVE_CONTAINERS_PER_WORKSPACE`, bila kosong sama dengan jumlah project | `SAKALA_TEAM_MAX_ACTIVE_CONTAINERS`, bila kosong sama dengan jumlah project |
+| Deployment berjalan | `SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_USER` (2) | `SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS`, bila kosong sama dengan pribadi |
+| Memory per project | `SAKALA_MAX_CONTAINER_MEMORY_MB` (512) | `SAKALA_TEAM_MAX_CONTAINER_MEMORY_MB`, bila kosong sama dengan pribadi |
+| CPU per project | `SAKALA_MAX_CONTAINER_CPU_MILLIS` (1000) | `SAKALA_TEAM_MAX_CONTAINER_CPU_MILLIS`, bila kosong sama dengan pribadi |
+| Build per jam | belum ditegakkan | belum ditegakkan |
+
+Dengan default ini tidak ada yang berubah bagi user yang sudah ada. Container berjalan adalah project yang melayani (`active_deployment_id` terisi) atau sedang di-deploy; batasnya hanya berlaku saat men-deploy project yang belum melayani. Default memory dan CPU tidak pernah melebihi batas profil. `max_builds_per_hour` disiapkan untuk batas build (#124). Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
+
+Membuat project mengunci baris user lalu baris workspace, dan membuat deployment mengunci baris workspace lalu baris project, sehingga dua request di workspace yang sama dihitung bergantian. Admin yang bertindak tidak dibatasi, sama seperti sebelumnya.
+
+`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, dan `quotas.current_active_containers_count`; `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
+
+### Akses GitHub untuk Project Tim
+
+Project dari URL publik tidak memakai credential, jadi deploy-nya tetap berjalan walaupun pembuatnya keluar. Untuk project dari GitHub App:
+
+| Workspace dan installation | Akses bersandar pada | Bila sandarannya hilang |
+| --- | --- | --- |
+| Workspace pribadi | Pemiliknya (pembuat project), seperti sebelumnya: masih terhubung ke installation dan masih bisa membaca repository dengan token GitHub-nya. | `REPOSITORY_ACCESS_REVOKED` |
+| Tim, installation di akun organisasi GitHub | Installation itu sendiri. Tidak ada orang yang diperiksa; organisasi yang menentukan repository mana yang dilihat installation. | GitHub menolak mencetak token untuk repository yang sudah dikeluarkan dari installation, lalu lease ditolak `409 repository_access_revoked` dan deployment gagal dengan kode itu |
+| Tim, installation di akun GitHub pribadi | Pembuat project, yang juga harus masih owner atau member tim. | `REPOSITORY_ACCESS_REVOKED` sampai tim menghubungkannya lewat installation organisasi |
+
+Aturan yang sama dipakai saat deploy manual, webhook `push`, dan lease credential agent.
+
+### Menghapus Akun dan Tim
+
+Menghapus akun menghapus workspace pribadi dan project-nya seperti sebelumnya, juga semua keanggotaannya. Tim yang dimiliki sendirian ikut dihapus bila kosong; bila masih punya project, penghapusan ditolak `409 LAST_WORKSPACE_OWNER` dengan daftar tim itu, sebelum apa pun dihapus. Project tim yang dibuat akun itu tetap milik timnya dengan `user_id` kosong. Lihat [Menghapus Akun](AUTHENTICATION.md#menghapus-akun).
+
+### Audit
+
+Perubahan dicatat di `audit_events` dengan subject workspace, hanya berisi ID dan peran, tanpa email atau nama: `workspace.created`, `workspace.renamed`, `workspace.deleted`, `workspace.member_joined`, `workspace.member_left`, `workspace.member_removed`, `workspace.member_role_changed`, `workspace.invitation_created`, `workspace.invitation_revoked`, `workspace.invitation_declined`, dan `workspace.limit_profile_changed`.
+
 ## Notifikasi
 
-Notifikasi in-app memakai database notification Laravel. Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email).
+Notifikasi in-app memakai database notification Laravel. Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email), dan `workspace` (undangan tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`.
+
+Notifikasi project sampai ke owner dan member workspace-nya, tidak ke viewer; di workspace pribadi itu berarti pemiliknya, sama seperti sebelumnya. Kabar deployment (`deployment_success`, `deployment_failure`) hanya sampai ke orang yang memintanya selama ia masih owner atau member, dan ke semua owner serta member bila tidak.
 
 | Endpoint | Hasil |
 | --- | --- |
