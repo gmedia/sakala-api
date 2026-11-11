@@ -252,7 +252,7 @@ final class SuspendProjectAction
         DB::afterCommit(static function () use ($recipients, $project, $reason): void {
             foreach ($recipients as $recipient) {
                 try {
-                    $recipient->notify(new ProjectSuspendedNotification($project->name, $reason));
+                    $recipient->notify(new ProjectSuspendedNotification($project->id, $project->name, $reason));
                 } catch (Throwable $exception) {
                     report($exception);
                 }

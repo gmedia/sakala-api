@@ -117,4 +117,21 @@ return [
         'name' => env('MAIL_FROM_NAME', 'Sakala'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Markdown Mail Theme
+    |--------------------------------------------------------------------------
+    |
+    | The Sakala layout lives in resources/views/vendor/mail; this theme is the
+    | stylesheet the renderer inlines into it. See docs/EMAIL.md.
+    |
+    */
+
+    'markdown' => [
+        'theme' => 'sakala',
+        'paths' => [
+            resource_path('views/vendor/mail'),
+        ],
+    ],
+
 ];

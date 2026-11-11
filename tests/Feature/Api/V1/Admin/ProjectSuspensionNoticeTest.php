@@ -45,12 +45,13 @@ test('the owner of a suspended project is told why and who to write to', functio
 
     suspendAs($this, User::factory()->create(['role' => UserRole::Admin]), $project)->assertAccepted();
 
-    Notification::assertSentTo($owner, ProjectSuspendedNotification::class, function (ProjectSuspendedNotification $notification) use ($owner): bool {
+    Notification::assertSentTo($owner, ProjectSuspendedNotification::class, function (ProjectSuspendedNotification $notification) use ($owner, $project): bool {
         $mail = $notification->toMail($owner);
 
         return $mail instanceof MailMessage
             && str_contains(implode(' ', $mail->introLines), 'Halaman phishing yang meniru bank.')
             && str_contains(implode(' ', $mail->introLines), 'abuse@sakala.dev')
+            && $notification->projectId === $project->id
             && str_contains((string) $mail->subject, 'toko-saya');
     });
 });

@@ -7,6 +7,9 @@ $emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
 return [
     'console_url' => env('SAKALA_CONSOLE_URL', 'http://localhost:5173'),
 
+    // The public site that serves /privasi and /syarat, linked from every email footer.
+    'landing_url' => env('SAKALA_LANDING_URL', 'https://sakala.dev'),
+
     // Whether email can really reach people. When the env is unset or empty it
     // follows mail.default (same env and default as config/mail.php): the log
     // and array mailers deliver nothing. Local development sets it to true on

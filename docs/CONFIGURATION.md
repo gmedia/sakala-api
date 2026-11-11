@@ -6,6 +6,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 
 - `APP_URL`: URL API.
 - `SAKALA_CONSOLE_URL`: URL console first-party.
+- `SAKALA_LANDING_URL`: situs publik yang menyajikan `/privasi` dan `/syarat` (default `https://sakala.dev`). Footer setiap email menautkan keduanya. Deployment self-hosted mengisinya dengan situsnya sendiri.
 - `SAKALA_API_RATE_LIMIT`: request per menit per user untuk route API yang sudah login (default `240`, yaitu 4 request per detik). Satu halaman deployment yang memantau status, event, dan log memakai kira-kira 60 sampai 90 request per menit, jadi 60 sudah habis oleh dua tab, sedangkan 240 masih memberi ruang untuk beberapa tab.
 - `SAKALA_API_GUEST_RATE_LIMIT`: request per menit per IP untuk route API tanpa login (default `60`). Limiter login, registrasi, email verifikasi, dan reset kata sandi berjalan terpisah di atasnya dan tidak berubah.
 - `SAKALA_LOGIN_RATE_LIMIT`: percobaan login per menit berdasarkan email ternormalisasi dan IP.
@@ -93,6 +94,8 @@ Staging dan production yang memakai `MAIL_MAILER=log` tidak mengirim apa pun, ja
 | `MAIL_USERNAME`, `MAIL_PASSWORD` | Credential SMTP dari provider. Simpan sebagai secret. |
 | `MAIL_SCHEME` | Kosongkan untuk STARTTLS di port `587`, atau `smtps` untuk port `465`. |
 | `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | Alamat dan nama pengirim. Nama pengirim default-nya `Sakala` dan tidak mengikuti `APP_NAME`. |
+
+Tampilan, isi, dan cara melihat pratinjau setiap email ada di [Email](EMAIL.md).
 
 Domain pada `MAIL_FROM_ADDRESS` wajib punya SPF dan DKIM yang mengizinkan provider tersebut. Tanpa keduanya, email kemungkinan besar masuk spam atau ditolak. Queue worker juga harus berjalan, karena email dikirim lewat queue.
 

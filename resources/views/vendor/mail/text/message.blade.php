@@ -1,27 +1,28 @@
+@props(['title' => 'Sakala', 'preheader' => null, 'headline' => null, 'reason' => null])
+@php($site = rtrim((string) config('sakala.landing_url'), '/'))
 <x-mail::layout>
-    {{-- Header --}}
-    <x-slot:header>
-        <x-mail::header :url="config('sakala.console_url')">
-            Sakala
-        </x-mail::header>
-    </x-slot:header>
+<x-slot:header>
+Sakala
+</x-slot:header>
+@if (filled($headline))
+{{ $headline }}
 
-    {{-- Body --}}
-    {{ $slot }}
+@endif
+{{ $slot }}
+@isset($subcopy)
+<x-slot:subcopy>
+{{ $subcopy }}
+</x-slot:subcopy>
+@endisset
+<x-slot:footer>
+--
+@if (filled($reason))
+{{ $reason }}
 
-    {{-- Subcopy --}}
-    @isset($subcopy)
-        <x-slot:subcopy>
-            <x-mail::subcopy>
-                {{ $subcopy }}
-            </x-mail::subcopy>
-        </x-slot:subcopy>
-    @endisset
+@endif
+Sakala dikelola oleh Sakala Maintainers, pengelola proyek open-source Sakala. Infrastrukturnya didukung PT Media Sarana Data (GMEDIA) sebagai founding sponsor. Email ini dikirim otomatis, jadi tidak perlu dibalas.
 
-    {{-- Footer --}}
-    <x-slot:footer>
-        <x-mail::footer>
-            Email ini dikirim otomatis oleh Sakala, jadi tidak perlu dibalas.
-        </x-mail::footer>
-    </x-slot:footer>
+Pemberitahuan Privasi: {{ $site }}/privasi
+Syarat Layanan: {{ $site }}/syarat
+</x-slot:footer>
 </x-mail::layout>

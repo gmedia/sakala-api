@@ -1,0 +1,144 @@
+/* Light colours from sakala-console/src/app.css. Inlined into every element by
+   Laravel's Markdown renderer; dark mode lives in layout.blade.php, which keeps
+   its <style> block. Every text pair holds at least 4.5:1 (see docs/EMAIL.md). */
+
+body,
+body *:not(html):not(style):not(br):not(tr):not(code) {
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+body {
+    -webkit-text-size-adjust: none;
+    background-color: #f8faf7;
+    color: #17211b;
+    height: 100%;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
+    width: 100% !important;
+}
+
+.wrapper {
+    background-color: #f8faf7;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.page-cell {
+    background-color: #f8faf7;
+    padding: 32px 16px;
+}
+
+.content {
+    margin: 0 auto;
+    max-width: 600px;
+    width: 100%;
+}
+
+.header {
+    padding: 0 4px 16px;
+    text-align: left;
+}
+
+.wordmark {
+    color: #0f766e;
+    display: inline-block;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 32px;
+    text-decoration: none;
+}
+
+.card {
+    background-color: #ffffff;
+    border: 1px solid #dde5df;
+    border-radius: 12px;
+    padding: 32px;
+    text-align: left;
+}
+
+h1 {
+    color: #17211b;
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 32px;
+    margin: 0 0 16px;
+}
+
+p {
+    color: #17211b;
+    font-size: 16px;
+    line-height: 24px;
+    margin: 0 0 16px;
+}
+
+a {
+    color: #0f766e;
+}
+
+.action {
+    margin: 8px 0 12px;
+}
+
+.button-cell {
+    background-color: #0f766e;
+    border-radius: 8px;
+}
+
+.button {
+    background-color: #0f766e;
+    border: 1px solid #0f766e;
+    border-radius: 8px;
+    color: #ffffff;
+    display: inline-block;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 24px;
+    mso-padding-alt: 0;
+    padding: 12px 28px;
+    text-align: center;
+    text-decoration: none;
+}
+
+.fallback {
+    color: #6b6b6b;
+    font-size: 14px;
+    line-height: 20px;
+    margin: 0 0 24px;
+}
+
+.fallback a {
+    color: #0f766e;
+    word-break: break-all;
+}
+
+.footer {
+    padding: 24px 4px 0;
+    text-align: left;
+}
+
+.footer p {
+    color: #6b6b6b;
+    font-size: 14px;
+    line-height: 20px;
+    margin: 0 0 12px;
+}
+
+.footer a {
+    color: #0f766e;
+}
+
+.subcopy {
+    border-top: 1px solid #dde5df;
+    margin-top: 24px;
+    padding-top: 16px;
+}
+
+.subcopy p {
+    color: #6b6b6b;
+    font-size: 14px;
+    line-height: 20px;
+}
