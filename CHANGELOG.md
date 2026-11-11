@@ -4,11 +4,18 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
 ### Security
 
 - The session cookie no longer reaches tenant applications. It is host-only on the API, with `SESSION_COOKIE=__Host-sakala-api-session` in production, and a `SESSION_DOMAIN` covering `SAKALA_PROJECT_DEFAULT_DOMAIN` is ignored. Only `XSRF-TOKEN` keeps a parent domain, through `SAKALA_XSRF_COOKIE_DOMAIN`. Existing sessions end and users log in again.
 - `/broadcasting/auth`, which Laravel registers without CSRF checks, now accepts only origins in `SANCTUM_STATEFUL_DOMAINS` (`403 ORIGIN_NOT_ALLOWED`), so a tenant page cannot use the session there.
 - Revealing a secret value is recorded in `audit_events` before the value is returned: actor, project, variable name, never the value.
+- Agent failure messages are redacted before they are stored on the command and the deployment.
+- Updated the Symfony packages with published advisories, and raised the `laravel/framework` minimum to `^13.30` so its vulnerable ranges cannot return.
+- A project owner removed from a repository on GitHub can no longer deploy it: access is rechecked at deploy, webhook, and credential lease. Failure codes `repository_access_revoked` and `repository_access_check_failed`, and error code `REPOSITORY_ACCESS_REVOKED`.
+- `POST auth/register` always answers 202 and no longer confirms whether an email exists; the existing account's owner gets an email instead.
+- The exact values of a project's secret environment variables, and their common encodings, are redacted from stored and broadcast logs and events.
 
 ### Added
 
@@ -77,10 +84,5 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-### Security
-
-- Agent failure messages are redacted before they are stored on the command and the deployment.
-- Updated the Symfony packages with published advisories, and raised the `laravel/framework` minimum to `^13.30` so its vulnerable ranges cannot return.
-- A project owner removed from a repository on GitHub can no longer deploy it: access is rechecked at deploy, webhook, and credential lease. Failure codes `repository_access_revoked` and `repository_access_check_failed`, and error code `REPOSITORY_ACCESS_REVOKED`.
-- `POST auth/register` always answers 202 and no longer confirms whether an email exists; the existing account's owner gets an email instead.
-- The exact values of a project's secret environment variables, and their common encodings, are redacted from stored and broadcast logs and events.
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/gmedia/sakala-api/compare/v0.1.4...v0.2.0
