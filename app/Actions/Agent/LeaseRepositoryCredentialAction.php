@@ -18,6 +18,7 @@ use App\Models\GithubInstallation;
 use App\Models\Project;
 use App\Services\GitHub\GithubInstallationTokenService;
 use App\Services\GitHub\GithubRepositoryAccessService;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -57,7 +58,19 @@ final class LeaseRepositoryCredentialAction
         // Outside the transaction: this can reach GitHub.
         $this->assertOwnerStillHasAccess($agent, $commandId, $binding['project']);
 
-        $lease = $this->installationTokens->forRepository($binding['installation'], $binding['repository_id']);
+        try {
+            $lease = $this->installationTokens->forRepository($binding['installation'], $binding['repository_id']);
+        } catch (RequestException $exception) {
+            // GitHub refuses a token for a repository the installation no longer
+            // includes. For a team project on an organisation installation that is
+            // how access is withdrawn, so it gets the same answer as a person
+            // losing access. Other failures stay server errors.
+            if (! in_array($exception->response->status(), [404, 422], true)) {
+                throw $exception;
+            }
+
+            $this->refuseWithdrawnAccess($agent, $commandId, 'repository_access_revoked', 'Installation GitHub App tidak lagi menyertakan repository ini.');
+        }
 
         DB::transaction(function () use ($agent, $commandId, $binding, $lease): void {
             $current = $this->authorise($agent, $commandId);
@@ -100,11 +113,11 @@ final class LeaseRepositoryCredentialAction
      */
     private function assertOwnerStillHasAccess(AgentNode $agent, string $commandId, Project $project): void
     {
-        [$code, $message] = match ($this->repositoryAccess->forOwner($project)) {
+        [$code, $message] = match ($this->repositoryAccess->forProject($project)) {
             RepositoryAccessState::Granted => [null, null],
             RepositoryAccessState::Revoked => [
                 'repository_access_revoked',
-                'Pemilik proyek tidak lagi punya akses ke repository ini di GitHub.',
+                'Pembuat proyek tidak lagi punya akses ke repository ini di GitHub, atau sudah keluar dari workspace tim.',
             ],
             RepositoryAccessState::Unknown => [
                 'repository_access_check_failed',
@@ -116,7 +129,12 @@ final class LeaseRepositoryCredentialAction
             return;
         }
 
-        $this->failCommand->handle($agent, $commandId, $code, (string) $message);
+        $this->refuseWithdrawnAccess($agent, $commandId, $code, (string) $message);
+    }
+
+    private function refuseWithdrawnAccess(AgentNode $agent, string $commandId, string $code, string $message): never
+    {
+        $this->failCommand->handle($agent, $commandId, $code, $message);
 
         throw new HttpResponseException(response()->json([
             'message' => $message,
@@ -169,10 +187,15 @@ final class LeaseRepositoryCredentialAction
             $this->throwRepositoryAccessRemoved();
         }
 
-        // The user who connected the repository must still be linked to
-        // the installation; a removed link revokes the lease.
-        if (! $installation->users()->whereKey($project->user_id)->exists()) {
-            $this->throwRepositoryAccessRemoved();
+        // Unless the access belongs to the installation (a team project on an
+        // organisation installation), the person it relies on must still be
+        // linked to the installation; a removed link revokes the lease.
+        if (! $this->repositoryAccess->throughInstallation($project)) {
+            $holderId = $this->repositoryAccess->accessHolderId($project);
+
+            if ($holderId === null || ! $installation->users()->whereKey($holderId)->exists()) {
+                $this->throwRepositoryAccessRemoved();
+            }
         }
 
         return [

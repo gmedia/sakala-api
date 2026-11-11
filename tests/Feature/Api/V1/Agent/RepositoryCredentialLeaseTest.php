@@ -10,6 +10,7 @@ use App\Enums\AgentNodeStatus;
 use App\Enums\DeploymentStatus;
 use App\Enums\GithubInstallationStatus;
 use App\Enums\RepositoryAccessState;
+use App\Enums\WorkspaceRole;
 use App\Models\AgentCommand;
 use App\Models\AgentCommandReport;
 use App\Models\AgentNode;
@@ -20,6 +21,7 @@ use App\Models\GithubInstallation;
 use App\Models\OAuthAccount;
 use App\Models\Project;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Services\GitHub\GithubRepositoryAccessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -506,11 +508,11 @@ test('access restored on GitHub works again after the short refusal window', fun
     ['agent' => $agent, 'project' => $project, 'command' => $command] = leaseContext();
     fakeOwnerAccess(Http::sequence()->push(['message' => 'Not Found'], 404)->push(['id' => 4242]));
 
-    expect(app(GithubRepositoryAccessService::class)->forOwner($project))->toBe(RepositoryAccessState::Revoked);
+    expect(app(GithubRepositoryAccessService::class)->forProject($project))->toBe(RepositoryAccessState::Revoked);
 
     $this->travel(61)->seconds();
 
-    expect(app(GithubRepositoryAccessService::class)->forOwner($project))->toBe(RepositoryAccessState::Granted);
+    expect(app(GithubRepositoryAccessService::class)->forProject($project))->toBe(RepositoryAccessState::Granted);
 });
 
 test('during a GitHub outage the last grant holds for an hour, then the lease refuses', function (mixed $outage): void {
@@ -519,15 +521,15 @@ test('during a GitHub outage the last grant holds for an hour, then the lease re
 
     $service = app(GithubRepositoryAccessService::class);
 
-    expect($service->forOwner($project))->toBe(RepositoryAccessState::Granted);
+    expect($service->forProject($project))->toBe(RepositoryAccessState::Granted);
 
     $this->travel(30)->minutes();
 
-    expect($service->forOwner($project))->toBe(RepositoryAccessState::Granted);
+    expect($service->forProject($project))->toBe(RepositoryAccessState::Granted);
 
     $this->travel(31)->minutes();
 
-    expect($service->forOwner($project))->toBe(RepositoryAccessState::Unknown);
+    expect($service->forProject($project))->toBe(RepositoryAccessState::Unknown);
 
     $this->withHeaders(leaseHeaders($agent, 'lease-token'))
         ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
@@ -564,4 +566,80 @@ test('the access token used for the check never reaches the response', function 
         ->assertOk();
 
     expect($response->getContent())->not->toContain('owner-user-token');
+});
+
+/**
+ * Moves the lease context's project into a team owned by a new user, with the
+ * project's creator in $creatorRole (null: the creator left the team).
+ */
+function moveLeaseProjectToTeam(Project $project, GithubInstallation $installation, string $accountType, ?WorkspaceRole $creatorRole): Workspace
+{
+    $installation->update(['account_type' => $accountType]);
+    $team = teamWorkspace(User::factory()->create());
+
+    if ($creatorRole !== null) {
+        addWorkspaceMember($team, $project->user, $creatorRole);
+    }
+
+    $project->update(['workspace_id' => $team->id]);
+
+    return $team;
+}
+
+test('a team project on an organisation installation leases through the installation, without any person', function (): void {
+    ['agent' => $agent, 'command' => $command, 'project' => $project, 'installation' => $installation] = leaseContext('org-token', linkUser: false);
+    moveLeaseProjectToTeam($project, $installation, 'Organization', creatorRole: null);
+    OAuthAccount::query()->delete();
+
+    $this->withHeaders(leaseHeaders($agent, 'org-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertOk()
+        ->assertJsonPath('token', LEASED_TOKEN);
+
+    // No person was asked: only the installation token was minted.
+    Http::assertNotSent(fn (Request $request): bool => str_starts_with($request->url(), 'https://api.github.com/repositories/'));
+});
+
+test('a team project on a personal installation still relies on its creator while they are a member', function (): void {
+    ['agent' => $agent, 'command' => $command, 'project' => $project, 'installation' => $installation] = leaseContext('user-token');
+    moveLeaseProjectToTeam($project, $installation, 'User', WorkspaceRole::Member);
+
+    $this->withHeaders(leaseHeaders($agent, 'user-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertOk();
+});
+
+test('a team project on a personal installation stops leasing once its creator leaves or becomes a viewer', function (?WorkspaceRole $role): void {
+    ['agent' => $agent, 'command' => $command, 'project' => $project, 'installation' => $installation] = leaseContext('left-token');
+    moveLeaseProjectToTeam($project, $installation, 'User', $role);
+
+    $this->withHeaders(leaseHeaders($agent, 'left-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertStatus(409);
+
+    expect(app(GithubRepositoryAccessService::class)->forProject($project->refresh()))->toBe(RepositoryAccessState::Revoked);
+})->with([
+    'left the team' => [null],
+    'demoted to viewer' => [WorkspaceRole::Viewer],
+]);
+
+test('a personal project on an organisation installation keeps the per-person rule', function (): void {
+    ['project' => $project, 'installation' => $installation] = leaseContext();
+    $installation->update(['account_type' => 'Organization']);
+
+    expect(app(GithubRepositoryAccessService::class)->throughInstallation($project->refresh()))->toBeFalse()
+        ->and(app(GithubRepositoryAccessService::class)->accessHolderId($project))->toBe($project->user_id);
+});
+
+test('a repository removed from the installation refuses the lease with repository_access_revoked', function (): void {
+    ['agent' => $agent, 'command' => $command, 'project' => $project, 'installation' => $installation] = leaseContext('removed-token', mintStatus: 422);
+    moveLeaseProjectToTeam($project, $installation, 'Organization', creatorRole: null);
+
+    $this->withHeaders(leaseHeaders($agent, 'removed-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'repository_access_revoked');
+
+    expect($command->fresh()->status)->toBe(AgentCommandStatus::Failed)
+        ->and($command->fresh()->error_code)->toBe('repository_access_revoked');
 });

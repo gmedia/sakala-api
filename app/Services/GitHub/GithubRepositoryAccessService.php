@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\GitHub;
 
 use App\Enums\RepositoryAccessState;
+use App\Enums\WorkspaceType;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Models\OAuthAccount;
 use App\Models\Project;
@@ -16,9 +17,23 @@ use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 /**
- * Whether a project's owner can still read its repository on GitHub right now.
- * The installation pivot only records that they could when they connected it, so
- * a collaborator removed later would otherwise keep deploying new private commits.
+ * Whether a GitHub App project may still read its repository right now.
+ *
+ * Who the access belongs to depends on the workspace and the installation:
+ * - A team project from an installation on an organisation account uses the
+ *   installation itself. No person is checked; the organisation decides which
+ *   repositories the installation sees, and minting the repository-scoped token
+ *   fails once the repository is removed from it.
+ * - Every other GitHub App project goes through its creator: in a personal
+ *   workspace that is the owner, as before workspaces. On a team the creator
+ *   must also still be an owner or member, so a private repository from a
+ *   personal GitHub account stops deploying once that person leaves.
+ * Public URL projects need no credential and never come here, so a creator who
+ * left never breaks them.
+ *
+ * The installation pivot only records that the creator could read the repository
+ * when they connected it, so a collaborator removed later would otherwise keep
+ * deploying new private commits.
  *
  * Asks with the owner's own token, which costs from their 5000 requests per hour:
  * a grant is reused for 5 minutes, a refusal for 1 minute so restored access works
@@ -34,13 +49,53 @@ final class GithubRepositoryAccessService
 
     private const OUTAGE_GRACE_SECONDS = 3600;
 
+    /** `account_type` GitHub reports for an installation on an organisation. */
+    public const ORGANIZATION_ACCOUNT = 'Organization';
+
     public function __construct(
         private readonly GithubAppOAuthService $oauth,
     ) {}
 
-    public function forOwner(Project $project): RepositoryAccessState
+    /**
+     * True when the access belongs to the installation rather than a person.
+     */
+    public function throughInstallation(Project $project): bool
     {
-        $key = "github-repository-access:{$project->user_id}:{$project->github_repository_id}";
+        return $project->workspace?->type === WorkspaceType::Team
+            && $project->githubInstallation?->account_type === self::ORGANIZATION_ACCOUNT;
+    }
+
+    /**
+     * The person whose access the project relies on, or null when nobody
+     * qualifies any more (the creator left the team or deleted the account).
+     * Not meaningful when throughInstallation() is true.
+     */
+    public function accessHolderId(Project $project): ?int
+    {
+        if ($project->user_id === null || $project->workspace === null) {
+            return null;
+        }
+
+        if ($project->workspace->type === WorkspaceType::Personal) {
+            return $project->user_id;
+        }
+
+        return $project->workspace->roleOf($project->user)?->managesProjects() === true ? $project->user_id : null;
+    }
+
+    public function forProject(Project $project): RepositoryAccessState
+    {
+        if ($this->throughInstallation($project)) {
+            return RepositoryAccessState::Granted;
+        }
+
+        $holderId = $this->accessHolderId($project);
+
+        if ($holderId === null) {
+            return RepositoryAccessState::Revoked;
+        }
+
+        $key = "github-repository-access:{$holderId}:{$project->github_repository_id}";
 
         /** @var array{state: string, checked_at: int}|null $cached */
         $cached = Cache::get($key);
@@ -51,7 +106,7 @@ final class GithubRepositoryAccessService
             return $state;
         }
 
-        $answer = $this->ask($project);
+        $answer = $this->ask($project, $holderId);
 
         if ($answer === RepositoryAccessState::Unknown) {
             return $state ?? RepositoryAccessState::Unknown;
@@ -62,14 +117,14 @@ final class GithubRepositoryAccessService
         return $answer;
     }
 
-    private function ask(Project $project): RepositoryAccessState
+    private function ask(Project $project, int $holderId): RepositoryAccessState
     {
         $account = OAuthAccount::query()
-            ->where('user_id', $project->user_id)
+            ->where('user_id', $holderId)
             ->where('provider', 'github')
             ->first();
 
-        // Without a GitHub link there is no way to show the owner still has access.
+        // Without a GitHub link there is no way to show the creator still has access.
         if ($account === null) {
             return RepositoryAccessState::Revoked;
         }

@@ -12,6 +12,7 @@ use App\Models\GithubInstallation;
 use App\Models\LegalAcceptance;
 use App\Models\OAuthAccount;
 use App\Models\Project;
+use App\Models\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Notifications\DatabaseNotification;
@@ -70,6 +71,14 @@ final class AccountExportResource extends JsonResource
                     'account_type' => $installation->account_type,
                     'repository_selection' => $installation->repository_selection,
                     'status' => $installation->status->value,
+                ])->all(),
+                'workspaces' => $user->workspaces->map(static fn (Workspace $workspace): array => [
+                    'id' => $workspace->id,
+                    'name' => $workspace->name,
+                    'slug' => $workspace->slug,
+                    'type' => $workspace->type->value,
+                    'role' => $workspace->membership?->role->value,
+                    'joined_at' => $workspace->membership?->created_at?->toAtomString(),
                 ])->all(),
             ],
             'projects' => $data->projects->map(static fn (Project $project): array => [

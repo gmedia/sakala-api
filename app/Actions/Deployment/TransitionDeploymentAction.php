@@ -219,7 +219,9 @@ final class TransitionDeploymentAction
         string $title,
         string $message,
     ): void {
-        $this->notifier->send($project->user, $category, $title, $message, $project->id, $deployment->id);
+        // The person who asked for the deployment hears about it while they can
+        // still act on the project; otherwise everyone who can.
+        $this->notifier->sendToProject($project, $category, $title, $message, $deployment->id, preferred: $deployment->requester);
     }
 
     private function transition(

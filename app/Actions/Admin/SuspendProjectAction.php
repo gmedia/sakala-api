@@ -227,20 +227,19 @@ final class SuspendProjectAction
 
     /**
      * Only on a new suspension, so a retried request tells nobody twice. The
-     * reason reaches the owner as the admin wrote it, so it must not name whoever
+     * reason reaches everyone who can act on the project (in a personal
+     * workspace, the owner) as the admin wrote it, so it must not name whoever
      * reported the project. The notice ignores notification preferences.
      */
     private function notifyOwner(Project $project, string $reason): void
     {
-        $owner = $project->user;
         $contact = (string) config('sakala.contact.abuse_email');
 
-        $this->notifier->send(
-            $owner,
+        $this->notifier->sendToProject(
+            $project,
             NotificationCategory::ProjectIssue,
             'Proyek ditangguhkan',
             "{$project->name} ditangguhkan oleh admin Sakala, jadi trafiknya diputus dan belum bisa di-deploy. Alasannya: {$reason} Kalau menurutmu keputusan ini keliru, kirim email ke {$contact}.",
-            $project->id,
             mandatory: true,
         );
 
@@ -248,11 +247,15 @@ final class SuspendProjectAction
             return;
         }
 
-        DB::afterCommit(static function () use ($owner, $project, $reason): void {
-            try {
-                $owner?->notify(new ProjectSuspendedNotification($project->name, $reason));
-            } catch (Throwable $exception) {
-                report($exception);
+        $recipients = $this->notifier->projectRecipients($project);
+
+        DB::afterCommit(static function () use ($recipients, $project, $reason): void {
+            foreach ($recipients as $recipient) {
+                try {
+                    $recipient->notify(new ProjectSuspendedNotification($project->name, $reason));
+                } catch (Throwable $exception) {
+                    report($exception);
+                }
             }
         });
     }

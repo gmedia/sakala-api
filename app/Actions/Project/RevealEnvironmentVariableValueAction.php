@@ -16,8 +16,10 @@ final class RevealEnvironmentVariableValueAction
      * written, the caller gets an error and not the secret. A non-secret value is
      * in the variable list already, so reading it here reveals nothing new.
      *
-     * The address and user agent are kept only for admins reading someone else's
-     * project, matching what the privacy notice says about the audit trail.
+     * The address and user agent are kept only for admins reading a project of a
+     * workspace they cannot manage, matching what the privacy notice says about
+     * the audit trail. `by_project_owner` means the reader is an owner or member
+     * of the project's workspace.
      */
     public function handle(Project $project, EnvironmentVariable $variable, User $user): EnvironmentVariable
     {
@@ -25,7 +27,7 @@ final class RevealEnvironmentVariableValueAction
             return $variable;
         }
 
-        $readsOthersProject = $user->id !== $project->user_id;
+        $readsOthersProject = $project->workspace?->roleOf($user)?->managesProjects() !== true;
 
         AuditEvent::create([
             'actor_type' => User::class,

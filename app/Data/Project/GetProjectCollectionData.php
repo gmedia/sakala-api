@@ -10,6 +10,8 @@ final readonly class GetProjectCollectionData
         public int $page,
         public int $perPage,
         public string $search,
-        public string $filter
+        public string $filter,
+        /** Null lists every workspace the user belongs to. */
+        public ?string $workspaceId = null,
     ) {}
 }

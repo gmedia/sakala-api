@@ -7,6 +7,7 @@ use App\Enums\DeploymentTrigger;
 use App\Enums\GithubInstallationStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\UserRole;
+use App\Enums\WorkspaceRole;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
@@ -233,4 +234,43 @@ test('a push without a head commit has no message', function (): void {
     sendPush($this, pushPayload(['head_commit' => null]))->assertOk();
 
     expect(Deployment::query()->where('project_id', $project->id)->sole()->commit_message)->toBeNull();
+});
+
+test('a push to a team project deploys as its creator while they can deploy there', function (): void {
+    $project = pushProject();
+    $team = teamWorkspace(User::factory()->create(), [[$project->user, WorkspaceRole::Member]]);
+    $project->update(['workspace_id' => $team->id]);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->sole()->requested_by)->toBe($project->user_id);
+});
+
+test('a push to a team project whose creator left deploys as the longest-standing owner', function (): void {
+    $project = pushProject();
+    $firstOwner = User::factory()->create();
+    $team = teamWorkspace($firstOwner);
+    $this->travel(1)->minute();
+    addWorkspaceMember($team, User::factory()->create(), WorkspaceRole::Owner);
+    $project->update(['workspace_id' => $team->id]);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    // The organisation installation carries the access, so nobody's GitHub token was asked.
+    expect(Deployment::query()->where('project_id', $project->id)->sole()->requested_by)->toBe($firstOwner->id);
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.github.com/repositories/'));
+});
+
+test('a skipped push on a team project tells its owners and members, not its viewers', function (): void {
+    $project = pushProject(['status' => ProjectStatus::Suspended]);
+    $owner = User::factory()->create();
+    $viewer = User::factory()->create();
+    $team = teamWorkspace($owner, [[$project->user, WorkspaceRole::Member], [$viewer, WorkspaceRole::Viewer]]);
+    $project->update(['workspace_id' => $team->id]);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect($owner->notifications()->count())->toBe(1)
+        ->and($project->user->notifications()->count())->toBe(1)
+        ->and($viewer->notifications()->count())->toBe(0);
 });

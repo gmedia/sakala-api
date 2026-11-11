@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Notification;
 
 use App\Enums\NotificationCategory;
+use App\Models\Project;
 use App\Models\User;
 use App\Notifications\UserAlertNotification;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -43,5 +45,45 @@ final class UserNotifier
                 report($exception);
             }
         });
+    }
+
+    /**
+     * Notifies the people who can act on the project: its workspace's owners and
+     * members (in a personal workspace, the owner). Viewers only read, so they
+     * are left out. With $preferred, only that person is told while they can
+     * still act on the project, for news about their own deployment.
+     */
+    public function sendToProject(
+        Project $project,
+        NotificationCategory $category,
+        string $title,
+        string $message,
+        ?string $deploymentId = null,
+        bool $mandatory = false,
+        ?User $preferred = null,
+    ): void {
+        foreach ($this->projectRecipients($project, $preferred) as $user) {
+            $this->send($user, $category, $title, $message, $project->id, $deploymentId, $mandatory);
+        }
+    }
+
+    /**
+     * Empty for a project whose workspace is gone: nobody is left to tell.
+     *
+     * @return Collection<int, User>
+     */
+    public function projectRecipients(Project $project, ?User $preferred = null): Collection
+    {
+        $managers = $project->workspace?->projectManagers();
+
+        if ($managers === null) {
+            return new Collection;
+        }
+
+        if ($preferred !== null && $managers->contains('id', $preferred->id)) {
+            return new Collection([$managers->firstWhere('id', $preferred->id)]);
+        }
+
+        return new Collection($managers->all());
     }
 }
