@@ -621,6 +621,8 @@ Semua endpoint admin ada di `/api/v1/admin` (`routes/api/v1/admin.php`) dan dija
 
 Setiap aksi yang mengubah sesuatu wajib membawa `reason` (maks. 500) dan menulis `audit_events` dengan pelaku, alamat IP, user agent, dan `metadata.reason`. Mengulang aksi yang tidak mengubah apa pun (peran yang sama, profil yang sama, status yang sama, revoke kedua) tidak menulis audit baru. Secret, token, hash kata sandi, dan nilai environment variable tidak pernah ada di response maupun metadata audit.
 
+Perubahan peran lewat `php artisan user:admin` di server juga diaudit (`user.role_changed`, dan `user.admin_created` untuk akun baru), dengan `actor.type` `system`, `actor.id` `cli`, `metadata.os_user`, dan tanpa alamat IP atau user agent. Lihat `docs/DEVELOPMENT.md#akun-admin`.
+
 ### Daftar, Pagination, dan Rentang Waktu
 
 Semua daftar memakai pagination server: `page`, `per_page` (1 sampai 100, default 25), dengan `meta` dan `links` standar, urut dari yang terbaru. `search` mencocokkan beberapa kolom tanpa membedakan huruf besar dan kecil (`ILIKE` di PostgreSQL).

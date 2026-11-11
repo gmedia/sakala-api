@@ -4,6 +4,15 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- `php artisan user:admin <email> --demote` takes the admin role away from an account and refuses the last admin, like the admin API (`LAST_ADMIN`).
+- `user:admin --reason=` stores why the change was made. In a terminal the command asks for a reason when the option is missing and refuses an empty one; only a non-interactive run may go without, and its audit event records `reason_provided: false`.
+
+### Fixed
+
+- `php artisan user:admin` now writes an audit event, as role changes through the admin API already did. Promoting and demoting record `user.role_changed` and creating an account records `user.admin_created`, with actor `system`/`cli`, the subject user, `from` and `to` roles, the reason, and `os_user` (the operating system user that ran the command). No email, password, IP address, or user agent is stored. Earlier CLI promotions have no audit event.
+
 ## [0.4.1] - 2026-11-12
 
 ### Added
