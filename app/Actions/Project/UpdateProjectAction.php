@@ -15,6 +15,11 @@ final class UpdateProjectAction
 
         $project->fill($attributes);
 
+        // The detected port belongs to the directory that was inspected.
+        if ($project->isDirty('root_directory')) {
+            $project->detected_port = null;
+        }
+
         // Only a real change to what the next deployment receives needs a redeploy.
         if ($project->isDirty(array_keys($data->buildConfiguration))) {
             $project->config_changed_at = now()->toImmutable();

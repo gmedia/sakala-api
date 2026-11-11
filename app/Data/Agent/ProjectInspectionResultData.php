@@ -7,12 +7,14 @@ namespace App\Data\Agent;
 /**
  * Typed view of the `ProjectInspection` result an agent sends when
  * completing InspectProject. Tolerant of missing keys (the noop runtime
- * sends `null`).
+ * sends `null`, and older agents omit `exposed_ports`).
  */
 final readonly class ProjectInspectionResultData
 {
     /**
      * @param  list<string>  $manifests
+     * @param  list<int>|null  $exposedPorts  TCP ports from `EXPOSE` in the final
+     *                                        Dockerfile stage; null when the agent did not report them
      * @param  array<string, mixed>|null  $railpack
      */
     public function __construct(
@@ -23,6 +25,7 @@ final readonly class ProjectInspectionResultData
         public bool $composeFound,
         public array $manifests,
         public ?string $packageManager,
+        public ?array $exposedPorts,
         public ?array $railpack,
     ) {}
 
@@ -35,6 +38,7 @@ final readonly class ProjectInspectionResultData
 
         $manifests = $result['manifests'] ?? [];
         $railpack = $result['railpack'] ?? null;
+        $exposedPorts = $result['exposed_ports'] ?? null;
 
         return new self(
             repositoryUrl: is_string($result['repository_url'] ?? null) ? $result['repository_url'] : null,
@@ -44,8 +48,35 @@ final readonly class ProjectInspectionResultData
             composeFound: ($result['compose_found'] ?? false) === true,
             manifests: is_array($manifests) ? array_values(array_filter($manifests, 'is_string')) : [],
             packageManager: is_string($result['package_manager'] ?? null) ? $result['package_manager'] : null,
+            exposedPorts: is_array($exposedPorts) ? self::ports($exposedPorts) : null,
             railpack: is_array($railpack) ? $railpack : null,
         );
+    }
+
+    /**
+     * The port to use when the project has none of its own: only an
+     * unambiguous single exposed port counts.
+     */
+    public function detectedPort(): ?int
+    {
+        return $this->exposedPorts !== null && count($this->exposedPorts) === 1
+            ? $this->exposedPorts[0]
+            : null;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $ports
+     * @return list<int>
+     */
+    private static function ports(array $ports): array
+    {
+        $valid = array_filter(
+            $ports,
+            static fn (mixed $port): bool => is_int($port) && $port >= 1 && $port <= 65535,
+        );
+
+        /** @var list<int> */
+        return array_values(array_unique($valid));
     }
 
     /**
@@ -64,6 +95,7 @@ final readonly class ProjectInspectionResultData
             'compose_found' => $this->composeFound,
             'manifests' => $this->manifests,
             'package_manager' => $this->packageManager,
+            'exposed_ports' => $this->exposedPorts,
             'railpack' => $this->railpack,
         ];
     }

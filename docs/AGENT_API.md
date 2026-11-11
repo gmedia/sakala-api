@@ -341,9 +341,20 @@ command report. Result `complete` dibaca sebagai `ProjectInspection`
 `projects.inspection`; `fail` menyimpan `error_code` sebagai
 `inspection_error_code`. Hanya command inspeksi terbaru untuk sebuah project
 yang boleh menulis hasil — completion command yang sudah disusul diabaikan.
-`detected_port` tidak diturunkan dari hasil karena `ProjectInspection` v4 tidak
-memuat port; `DeployProject.container_port` memakai `Project::effectivePort()`
-(`detected_port`, atau 3000 bila kosong).
+Result juga boleh memuat `exposed_ports`, tambahan pada revisi 4: daftar port TCP
+dari `EXPOSE` di stage terakhir Dockerfile, `[]` bila tidak ada. Agent yang mengirimnya
+selalu mengirim field ini, jadi result tanpa field berasal dari agent lama. API
+menurunkan `detected_port` darinya:
+
+- Tepat satu port: port itu menjadi `detected_port`.
+- Kosong, lebih dari satu port, atau inspeksi atas `root_directory` yang bukan nilai
+  project saat ini: `detected_port` menjadi `null`.
+- Field tidak ada, atau result `null` dari noop runtime: `detected_port` tidak diubah.
+
+Entri yang bukan integer 1 sampai 65535 dibuang, dan duplikat digabung. Mengubah
+`root_directory` project juga mengosongkan `detected_port`, karena port itu milik
+direktori yang diinspeksi. `DeployProject.container_port` memakai
+`Project::effectivePort()`: `configured_port`, lalu `detected_port`, lalu 3000.
 
 ### ReconcileWorkload dan CleanupRuntime
 
