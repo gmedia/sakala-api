@@ -24,25 +24,33 @@ Runtime lokal sebelumnya memakai service `redis`. `.env.example` sudah menunjuk 
 
 ## Akun admin
 
-Endpoint admin hanya menerima akun dengan role `admin`: `/api/v1/admin/*` (stop, suspend, dan unsuspend proyek, metrik pilot, usage signal) dan `/api/agent/v1/agents/*` (daftar, rotate, revoke, drain, dan cleanup node). Console belum punya halaman admin, jadi endpoint ini dipanggil lewat API dengan session akun admin. Registrasi publik selalu membuat role `user`, jadi admin dibuat atau dipromosikan lewat Artisan, bukan tinker:
+Endpoint admin hanya menerima akun dengan role `admin`: `/api/v1/admin/*` (stop, suspend, dan unsuspend proyek, metrik pilot, usage signal) dan `/api/agent/v1/agents/*` (daftar, rotate, revoke, drain, dan cleanup node). Console belum punya halaman admin, jadi endpoint ini dipanggil lewat API dengan session akun admin. Registrasi publik selalu membuat role `user`, jadi admin dibuat, dipromosikan, atau diturunkan lewat Artisan, bukan tinker:
 
 ```bash
 # Promosikan akun yang sudah terdaftar (lewat form, GitHub, atau Google)
-php artisan user:admin dosen@kampus.ac.id
+php artisan user:admin dosen@kampus.ac.id --reason="Maintainer baru"
 
-# Buat akun admin baru; kata sandi ditanyakan tanpa ditampilkan
+# Buat akun admin baru; kata sandi dan alasan ditanyakan di terminal
 php artisan user:admin ops@kampus.ac.id --create --name="Tim Ops"
 
 # Tanpa terminal interaktif (skrip, CI): kata sandi acak dicetak sekali
-php artisan user:admin ops@kampus.ac.id --create --generate-password --no-interaction
+php artisan user:admin ops@kampus.ac.id --create --generate-password --reason="Bootstrap server" --no-interaction
+
+# Turunkan admin menjadi user biasa
+php artisan user:admin dosen@kampus.ac.id --demote --reason="Selesai bertugas"
 ```
 
 Perilakunya sengaja konservatif:
 
 - Tanpa `--create`, email yang belum terdaftar ditolak, jadi salah ketik tidak membuat akun baru.
-- Akun yang sudah ada hanya diubah role-nya. Kata sandi dan metode login-nya tidak disentuh. Menjalankan ulang pada akun yang sudah admin tidak mengubah apa pun.
+- Akun yang sudah ada hanya diubah role-nya. Kata sandi dan metode login-nya tidak disentuh. Menjalankan ulang pada akun yang sudah admin (atau `--demote` pada akun yang bukan admin) tidak mengubah apa pun dan tidak menulis audit.
+- `--demote` menolak admin terakhir, sama seperti API admin (`LAST_ADMIN`). Berbeda dengan API, perintah ini boleh menurunkan akun mana pun, karena operator server tidak login sebagai akun tertentu. `--demote` tidak bisa digabung dengan `--create`, `--name`, atau `--generate-password`.
 - Akun baru langsung terverifikasi emailnya, karena operator yang menjamin alamatnya. Persetujuan syarat dan onboarding tetap ditanyakan saat login pertama.
 - Kata sandi mengikuti aturan yang sama dengan registrasi (minimal 8 karakter). Kata sandi dari `--generate-password` hanya muncul sekali di output, jadi simpan saat itu juga, atau ganti setelah login.
+
+Setiap perubahan ditulis ke `audit_events`, seperti perubahan peran lewat API admin. Promosi dan penurunan mencatat `user.role_changed`, pembuatan akun mencatat `user.admin_created`. Pelakunya `actor_type` `system` dengan `actor_id` `cli`, jadi muncul di `GET /api/v1/admin/audit-events?actor_type=system&actor_id=cli`. Metadata berisi `reason`, `reason_provided`, `from` dan `to` (role lama dan baru, `from` bernilai `null` untuk akun baru), serta `os_user`, yaitu user sistem operasi yang menjalankan perintah (dari `posix_getpwuid`, atau `uid:<angka>` bila user itu tidak punya entri di `/etc/passwd`, yang umum di container). Email, kata sandi, alamat IP, dan user agent tidak dicatat.
+
+Alasan diambil dari `--reason` (maks. 500 karakter). Bila tidak diberikan dan perintah berjalan di terminal, alasan ditanyakan dan tidak boleh kosong. Hanya run non-interaktif (`--no-interaction`, atau stdin bukan TTY) yang boleh tanpa alasan; audit-nya lalu mencatat `reason` kosong dan `reason_provided: false`.
 
 Dengan Sail, ganti `php artisan` dengan `./vendor/bin/sail artisan`. Di server, jalankan lewat container API, misalnya `docker compose exec api php artisan user:admin ...`.
 

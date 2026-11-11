@@ -25,7 +25,7 @@ final class IndexAuditEventRequest extends FormRequest
             ...$this->timeRangeRules(array_column(AdminTimeRange::cases(), 'value')),
             /** `user`, `agent_node`, `system`, or `github_app`. */
             'actor_type' => ['sometimes', 'string', Rule::in(AuditMorphAlias::aliases())],
-            /** With `actor_type`, for example a user ID. */
+            /** With `actor_type`, for example a user ID, or `cli` for `system` changes made with `artisan user:admin`. */
             'actor_id' => ['sometimes', 'string', 'max:64', 'required_with_all:actor_type'],
             /** An exact action, for example `project.suspend_requested`. */
             'action' => ['sometimes', 'string', 'max:100'],
