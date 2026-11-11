@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-11
+
 ### Added
 
 - `detected_port` now has a writer. When an `InspectProject` result carries `exposed_ports` with exactly one TCP port, that port becomes `detected_port`, so a Dockerfile that ends in `nginx` with `EXPOSE 80` gets `PORT=80` and a probe on 80 instead of failing with `runtime_app_not_listening` on 3000. No port, several ports, or an inspection of another `root_directory` clear it. The effective port stays `configured_port`, then `detected_port`, then 3000. A result without `exposed_ports`, from an agent before the field, leaves `detected_port` unchanged, so older agents keep 3000. Changing `root_directory` clears `detected_port` until the next inspection.
@@ -11,6 +13,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Changed
 
+- Dependencies updated through Dependabot: the composer minor and patch group (14 packages), lint-staged, the nginx-unprivileged base image, actions/checkout v7, and docker/setup-buildx-action v4.
 - The copy test now checks every Indonesian sentence in `app/` and `lang/id`, not only failure texts, exceptions, and notifications, so `project` and `Anda` cannot come back in validation messages or action errors.
 
 ## [0.2.1] - 2026-11-11
@@ -99,6 +102,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/gmedia/sakala-api/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/gmedia/sakala-api/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gmedia/sakala-api/compare/v0.1.4...v0.2.0
