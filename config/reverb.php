@@ -2,10 +2,17 @@
 
 declare(strict_types=1);
 
-$allowedOrigins = array_values(array_filter(array_map(
-    'trim',
-    explode(',', (string) env('REVERB_ALLOWED_ORIGINS', 'http://localhost:5173')),
-)));
+// Reverb compares these with the hostname of the browser's Origin header, so a
+// value written as a URL (`https://app.example.com:5173`) would never match.
+$allowedOrigins = array_values(array_unique(array_filter(array_map(
+    static function (string $origin): string {
+        $origin = trim($origin);
+        $host = parse_url(str_contains($origin, '://') ? $origin : "http://{$origin}", PHP_URL_HOST);
+
+        return is_string($host) ? strtolower($host) : '';
+    },
+    explode(',', (string) env('REVERB_ALLOWED_ORIGINS', 'localhost')),
+))));
 
 return [
     'default' => env('REVERB_SERVER', 'reverb'),

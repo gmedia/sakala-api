@@ -29,6 +29,7 @@ test('deployment log created broadcasts expected payload', function (): void {
         ->toMatchArray([
             'deployment_id' => $deployment->id,
             'sequence' => 8,
+            'log_sequence' => 4,
             'stream' => 'stdout',
             'message' => 'Building the application.',
         ])

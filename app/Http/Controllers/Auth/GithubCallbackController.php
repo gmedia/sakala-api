@@ -8,6 +8,7 @@ use App\Actions\Auth\SyncGithubOAuthIdentityAction;
 use App\Enums\GithubOAuthFailure;
 use App\Exceptions\Auth\GithubOAuthIdentityException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\Auth\DeleteAccountRequest;
 use App\Services\Auth\ConsoleAuthenticationRedirect;
 use App\Services\GitHub\GithubAppOAuthService;
 use Illuminate\Http\Request;
@@ -51,6 +52,7 @@ final class GithubCallbackController extends Controller
 
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
+        $request->session()->put(DeleteAccountRequest::OAUTH_AUTHENTICATED_AT, now()->getTimestamp());
 
         return redirect()->away($consoleAuthenticationRedirect->githubOAuthCallback());
     }

@@ -40,7 +40,7 @@ final class SubmitFeedbackAction
         if ($data->projectId !== null && $data->deploymentId !== null) {
             if ($deployment !== null && $deployment->project_id !== $data->projectId) {
                 throw ValidationException::withMessages([
-                    'deployment_id' => ['The deployment does not belong to the specified project.'],
+                    'deployment_id' => ['Deployment yang dipilih bukan milik proyek ini. Pilih deployment dari proyek yang sama.'],
                 ]);
             }
         }
@@ -55,7 +55,7 @@ final class SubmitFeedbackAction
             ->exists();
 
         if ($isDuplicate) {
-            abort(409, 'Duplicate feedback submission detected. Please wait before submitting again.');
+            abort(409, 'Masukan yang sama sudah terkirim. Tunggu 5 menit sebelum mengirimnya lagi.');
         }
 
         return Feedback::create([

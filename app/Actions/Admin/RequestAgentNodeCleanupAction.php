@@ -57,13 +57,13 @@ final class RequestAgentNodeCleanupAction
             // flow; refuse deterministically instead of hitting the unique index.
             if ($data->idempotencyKey !== null
                 && AgentCommand::query()->where('idempotency_key', $data->idempotencyKey)->exists()) {
-                abort(409, 'Idempotency key has already been used for a different request.');
+                abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
             }
 
             // Cleanup is destructive; only a node that is active and would
             // actually be offered the command may receive it.
             if (! $this->eligibility->nodeIsEligibleFor($locked, AgentCommandType::CleanupRuntime)) {
-                abort(409, 'Agent node is not active and eligible for runtime cleanup.');
+                abort(409, 'Node ini tidak aktif, jadi belum bisa menjalankan runtime cleanup.');
             }
 
             $inFlight = AgentCommand::query()
@@ -73,7 +73,7 @@ final class RequestAgentNodeCleanupAction
                 ->exists();
 
             if ($inFlight) {
-                abort(409, 'A runtime cleanup is already in progress on this node.');
+                abort(409, 'Runtime cleanup di node ini masih berjalan. Tunggu sampai selesai.');
             }
 
             $targets = array_values(array_unique(array_map(
@@ -149,7 +149,7 @@ final class RequestAgentNodeCleanupAction
             || $request->actor_id !== (int) $user->id
             || ($request->response_context['targets'] ?? null) !== $targets
         ) {
-            abort(409, 'Idempotency key has already been used for a different request.');
+            abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
         }
     }
 }

@@ -7,10 +7,12 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Actions\Admin\ReconcileProjectAction;
 use App\Actions\Admin\StopProjectAction;
 use App\Actions\Admin\SuspendProjectAction;
+use App\Actions\Admin\UnsuspendProjectAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\ReconcileProjectRequest;
 use App\Http\Requests\Api\V1\Admin\StopProjectRequest;
 use App\Http\Requests\Api\V1\Admin\SuspendProjectRequest;
+use App\Http\Requests\Api\V1\Admin\UnsuspendProjectRequest;
 use App\Http\Resources\Api\V1\Admin\ProjectControlResource;
 use App\Models\Project;
 use Dedoc\Scramble\Attributes\HeaderParameter;
@@ -61,6 +63,33 @@ final class ProjectControlController extends Controller
         SuspendProjectRequest $request,
         Project $project,
         SuspendProjectAction $action,
+    ): JsonResponse {
+        $result = $action->handle(
+            project: $project,
+            user: $request->user(),
+            data: $request->toData(),
+        );
+
+        return (new ProjectControlResource($result))
+            ->response()
+            ->setStatusCode(202);
+    }
+
+    #[HeaderParameter(
+        'Idempotency-Key',
+        description: 'Unique key used to safely retry the unsuspend request.',
+        type: 'string',
+        example: '550e8400-e29b-41d4-a716-446655440000',
+    )]
+    /**
+     * Lift a suspension. The workload does not restart: the owner deploys again.
+     *
+     * @scramble-return \Illuminate\Http\Response
+     */
+    public function unsuspend(
+        UnsuspendProjectRequest $request,
+        Project $project,
+        UnsuspendProjectAction $action,
     ): JsonResponse {
         $result = $action->handle(
             project: $project,

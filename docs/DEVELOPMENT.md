@@ -22,6 +22,30 @@ Runtime lokal sebelumnya memakai service `redis`. `.env.example` sudah menunjuk 
 4. `./vendor/bin/sail up -d`.
 5. Volume `sail-redis` hanya berisi cache dan boleh dihapus: `docker volume rm sakala-api_sail-redis` (nama prefix mengikuti nama direktori project; lihat `docker volume ls`).
 
+## Akun admin
+
+Endpoint admin hanya menerima akun dengan role `admin`: `/api/v1/admin/*` (stop, suspend, dan unsuspend proyek, metrik pilot, usage signal) dan `/api/agent/v1/agents/*` (daftar, rotate, revoke, drain, dan cleanup node). Console belum punya halaman admin, jadi endpoint ini dipanggil lewat API dengan session akun admin. Registrasi publik selalu membuat role `user`, jadi admin dibuat atau dipromosikan lewat Artisan, bukan tinker:
+
+```bash
+# Promosikan akun yang sudah terdaftar (lewat form, GitHub, atau Google)
+php artisan user:admin dosen@kampus.ac.id
+
+# Buat akun admin baru; kata sandi ditanyakan tanpa ditampilkan
+php artisan user:admin ops@kampus.ac.id --create --name="Tim Ops"
+
+# Tanpa terminal interaktif (skrip, CI): kata sandi acak dicetak sekali
+php artisan user:admin ops@kampus.ac.id --create --generate-password --no-interaction
+```
+
+Perilakunya sengaja konservatif:
+
+- Tanpa `--create`, email yang belum terdaftar ditolak, jadi salah ketik tidak membuat akun baru.
+- Akun yang sudah ada hanya diubah role-nya. Kata sandi dan metode login-nya tidak disentuh. Menjalankan ulang pada akun yang sudah admin tidak mengubah apa pun.
+- Akun baru langsung terverifikasi emailnya, karena operator yang menjamin alamatnya. Persetujuan syarat dan onboarding tetap ditanyakan saat login pertama.
+- Kata sandi mengikuti aturan yang sama dengan registrasi (minimal 8 karakter). Kata sandi dari `--generate-password` hanya muncul sekali di output, jadi simpan saat itu juga, atau ganti setelah login.
+
+Dengan Sail, ganti `php artisan` dengan `./vendor/bin/sail artisan`. Di server, jalankan lewat container API, misalnya `docker compose exec api php artisan user:admin ...`.
+
 ## Scheduler
 
 Beberapa proses control plane berjalan lewat scheduler Laravel (`agent:assign-commands`, `agent:expire-commands`, `agent:mark-offline-nodes`, prune/usage signals). Jalankan `php artisan schedule:work` (atau `sail artisan schedule:work`) di terminal terpisah saat menguji alur agent secara lokal.
@@ -58,4 +82,14 @@ sail exec -e DB_CONNECTION=pgsql -e DB_HOST=pgsql -e DB_DATABASE=testing \
   -e DB_USERNAME=sail -e DB_PASSWORD=password laravel.test composer test:concurrency
 ```
 
-Output yang benar menampilkan 8 test `passed`; `8 skipped` berarti koneksi PostgreSQL belum terpasang.
+Output yang benar menampilkan semua test `passed`; bila semuanya `skipped` berarti koneksi PostgreSQL belum terpasang.
+
+## Realtime Lokal
+
+`BROADCAST_CONNECTION=log` adalah default yang tidak butuh apa pun, tetapi console tidak menerima event realtime. Untuk realtime, set `BROADCAST_CONNECTION=reverb`, isi `REVERB_APP_ID`, `REVERB_APP_KEY`, dan `REVERB_APP_SECRET`, lalu jalankan `composer reverb` dan `composer queue`. Di console, `PUBLIC_REVERB_PORT` harus sama dengan port yang terbuka di host: `8080` secara default, baik lewat `composer reverb` maupun Sail (`FORWARD_REVERB_PORT`). File `.env` lama yang masih berisi `FORWARD_REVERB_PORT=8081` perlu disamakan.
+
+## Menjalankan Suite di PostgreSQL
+
+`phpunit.xml` menaikkan `memory_limit` test ke 2G, jadi `composer test` tidak lagi berhenti pada batas 128M bawaan PHP. Jalankan suite pada database kosong yang dibuat khusus, bukan database development.
+
+Grup `concurrency` meng-commit baris dan menjalankan `migrate:fresh`. Karena itu `tests/Pest.php` mereset status migrasi setelah tiap test di grup ini, sehingga `pest` tanpa `--exclude-group` tetap aman. Jangan menjalankan dua suite bersamaan pada database yang sama.

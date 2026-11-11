@@ -14,6 +14,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
+ * @property OAuthProvider $provider
+ * @property string|null $avatar_url
  * @property string $access_token
  * @property string|null $refresh_token
  * @property CarbonImmutable|null $token_expires_at

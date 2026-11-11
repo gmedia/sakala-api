@@ -30,8 +30,18 @@ final class SecretRedactionService
         'github_pat_',
     ];
 
-    public function redactString(string $value): string
+    /**
+     * @param  list<string>  $knownValues  Exact values to remove first, typically
+     *                                     from {@see ProjectSecretValues}.
+     */
+    public function redactString(string $value, array $knownValues = []): string
     {
+        if ($knownValues !== []) {
+            // strtr prefers the longest match, so a value that contains another
+            // one is replaced whole.
+            $value = strtr($value, array_fill_keys($knownValues, self::REDACTED));
+        }
+
         $keys = implode('|', array_map(
             static fn (string $key): string => preg_quote($key, '/'),
             self::SENSITIVE_KEYS,
@@ -75,9 +85,10 @@ final class SecretRedactionService
 
     /**
      * @param  array<array-key, mixed>|null  $values
+     * @param  list<string>  $knownValues
      * @return array<array-key, mixed>|null
      */
-    public function redactArray(?array $values): ?array
+    public function redactArray(?array $values, array $knownValues = []): ?array
     {
         if ($values === null) {
             return null;
@@ -89,8 +100,8 @@ final class SecretRedactionService
             $redacted[$key] = $this->isSensitiveKey($key)
                 ? self::REDACTED
                 : match (true) {
-                    is_string($value) => $this->redactString($value),
-                    is_array($value) => $this->redactArray($value),
+                    is_string($value) => $this->redactString($value, $knownValues),
+                    is_array($value) => $this->redactArray($value, $knownValues),
                     default => $value,
                 };
         }

@@ -6,6 +6,9 @@ namespace App\Http\Requests\Api\V1\Deployment;
 
 use App\Data\Deployment\CreateDeploymentData;
 use App\Data\Runtime\RuntimeResourceLimitsData;
+use App\Enums\ProjectStatus;
+use App\Exceptions\Runtime\ProjectSuspendedException;
+use App\Models\Project;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class StoreDeploymentRequest extends FormRequest
@@ -13,6 +16,25 @@ final class StoreDeploymentRequest extends FormRequest
     public function authorize(): bool
     {
         return $this->user()->can('deploy', $this->route('project'));
+    }
+
+    /**
+     * The owner learns why a suspended project cannot deploy; anyone else
+     * keeps the generic 403 and learns nothing about the project.
+     */
+    protected function failedAuthorization(): void
+    {
+        $project = $this->route('project');
+
+        if (
+            $project instanceof Project
+            && $project->status === ProjectStatus::Suspended
+            && $this->user()->can('view', $project)
+        ) {
+            throw new ProjectSuspendedException;
+        }
+
+        parent::failedAuthorization();
     }
 
     /** @return array<string, mixed> */

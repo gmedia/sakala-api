@@ -77,6 +77,42 @@ identitas deployment; v0.1.0 tidak mengirim field ini). Batas body 256 KiB →
 v0.2.0 direplay apa adanya oleh test dari
 `tests/Fixtures/agent-protocol-v4/heartbeat/`.
 
+`metadata.workloads.crashed_details` adalah tambahan opsional di dalam protocol
+revision 4 (revisi tidak berubah; agent v0.2.0 tidak mengirimnya). Isinya daftar
+workload yang berhenti sendiri, paling banyak 50 item, dan seluruh heartbeat
+ditolak `422` bila ada item yang tidak sesuai:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `project_id` | UUID, wajib | Project pemilik workload. |
+| `deployment_id` | UUID, wajib | Deployment yang container-nya berhenti. |
+| `exit_code` | integer atau `null`, wajib ada | Exit code container. |
+| `oom_killed` | boolean, wajib | `true` bila dihentikan karena kehabisan memory. |
+| `finished_at` | RFC 3339 atau `null`, wajib ada | Waktu container berhenti. |
+
+`metadata.detail_counts.crashed_details` adalah jumlah sebelum daftar dipotong
+ke 50. Field ini wajib bila daftarnya berisi, tetapi tidak diwajibkan oleh
+keberadaan `detail_counts` saja, karena v0.2.0 mengirim `detail_counts` tanpa
+kunci ini.
+
+Bila daftarnya ada, API menyamakan `projects.runtime_status` untuk project
+yang deployment aktifnya berjalan di node pelapor:
+
+- selama project punya deployment yang masih berjalan, `runtime_status` tidak
+  diubah; hasil deployment itu yang menentukan.
+- item yang cocok dengan `project_id` dan `active_deployment_id` project →
+  `crashed`, kecuali project `suspended` atau `stopped`. Item untuk deployment
+  yang sudah tergantikan atau untuk node lain diabaikan.
+- project `crashed` yang tidak lagi tercantum → `running`, kecuali
+  `detail_counts.crashed_details` lebih besar dari panjang daftar. Daftar yang
+  terpotong tidak membuktikan project itu sudah pulih.
+- daftarnya tidak dikirim → tidak ada perubahan apa pun.
+
+Laporan yang sama boleh berulang: tanpa perubahan status tidak ada penulisan
+atau broadcast, dan biayanya satu query baca. Setiap perubahan dibroadcast
+sebagai `deployment.updated` pada channel deployment aktif, dengan tambahan
+field `project_runtime_status`.
+
 API menyimpan `metadata.protocol_version` ke kolom `agent_nodes.protocol_version`
 dan membandingkannya dengan `sakala.agent.supported_protocol_versions`. Node
 dengan revisi tidak didukung tetap tercatat online, tetapi tidak menerima
@@ -129,7 +165,8 @@ apa pun; heartbeat berikutnya memulihkan status yang dilaporkan.
 }
 ```
 
-Polling **tidak** memberi kepemilikan. Sebuah command ditawarkan ke node bila:
+Polling **tidak** memberi kepemilikan. Field `cancel_requested` dijelaskan di
+[Pembatalan command](#pembatalan-command). Sebuah command ditawarkan ke node bila:
 
 - node `auth_status = active`, protocol revision didukung, dan status yang
   dilaporkan bukan `offline`;
@@ -160,6 +197,52 @@ yang membawa payload; lifecycle command hanya membawa identitas.
 | `RefreshRoute` | `caddy-file-routing` |
 | `DrainNode`, `ResumeNode` | — |
 
+### Pembatalan command
+
+Kontrak ini tambahan di dalam protocol revision 4: arahnya tetap outbound, tidak
+ada command type baru, tidak ada endpoint baru, dan agent v0.2.0 yang belum
+mengenalnya tetap bekerja (lihat poin terakhir).
+
+Response `GET /commands` memuat array UUID di samping `data` selama ada command
+yang diminta batal:
+
+```json
+{ "data": [], "cancel_requested": ["0198a2f0-6a51-7c3e-9d6e-1b2c3d4e5f60"] }
+```
+
+| Field | Tipe | Arti |
+| --- | --- | --- |
+| `cancel_requested` | array UUID, opsional, tidak pernah kosong, paling banyak 100 | `agent_commands.id` milik node pemanggil yang berstatus `Claimed` atau `Running` dan diminta batal oleh pemilik project. Field ini tidak ada bila tidak ada yang diminta batal, jadi agent harus menganggapnya `[]`. |
+
+Array ini tidak terpengaruh `command_batch_size` dan tetap dikirim saat node
+sedang draining, drained, atau sudah penuh, jadi agent harus tetap melakukan poll
+selama ada eksekusi berjalan. ID yang sama diulang pada setiap poll sampai command
+terminal, sehingga agent harus memperlakukannya idempoten. ID yang tidak sedang
+dijalankan agent diabaikan.
+
+Yang harus dilakukan agent untuk tiap ID yang sedang dijalankannya:
+
+1. Membatalkan eksekusinya lewat cancellation token yang sudah ada.
+2. Bila pembatalan terjadi, mengirim `POST /commands/{id}/fail` dengan
+   `error_code = runtime_cancelled`. API mengakhiri command sebagai `Cancelled`
+   (bukan `Failed`) dan deployment sebagai `cancelled`. Retry dengan kode yang sama
+   dijawab `204`.
+3. Bila deployment sudah melewati cutover route dan harus diselesaikan, mengirim
+   `complete` seperti biasa. Deployment berakhir `succeeded`, karena permintaan
+   batal bukan jaminan.
+4. Bila eksekusi gagal karena sebab lain sebelum sempat dibatalkan, mengirim `fail`
+   dengan kode aslinya. Deployment berakhir `failed` dengan kode itu.
+
+Command `Pending` tidak pernah muncul di `cancel_requested`: API langsung
+membuatnya `Cancelled`, dan `claim` setelahnya dijawab `409` bentuk standar dengan
+`status = Cancelled`. Agent yang mengirim `runtime_cancelled` tanpa diminta, misalnya
+saat node berhenti, juga berakhir `Cancelled`, tetapi deployment menyimpan
+`failure.code = runtime_cancelled` supaya pemiliknya tahu penyebabnya.
+
+Bila agent tidak pernah menanggapi, command berjalan sampai selesai atau sampai lease
+habis. Saat lease habis pada deployment yang sudah diminta batal, deployment berakhir
+`cancelled`, bukan `failed`.
+
 ### DeployProject
 
 Payload mengikuti `DeployProjectPayload` protocol v4:
@@ -179,6 +262,18 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
 }
 ```
 
+- `build_command`, `start_command`, dan `root_directory` adalah field opsional
+  tambahan (revisi protocol tetap 4), hanya dikirim bila project mengisinya.
+  Agent yang belum mengenalnya mengabaikannya, jadi project itu dibangun dengan
+  deteksi otomatis. Agent menjalankan `build_command` hanya di dalam proses build
+  dan `start_command` hanya di dalam container, tidak pernah di shell host.
+  `root_directory` adalah path relatif terhadap root repository (tanpa `..`, tanpa
+  `/` di awal) yang menjadi konteks build. API menjamin ketiganya satu baris,
+  terbatas 1000 karakter untuk command dan 255 untuk direktori.
+- `container_port` adalah `effective_port` project saat deployment dibuat:
+  `configured_port`, lalu `detected_port`, lalu 3000. Agent mengisi `PORT` dengan
+  nilai ini, dan `runtime_port_conflict` muncul bila environment project menulis
+  `PORT` dengan nilai lain.
 - `repository_access` adalah `public` untuk project dari URL publik dan
   `temporary_credential` untuk project yang terhubung lewat GitHub App
   installation; untuk yang terakhir agent meminta credential lewat endpoint
@@ -197,9 +292,18 @@ Event fase dari agent menggerakkan status deployment (maju saja, retry aman):
 | Event | `deployments.status` |
 | --- | --- |
 | `deployment.checkout.started` | `cloning` |
+| `deployment.analysis.started` | `analyzing` (hanya build Railpack) |
 | `deployment.build.started` | `building` |
 | `deployment.container.started` | `deploying` |
-| `deployment.runtime.ready` | `routing` (+ `image_reference` dari `metadata.image`) |
+| `deployment.health.started` | `health_checking` |
+| `deployment.route.started` | `routing` |
+| `deployment.runtime.ready` | tidak mengubah status; mengisi `image_reference` dari `metadata.image` |
+
+Urutan statusnya `queued`, `cloning`, `analyzing`, `building`, `deploying`,
+`health_checking`, `routing`, karena agent memeriksa kesehatan aplikasi sebelum
+mengaktifkan route. Event yang tidak dikenal disimpan di timeline tanpa mengubah
+status. Agent lama tidak mengirim event analysis, health, dan route, jadi
+deployment-nya melompati status itu: `deploying` langsung ke `succeeded`.
 
 `succeeded` hanya ditulis oleh `complete`; `failed` oleh `fail`. Result
 `complete` dibaca sebagai `DeployProjectResult`:
@@ -214,13 +318,19 @@ deployment baru. Completion pada deployment yang sudah ditutup control plane
 ### InspectProject
 
 Dibuat saat project dibuat (`RequestProjectInspectionAction`) untuk preview
-stack di console; pinned ke node ber-capability `project-inspection`,
-`deployment_id` null, tanpa `expires_at`, idempoten per commit
-(`inspect:{project}:{sha}`). Payload mengikuti `InspectProjectPayload`:
+stack di console, dan lagi lewat `POST /api/v1/app/projects/{project}/inspection`;
+pinned ke node ber-capability `project-inspection`, `deployment_id` null, tanpa
+`expires_at`, idempoten per commit (`inspect:{project}:{sha}`, ditambah suffix
+saat percobaan sebelumnya gagal, kedaluwarsa, atau dibatalkan). Payload mengikuti `InspectProjectPayload`:
 
 ```json
-{ "repository_url": "https://github.com/example/app.git", "commit_sha": "…", "repository_access": "public" }
+{ "repository_url": "https://github.com/example/app.git", "commit_sha": "…", "repository_access": "public", "root_directory": "apps/web" }
 ```
+
+`root_directory` opsional dan tambahan (revisi protocol tetap 4), hanya dikirim bila
+project mengisinya, dengan aturan yang sama seperti pada `DeployProject`. Agent yang
+belum mengenalnya mengabaikannya dan menginspeksi root repository. API menyimpan nilai
+yang dikirim bersama hasil inspeksi, karena `ProjectInspection` tidak memuatnya.
 
 Event `project.inspection.started`/`completed` dan log-nya disimpan sebagai
 command report. Result `complete` dibaca sebagai `ProjectInspection`
@@ -230,7 +340,8 @@ command report. Result `complete` dibaca sebagai `ProjectInspection`
 `inspection_error_code`. Hanya command inspeksi terbaru untuk sebuah project
 yang boleh menulis hasil — completion command yang sudah disusul diabaikan.
 `detected_port` tidak diturunkan dari hasil karena `ProjectInspection` v4 tidak
-memuat port.
+memuat port; `DeployProject.container_port` memakai `Project::effectivePort()`
+(`detected_port`, atau 3000 bila kosong).
 
 ### ReconcileWorkload dan CleanupRuntime
 
@@ -289,6 +400,13 @@ diserahkan dan kedaluwarsa sendiri):
   installation yang `active` dengan repository yang sama, dan user pemilik
   project masih terhubung ke installation tersebut — selain itu `409`
   "GitHub App no longer has access…".
+
+API juga memeriksa ke GitHub dengan token milik pemilik project bahwa ia masih bisa
+membaca repository itu (grant disimpan 5 menit, penolakan 1 menit). Bila tidak, command
+langsung ditutup `Failed` dengan `error_code = repository_access_revoked`, lalu API
+menjawab `409` dengan `code` yang sama. Bila GitHub tidak bisa ditanya, jawaban terakhir
+berlaku sampai 1 jam; setelah itu kodenya `repository_access_check_failed`. `fail` dari
+agent setelahnya tetap `204` dan tidak mengganti kode itu.
 
 Token adalah installation token GitHub App yang dibatasi ke **satu
 repository** (`repository_ids`) dengan permission **`contents:read`** saja,
@@ -385,9 +503,12 @@ dengan `409`.
   (`204`). Sudah `Succeeded` → `204` (idempoten). `Failed`/`Cancelled`/`Expired`
   → `409`.
 - `fail`: body `{ "error_code", "error_message" }`. `Claimed`/`Running` → `Failed`
-  (`204`). Sudah `Failed` → `204`. `Succeeded` → `409`. `error_code` disanitasi ke
-  `[A-Za-z0-9._-]` (≤ 64) dan `error_message` dibersihkan dari control/bidi
-  character (≤ 1000).
+  (`204`), atau `Cancelled` bila `error_code = runtime_cancelled`. Sudah `Failed`
+  → `204`. Sudah `Cancelled` dan kodenya `runtime_cancelled` → `204`. `Succeeded` → `409`. `error_code` disanitasi ke
+  `[A-Za-z0-9._-]` (≤ 64); `error_message` dibersihkan dari control/bidi
+  character, diredaksi, lalu dibatasi (≤ 1000). Untuk `DeployProject`, pesan ini
+  dibatasi lagi ke 500 karakter dan ditampilkan ke console sebagai
+  `failure.detail`, jadi agent harus mengirim pesan yang aman dibaca student.
 - Kedua endpoint menolak node yang bukan pemilik dengan `409`, termasuk pada
   command yang sudah terminal.
 - Untuk command node-level, penyelesaian/kegagalan dicatat ke `audit_events`
@@ -434,18 +555,32 @@ Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
 `DeployProject`, dipetakan `DeploymentFailureClassifier` ke kategori yang
 dilihat console (`failure.category`):
 
-| Kategori | Error code |
-| --- | --- |
-| `checkout` | `repository_checkout_failed`, `repository_not_found`, `repository_access_denied`, `repository_auth_failed`, `repository_credential_expired`, `repository_credential_unavailable`, `repository_commit_not_found`, `runtime_repository_failed` |
-| `build` | `runtime_build_failed` |
-| `start` | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed` |
-| `health` | `runtime_health_check_failed` |
-| `route` | `runtime_routing_failed` |
-| `timeout` | `runtime_timeout`, `command_lease_expired` (control plane) |
-| `resource` | `runtime_capacity_exceeded`, `runtime_disk_pressure` |
-| `node` | `runtime_preflight_failed`, `runtime_dependency_failed`, `invalid_runtime_configuration`, `invalid_runtime_command`, `unsupported_runtime_command` |
-| `scheduling` | `command_expired` (control plane) |
-| `unknown` | lainnya, termasuk `runtime_cancelled` |
+| Kategori | Bisa diperbaiki student | Error code |
+| --- | --- | --- |
+| `checkout` | ya | `repository_not_found`, `repository_access_denied`, `repository_auth_failed`, `repository_credential_unavailable`, `repository_commit_not_found`, `repository_access_revoked` (control plane) |
+| `checkout` | tidak | `repository_credential_expired`, `repository_checkout_failed`, `runtime_repository_failed`, `repository_access_check_failed` (control plane) |
+| `build` | ya | `runtime_build_failed`, `runtime_root_directory_invalid` |
+| `start` | ya | `runtime_app_crashed`, `runtime_port_conflict` |
+| `start` | tidak | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed` |
+| `health` | ya | `runtime_app_not_listening`, `runtime_app_unhealthy`, `runtime_health_check_failed` |
+| `route` | tidak | `runtime_routing_failed` |
+| `timeout` | ya | `runtime_timeout` |
+| `timeout` | tidak | `command_lease_expired` (control plane) |
+| `resource` | ya | `runtime_app_out_of_memory` |
+| `resource` | tidak | `runtime_capacity_exceeded`, `runtime_disk_pressure` |
+| `node` | tidak | `runtime_preflight_failed`, `runtime_dependency_failed`, `invalid_runtime_configuration`, `invalid_runtime_command`, `unsupported_runtime_command`, `runtime_cancelled`, serta kode lain yang belum dikenali dan berawalan `runtime_registry` atau `runtime_network` (node gagal menjangkau registry image atau jaringan) |
+| `scheduling` | tidak | `command_expired` (control plane) |
+| `unknown` | tidak | lainnya |
+
+Kolom kedua muncul di console sebagai `failure.user_fixable`. Kode `runtime_app_*`
+dan `runtime_port_conflict` dikirim agent setelah v0.2.0, bersama health check
+HTTP di agent (status di bawah 500 dianggap sehat). Kontrak `PORT` tidak berubah:
+Sakala mengisi `PORT`, dan aplikasi harus listen di `0.0.0.0:$PORT`.
+`runtime_port_conflict` berarti environment variable `PORT` milik project berbeda
+dengan `container_port`, jadi student cukup menghapus atau menyamakan variabel itu.
+
+`failure.summary` dan `failure.recovery_hint` adalah teks polos. Console
+menampilkannya apa adanya, jadi keduanya tidak memakai markdown seperti backtick.
 
 ## Fixture
 
@@ -462,7 +597,7 @@ tanpa Agent atau Docker sungguhan. Lihat README di folder tersebut.
 
 Seluruh kontrak protocol v4 yang diperlukan #55 telah diimplementasikan. Belum
 tersedia: `desired_state = maintenance` (agent v0.2.0 hanya mencapainya lewat
-bootstrap), endpoint re-inspect project, dan migrasi workload lintas node.
+bootstrap) dan migrasi workload lintas node.
 
 ## Catatan sinkronisasi untuk sakala-agent
 

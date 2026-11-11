@@ -67,7 +67,7 @@ final class StopProjectAction
         ) {
             abort(
                 409,
-                'Idempotency key has already been used for a different request.',
+                'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.',
             );
         }
     }
@@ -126,11 +126,11 @@ final class StopProjectAction
             $existingCommand = $this->findExistingCommand($data);
 
             if ($existingCommand !== null) {
-                abort(409, 'Idempotency key has already been used for a different request.');
+                abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
             }
 
             if ($lockedProject->runtime_status === RuntimeStatus::Stopped) {
-                abort(409, 'Project is already stopped');
+                abort(409, 'Proyek ini sudah dihentikan.');
             }
 
             $pendingStopCommand = $this->findPendingStopCommand(
@@ -140,7 +140,7 @@ final class StopProjectAction
             if ($pendingStopCommand !== null) {
                 abort(
                     409,
-                    'A stop command is already in progress for this project.',
+                    'Command stop proyek ini masih berjalan. Tunggu sampai selesai.',
                 );
             }
 
@@ -157,7 +157,7 @@ final class StopProjectAction
             ) {
                 abort(
                     409,
-                    'Project does not have an active deployment target.',
+                    'Proyek ini tidak punya deployment aktif yang bisa dijadikan target.',
                 );
             }
 

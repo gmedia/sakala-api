@@ -19,6 +19,7 @@ final class GetProjectCollectionAction
         GetProjectCollectionData $data
     ): LengthAwarePaginator {
         $query = Project::query()
+            ->with(['latestDeployment', 'latestSuspendRequest'])
             ->whereBelongsTo($user)
             ->when(
                 filled($data->search),
@@ -28,6 +29,7 @@ final class GetProjectCollectionAction
         match ($data->filter) {
             '7_days' => $query->where('created_at', '>=', now()->subDays(7)),
             '30_days' => $query->where('created_at', '>=', now()->subDays(30)),
+            '90_days' => $query->where('created_at', '>=', now()->subDays(90)),
             default => null,
         };
 

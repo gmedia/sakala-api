@@ -9,5 +9,7 @@ enum OnboardingProfile: string
     case Developer = 'developer';
     case DevOps = 'devops';
     case Architect = 'architect';
+    case Student = 'student';
+    case Mentor = 'mentor';
     case Other = 'other';
 }

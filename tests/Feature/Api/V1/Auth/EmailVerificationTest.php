@@ -18,9 +18,9 @@ test('the verification notification contains a signed verification link', functi
     $mail = $notification->toMail($user);
 
     expect($notification)->toBeInstanceOf(ShouldQueueAfterCommit::class)
-        ->and($mail->subject)->toBe('Verifikasi alamat email Sakala')
+        ->and($mail->subject)->toBe('Verifikasi email akun Sakala')
         ->and($mail->greeting)->toBe('Halo Jane Doe,')
-        ->and($mail->actionText)->toBe('Verifikasi alamat email')
+        ->and($mail->actionText)->toBe('Verifikasi email')
         ->and($mail->actionUrl)->toStartWith(config('app.url').'/auth/email/verify/'.$user->id.'/')
         ->and($mail->actionUrl)->toContain('expires=')
         ->and($mail->actionUrl)->toContain('signature=');

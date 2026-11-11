@@ -9,6 +9,16 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class EnvironmentVariableResource extends JsonResource
 {
+    /** Set on writes, where the console has to say a redeploy is needed. */
+    public ?bool $redeployRequired = null;
+
+    public function withRedeployRequired(bool $redeployRequired): static
+    {
+        $this->redeployRequired = $redeployRequired;
+
+        return $this;
+    }
+
     /**
      * Transform the resource into an array.
      *
@@ -19,8 +29,15 @@ class EnvironmentVariableResource extends JsonResource
         return [
             'id' => $this->resource->id,
             'key' => $this->resource->key,
+            /** @var bool */
             'is_secret' => $this->resource->is_secret,
+            // Readable without the reveal flow only when it is not a secret; a
+            // secret never has this key at all.
+            /** @var string */
+            'value' => $this->when(! $this->resource->is_secret, fn () => $this->resource->encrypted_value),
             'created_at' => $this->resource->created_at->toAtomString(),
+            /** @var bool */
+            'redeploy_required' => $this->when($this->redeployRequired !== null, $this->redeployRequired),
         ];
     }
 }

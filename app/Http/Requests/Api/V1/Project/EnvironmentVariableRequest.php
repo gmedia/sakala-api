@@ -42,7 +42,9 @@ final class EnvironmentVariableRequest extends FormRequest
                 Rule::unique('environment_variables')->where(fn ($query) => $query->where('project_id', $project->id)),
             ],
             'value' => ['required', 'string'],
-            'is_secret' => ['required', 'boolean'],
+            // Secret unless the client says otherwise, so a forgotten flag never
+            // makes a value readable.
+            'is_secret' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -55,7 +57,7 @@ final class EnvironmentVariableRequest extends FormRequest
             projectId: $project->id,
             key: $this->string('key')->toString(),
             value: $this->string('value')->toString(),
-            isSecret: $this->boolean('is_secret'),
+            isSecret: $this->boolean('is_secret', true),
         );
     }
 }

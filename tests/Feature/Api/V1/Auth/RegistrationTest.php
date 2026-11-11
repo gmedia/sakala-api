@@ -2,16 +2,20 @@
 
 declare(strict_types=1);
 
+use App\Actions\Auth\CreateUserWithUniqueUsernameAction;
 use App\Actions\Auth\RegisterAction;
+use App\Actions\Legal\RecordLegalAcceptanceAction;
 use App\Data\Auth\RegisterData;
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Notifications\Auth\ExistingAccountRegistrationNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Notifications\SendQueuedNotifications;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Validation\ValidationException;
 
 uses(LazilyRefreshDatabase::class);
 
@@ -23,10 +27,13 @@ test('a guest can register and receives a queued verification notification', fun
         'email' => ' User@Example.TEST ',
         'password' => 'password123',
         'password_confirmation' => 'password123',
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
     ]);
 
     $response
-        ->assertCreated()
+        ->assertAccepted()
         ->assertJsonStructure(['data' => ['name', 'email', 'verification_required']])
         ->assertJsonPath('data.name', 'Jane Doe')
         ->assertJsonPath('data.email', 'user@example.test')
@@ -55,7 +62,7 @@ test('a guest can register and receives a queued verification notification', fun
 test('registration validates required and confirmed credentials', function () {
     $this->postJson(route('api.v1.auth.register'), [])
         ->assertUnprocessable()
-        ->assertJsonValidationErrors(['name', 'email', 'password', 'password_confirmation']);
+        ->assertJsonValidationErrors(['name', 'email', 'password', 'password_confirmation', 'accept_terms', 'terms_version', 'acceptable_use_version']);
 
     $this->postJson(route('api.v1.auth.register'), [
         'name' => [],
@@ -67,36 +74,91 @@ test('registration validates required and confirmed credentials', function () {
         ->assertJsonValidationErrors(['name', 'email', 'password']);
 });
 
-test('registration rejects a duplicate email case insensitively', function () {
-    User::factory()->create(['email' => 'existing@example.test']);
+test('an existing email gets the same answer as a new one, and the owner an email', function () {
+    Notification::fake();
+    $owner = User::factory()->create(['email' => 'existing@example.test', 'name' => 'Owner']);
+    $passwordHash = $owner->password;
 
-    $this->postJson(route('api.v1.auth.register'), [
+    $payload = fn (string $email): array => [
         'name' => 'Another User',
-        'email' => ' EXISTING@EXAMPLE.TEST ',
+        'email' => $email,
         'password' => 'password123',
         'password_confirmation' => 'password123',
-    ])
-        ->assertUnprocessable()
-        ->assertJsonValidationErrors(['email']);
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
+    ];
+
+    $existing = $this->postJson(route('api.v1.auth.register'), $payload(' EXISTING@EXAMPLE.TEST '))->assertAccepted();
+    $new = $this->postJson(route('api.v1.auth.register'), $payload('existing@example.test'))->assertAccepted();
+
+    expect($existing->json())->toBe($new->json())
+        ->and(User::query()->where('email', 'existing@example.test')->count())->toBe(1)
+        ->and($owner->fresh()->name)->toBe('Owner')
+        ->and($owner->fresh()->password)->toBe($passwordHash);
+
+    Notification::assertSentTo($owner, ExistingAccountRegistrationNotification::class);
+    Notification::assertNotSentTo($owner, VerifyEmailNotification::class);
 });
 
-test('a database email collision is mapped to a validation error', function () {
-    User::factory()->create(['email' => 'race@example.test']);
+test('a new and an existing email answer byte for byte alike', function () {
+    Notification::fake();
+    User::factory()->create(['email' => 'existing@example.test']);
 
-    $exception = null;
+    $body = fn (string $email): string => (string) $this->postJson(route('api.v1.auth.register'), [
+        'name' => 'Same Name',
+        'email' => $email,
+        'password' => 'password123',
+        'password_confirmation' => 'password123',
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
+    ])->assertAccepted()->getContent();
 
-    try {
-        app(RegisterAction::class)->handle(new RegisterData(
-            name: 'Race User',
-            email: 'race@example.test',
-            password: 'password123',
-        ));
-    } catch (ValidationException $caught) {
-        $exception = $caught;
+    $existing = $body('existing@example.test');
+    $new = $body('new@example.test');
+
+    expect(str_replace('existing@', 'new@', $existing))->toBe($new);
+    Notification::assertSentTo(User::query()->where('email', 'new@example.test')->sole(), VerifyEmailNotification::class);
+});
+
+test('the existing account email tells the owner to sign in, not to verify', function () {
+    $owner = User::factory()->create(['name' => 'Owner']);
+    $mail = (new ExistingAccountRegistrationNotification)->toMail($owner);
+
+    expect($mail->subject)->toBe('Email kamu sudah punya akun Sakala')
+        ->and($mail->actionUrl)->toBe(config('sakala.console_url').'/login');
+});
+
+test('repeated attempts cannot flood the owner mailbox', function () {
+    Notification::fake();
+    $owner = User::factory()->create(['email' => 'existing@example.test']);
+    config()->set('sakala.rate_limits.register', 100);
+
+    foreach ([1, 2, 3] as $ignored) {
+        app(RegisterAction::class)->handle(new RegisterData(name: 'X', email: 'existing@example.test', password: 'password123'));
     }
 
-    expect($exception)->toBeInstanceOf(ValidationException::class)
-        ->and($exception?->errors())->toHaveKey('email');
+    Notification::assertSentToTimes($owner, ExistingAccountRegistrationNotification::class, 1);
+});
+
+test('a database email collision in a race also stays silent', function () {
+    Notification::fake();
+    $owner = User::factory()->create(['email' => 'race@example.test']);
+
+    $creator = Mockery::mock(CreateUserWithUniqueUsernameAction::class);
+    $creator->shouldReceive('handle')->andThrow(new UniqueConstraintViolationException(
+        'pgsql',
+        'insert into users',
+        [],
+        new RuntimeException('duplicate key value violates unique constraint "users_email_unique"'),
+    ));
+
+    // The pre-check misses it, as it would in a real race.
+    $action = new RegisterAction($creator, app(RecordLegalAcceptanceAction::class));
+    (fn () => $this->notifyExistingOwner(new RegisterData(name: 'R', email: 'race@example.test', password: 'password123')))->call($action);
+
+    Notification::assertSentTo($owner, ExistingAccountRegistrationNotification::class);
 });
 
 test('registration is rate limited by IP', function () {
@@ -107,11 +169,14 @@ test('registration is rate limited by IP', function () {
         'email' => 'rate-limited@example.test',
         'password' => 'password123',
         'password_confirmation' => 'password123',
+        'accept_terms' => true,
+        'terms_version' => 'syarat-v1',
+        'acceptable_use_version' => 'penggunaan-wajar-v1',
     ];
 
     $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.20'])
         ->postJson(route('api.v1.auth.register'), $payload)
-        ->assertCreated();
+        ->assertAccepted();
 
     $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.20'])
         ->postJson(route('api.v1.auth.register'), [

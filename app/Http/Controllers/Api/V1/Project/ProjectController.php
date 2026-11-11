@@ -7,7 +7,10 @@ namespace App\Http\Controllers\Api\V1\Project;
 use App\Actions\Project\CreateProjectAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\GetProjectCollectionAction;
+use App\Actions\Project\RequestProjectInspectionAction;
 use App\Actions\Project\UpdateProjectAction;
+use App\Enums\ProjectStatus;
+use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Project\IndexProjectRequest;
 use App\Http\Requests\Api\V1\Project\StoreProjectRequest;
@@ -17,6 +20,7 @@ use App\Http\Resources\Api\V1\Project\GetCollectionProjectResource;
 use App\Http\Resources\Api\V1\Project\ProjectResource;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
@@ -83,17 +87,42 @@ final class ProjectController extends Controller
     }
 
     /**
+     * Inspect the project again.
+     *
+     * Answers 202: the result arrives later as `preview_status` and `stack`.
+     * Reuses an inspection of the same commit that is running or finished.
+     *
+     * @scramble-return 202 ProjectResource
+     */
+    public function inspect(Project $project, RequestProjectInspectionAction $action): JsonResponse
+    {
+        Gate::authorize('update', $project);
+
+        // Polling never offers an inspection for a suspended project.
+        if ($project->status === ProjectStatus::Suspended) {
+            throw new ProjectSuspendedException;
+        }
+
+        $action->handle($project);
+
+        return ProjectResource::make($project->refresh())
+            ->response()
+            ->setStatusCode(202);
+    }
+
+    /**
      * Remove the specified resource from storage.
      *
      * @scramble-return Response
      */
     public function destroy(
+        Request $request,
         Project $project,
         DeleteProjectAction $deleteProject,
     ): Response {
         Gate::authorize('delete', $project);
 
-        $deleteProject->handle($project);
+        $deleteProject->handle($project, $request->user());
 
         return response()->noContent();
     }

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Auth\ConfirmEmailChangeController;
 use App\Http\Controllers\Auth\GithubCallbackController;
 use App\Http\Controllers\Auth\GithubInstallationConfigureController;
 use App\Http\Controllers\Auth\GithubInstallationRedirectController;
@@ -15,6 +16,10 @@ use Illuminate\Support\Facades\Route;
 Route::get('auth/email/verify/{user}/{hash}', VerifyEmailController::class)
     ->whereNumber('user')
     ->name('verification.verify');
+
+Route::get('auth/email/change/{user}/{hash}', ConfirmEmailChangeController::class)
+    ->whereNumber('user')
+    ->name('email-change.confirm');
 
 Route::prefix('auth')
     ->middleware('throttle:oauth')

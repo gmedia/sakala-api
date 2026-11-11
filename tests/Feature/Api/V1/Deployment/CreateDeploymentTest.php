@@ -585,3 +585,21 @@ test('repeated deployment creation keeps sequence unique', function (): void {
 
     $this->assertDatabaseCount('deployments', 5);
 });
+
+test('a manual deployment stores a bounded plain text commit subject', function (string $message, ?string $expected): void {
+    fakeGithubCommit(message: $message);
+
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create(['branch' => 'main']);
+
+    $this->actingAs($user, 'web')
+        ->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'main'])
+        ->assertCreated()
+        ->assertJsonPath('data.commit_message', $expected);
+})->with([
+    'over the column' => [str_repeat('é', 600), str_repeat('é', 500)],
+    'only the first line' => ["fix: login\r\n\r\nbody", 'fix: login'],
+    'control characters' => ["fix:\x1b[31m login\x00", 'fix: [31m login'],
+    'markup left as written' => ['<b>fix</b> & "more"', '<b>fix</b> & "more"'],
+    'nothing left' => ["   \n\n", null],
+]);

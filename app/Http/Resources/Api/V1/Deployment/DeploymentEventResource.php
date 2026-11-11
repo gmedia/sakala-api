@@ -20,7 +20,7 @@ final class DeploymentEventResource extends JsonResource
      *     level: DeploymentEventLevel,
      *     type: string|null,
      *     message: string,
-     *     metadata: array<string, mixed>|null,
+     *     metadata: object|null,
      *     occurred_at: string|null,
      * }
      */
@@ -34,7 +34,9 @@ final class DeploymentEventResource extends JsonResource
             'level' => $this->level,
             'type' => $this->type,
             'message' => $this->message,
-            'metadata' => $metadata,
+            // An empty PHP array would serialise as `[]`; this is always a JSON
+            // object or null, matching the OpenAPI document.
+            'metadata' => $metadata === null ? null : (object) $metadata,
             'occurred_at' => $this->occurred_at?->toISOString(),
         ];
     }

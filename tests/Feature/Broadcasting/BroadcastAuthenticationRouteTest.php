@@ -56,7 +56,8 @@ test('authenticated user can authenticate their private user channel', function 
 
     $user = User::factory()->create();
 
-    $this->actingAs($user, 'web')
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->actingAs($user, 'web')
         ->postJson('/broadcasting/auth', [
             'channel_name' => "private-users.{$user->id}",
             'socket_id' => '1234.5678',
@@ -71,7 +72,8 @@ test('authenticated user cannot authenticate another users private channel', fun
     $user = User::factory()->create();
     $otherUser = User::factory()->create();
 
-    $this->actingAs($user, 'web')
+    $this->withHeader('Origin', 'http://app.sakala.localhost:5173')
+        ->actingAs($user, 'web')
         ->postJson('/broadcasting/auth', [
             'channel_name' => "private-users.{$otherUser->id}",
             'socket_id' => '1234.5678',

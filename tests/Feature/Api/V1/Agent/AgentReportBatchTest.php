@@ -106,7 +106,7 @@ test('a v0.2.0 log batch is persisted in order and acknowledged in full', functi
         ->and($command->fresh()->reported_log_bytes)->toBe(array_sum(array_map('strlen', array_column($fixture['logs'], 'message'))));
 });
 
-test('a v0.2.0 event batch is persisted and drives the deployment phase', function (): void {
+test('a v0.2.0 runtime.ready batch is persisted without changing status', function (): void {
     ['node' => $node, 'command' => $command, 'deployment' => $deployment] = batchContext();
     $fixture = agentReportFixture('events-batch');
 
@@ -120,7 +120,7 @@ test('a v0.2.0 event batch is persisted and drives the deployment phase', functi
     $event = DeploymentEvent::query()->where('deployment_id', $deployment->id)->sole();
     expect($event->type)->toBe('deployment.runtime.ready')
         ->and($event->metadata)->toBe($fixture['events'][0]['metadata'])
-        ->and($deployment->fresh()->status)->toBe(DeploymentStatus::Routing);
+        ->and($deployment->fresh()->status)->toBe($deployment->status);
 });
 
 test('retrying a batch with the same key acknowledges every item as a duplicate', function (): void {

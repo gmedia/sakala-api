@@ -60,8 +60,8 @@ final class SimulatedDeploymentJob implements ShouldBeUnique, ShouldQueue
             DeploymentStatus::Analyzing,
             DeploymentStatus::Building,
             DeploymentStatus::Deploying,
-            DeploymentStatus::Routing,
             DeploymentStatus::HealthChecking,
+            DeploymentStatus::Routing,
             DeploymentStatus::Succeeded,
         ];
 

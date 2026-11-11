@@ -287,3 +287,40 @@ test('keeps existing avatar when updating profile without avatar', function () {
     Storage::disk('avatars')
         ->assertExists('avatars/existing-avatar.jpg');
 });
+
+test('an unusable avatar store answers clearly instead of a raw 500', function () {
+    Storage::shouldReceive('disk')->andThrow(new RuntimeException('bucket missing'));
+
+    $user = User::factory()->create(['avatar_path' => null]);
+
+    $this->actingAs($user, 'web')
+        ->patch(route('api.v1.app.profile.update'), [
+            'avatar' => UploadedFile::fake()->image('a.png'),
+        ], ['Accept' => 'application/json'])
+        ->assertStatus(503)
+        ->assertJsonPath('code', 'AVATAR_STORAGE_UNAVAILABLE');
+
+    expect($user->fresh()->avatar_path)->toBeNull();
+});
+
+test('local avatar storage needs no bucket', function () {
+    $previous = [$_ENV['SAKALA_AVATAR_STORAGE'] ?? null, $_SERVER['SAKALA_AVATAR_STORAGE'] ?? null];
+    $_ENV['SAKALA_AVATAR_STORAGE'] = $_SERVER['SAKALA_AVATAR_STORAGE'] = 'local';
+
+    try {
+        $disk = (require config_path('filesystems.php'))['disks']['avatars'];
+    } finally {
+        unset($_ENV['SAKALA_AVATAR_STORAGE'], $_SERVER['SAKALA_AVATAR_STORAGE']);
+
+        if ($previous[0] !== null) {
+            $_ENV['SAKALA_AVATAR_STORAGE'] = $previous[0];
+        }
+
+        if ($previous[1] !== null) {
+            $_SERVER['SAKALA_AVATAR_STORAGE'] = $previous[1];
+        }
+    }
+
+    expect($disk['driver'])->toBe('local')
+        ->and($disk['url'])->toEndWith('/storage');
+});

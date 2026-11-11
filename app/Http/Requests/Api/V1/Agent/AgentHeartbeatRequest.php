@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\V1\Agent;
 
 use App\Data\Agent\AgentHeartbeatData;
+use App\Data\Agent\CrashedWorkloadsData;
 use App\Enums\AgentNodeStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
@@ -46,6 +47,9 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.detail_counts.stale_routes' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
             'metadata.detail_counts.stale_images' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
             'metadata.detail_counts.compatibility_issues' => ['required_with:metadata.detail_counts', 'integer', 'min:0'],
+            // Additive within protocol revision 4: v0.2.0 sends detail_counts
+            // without this key, so it is tied to the list, not to detail_counts.
+            'metadata.detail_counts.crashed_details' => ['required_with:metadata.workloads.crashed_details', 'integer', 'min:0'],
 
             'metadata.resources' => ['required', 'array'],
             'metadata.resources.cpu_total' => ['present', 'nullable', 'integer', 'min:1'],
@@ -62,6 +66,15 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.workloads.unhealthy' => ['present', 'nullable', 'integer', 'min:0'],
             'metadata.workloads.stopped' => ['present', 'nullable', 'integer', 'min:0'],
             'metadata.workloads.unhealthy_details' => ['present', 'array', 'max:50'],
+            // Optional: agents without crash reporting omit the list, and only
+            // a present list may change runtime state.
+            'metadata.workloads.crashed_details' => ['sometimes', 'array', 'max:50'],
+            'metadata.workloads.crashed_details.*' => ['required', 'array'],
+            'metadata.workloads.crashed_details.*.project_id' => ['required', 'uuid'],
+            'metadata.workloads.crashed_details.*.deployment_id' => ['required', 'uuid'],
+            'metadata.workloads.crashed_details.*.exit_code' => ['present', 'nullable', 'integer'],
+            'metadata.workloads.crashed_details.*.oom_killed' => ['required', 'boolean:strict'],
+            'metadata.workloads.crashed_details.*.finished_at' => ['present', 'nullable', 'date'],
 
             'metadata.disk_pressure' => ['required', 'array'],
             'metadata.disk_pressure.state' => ['required', 'string', 'max:50'],
@@ -117,6 +130,22 @@ final class AgentHeartbeatRequest extends FormRequest
             status: AgentNodeStatus::from($this->validated('status')),
             protocolVersion: (int) $this->validated('metadata.protocol_version'),
             sentAt: CarbonImmutable::parse($this->validated('sent_at')),
+            crashedWorkloads: $this->crashedWorkloads(),
+        );
+    }
+
+    private function crashedWorkloads(): ?CrashedWorkloadsData
+    {
+        /** @var list<array{project_id: string, deployment_id: string}>|null $details */
+        $details = $this->validated('metadata.workloads.crashed_details');
+
+        if ($details === null) {
+            return null;
+        }
+
+        return CrashedWorkloadsData::fromReport(
+            details: $details,
+            reportedCount: (int) $this->validated('metadata.detail_counts.crashed_details', count($details)),
         );
     }
 }

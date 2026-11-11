@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Data\Notification\NotificationPreferencesData;
+use App\Enums\LegalDocument;
+use App\Enums\NotificationCategory;
 use App\Enums\OnboardingProfile;
 use App\Enums\OnboardingSource;
 use App\Enums\UserRole;
+use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -15,6 +19,7 @@ use Illuminate\Auth\MustVerifyEmail as MustVerifyEmailTrait;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -27,6 +32,9 @@ use Laravel\Sanctum\HasApiTokens;
  * @property string $name
  * @property string $username
  * @property string $email
+ * @property string|null $pending_email
+ * @property array<string, bool>|null $notification_preferences
+ * @property CarbonImmutable|null $created_at
  * @property Carbon|null $email_verified_at
  * @property string|null $password
  * @property UserRole $role
@@ -40,6 +48,8 @@ use Laravel\Sanctum\HasApiTokens;
 #[Fillable([
     'name',
     'email',
+    'pending_email',
+    'notification_preferences',
     'username',
     'password',
     'role',
@@ -61,6 +71,32 @@ class User extends Authenticatable implements MustVerifyEmail
         $this->notify(new VerifyEmailNotification);
     }
 
+    /**
+     * @param  string  $token
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        $this->notify(new ResetPasswordNotification($token));
+    }
+
+    public function notificationPreferences(): NotificationPreferencesData
+    {
+        return NotificationPreferencesData::fromStored($this->notification_preferences);
+    }
+
+    public function wantsNotification(NotificationCategory $category): bool
+    {
+        return $this->notificationPreferences()->preferences[$category->value];
+    }
+
+    /**
+     * Channel the database notifications are pushed on; see routes/channels.php.
+     */
+    public function receivesBroadcastNotificationsOn(): string
+    {
+        return 'users.'.$this->id;
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === UserRole::Admin;
@@ -70,6 +106,28 @@ class User extends Authenticatable implements MustVerifyEmail
     public function oauthAccounts(): HasMany
     {
         return $this->hasMany(OAuthAccount::class);
+    }
+
+    /** @return HasMany<LegalAcceptance, $this> */
+    public function legalAcceptances(): HasMany
+    {
+        return $this->hasMany(LegalAcceptance::class);
+    }
+
+    /**
+     * Whether this user still has to accept the current terms or acceptable use
+     * version. The privacy notice is not part of this: it is only acknowledged.
+     */
+    public function requiresLegalAcceptance(): bool
+    {
+        $accepted = $this->legalAcceptances()
+            ->where(fn (Builder $query) => $query
+                ->where(['document' => LegalDocument::Terms->value, 'version' => LegalDocument::Terms->currentVersion()])
+                ->orWhere(fn (Builder $query) => $query
+                    ->where(['document' => LegalDocument::AcceptableUse->value, 'version' => LegalDocument::AcceptableUse->currentVersion()])))
+            ->count();
+
+        return $accepted < 2;
     }
 
     /** @return HasMany<Project, $this> */
@@ -111,6 +169,8 @@ class User extends Authenticatable implements MustVerifyEmail
             'onboarding_role' => OnboardingProfile::class,
             'onboarding_completed_at' => 'immutable_datetime',
             'last_login_at' => 'immutable_datetime',
+            'notification_preferences' => 'array',
+            'created_at' => 'immutable_datetime',
         ];
     }
 }

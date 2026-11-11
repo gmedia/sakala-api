@@ -7,7 +7,9 @@ use App\Console\Commands\CollectUsageSignalsCommand;
 use App\Console\Commands\ExpireAgentCommandsCommand;
 use App\Console\Commands\MarkOfflineAgentNodesCommand;
 use App\Console\Commands\PruneDeploymentLogsCommand;
+use App\Console\Commands\PruneNotificationsCommand;
 use App\Console\Commands\PruneUsageSignalsCommand;
+use App\Console\Commands\PurgeDeletedProjectsCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -38,6 +40,16 @@ Schedule::command(PruneUsageSignalsCommand::class)
     ->onOneServer();
 
 Schedule::command(PruneDeploymentLogsCommand::class)
+    ->daily()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(PruneNotificationsCommand::class)
+    ->daily()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(PurgeDeletedProjectsCommand::class)
     ->daily()
     ->withoutOverlapping()
     ->onOneServer();

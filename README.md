@@ -10,7 +10,7 @@ Sakala API adalah control plane API-first untuk platform deployment open-source 
 - `sakala-infra`: playground dan kontrak local runtime.
 - `sakala-landing`: landing page dan dokumentasi publik.
 
-API tidak merender UI dan tidak bergantung pada Inertia atau Fortify. Browser first-party nantinya menggunakan Sanctum SPA cookie authentication. Agent dan machine client akan memakai bearer token terpisah.
+API tidak merender UI dan tidak bergantung pada Inertia atau Fortify. Browser first-party nantinya menggunakan Sanctum SPA cookie authentication, dengan cookie session yang host-only di host API supaya tidak terkirim ke aplikasi pengguna (lihat [Autentikasi](docs/AUTHENTICATION.md#cookie-dan-aplikasi-pengguna)). Agent dan machine client akan memakai bearer token terpisah.
 
 ## Stack
 
@@ -56,6 +56,8 @@ docker build --target web -t sakala-api-web:local .
 ```
 
 Image tidak memuat `.env`, secret, database, Valkey/Redis, migrasi otomatis, queue worker, atau Reverb. Repository deployment nantinya menyediakan environment runtime, jaringan internal, proses migrasi satu-kali, serta service tambahan hanya ketika memang dibutuhkan oleh fitur yang berjalan.
+
+Setelah migrasi pertama di server, buat atau promosikan admin dengan `php artisan user:admin <email>` di container API. Opsi dan perilakunya ada di [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#akun-admin).
 
 ## Perintah
 

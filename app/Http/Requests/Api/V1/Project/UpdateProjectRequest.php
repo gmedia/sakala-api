@@ -5,12 +5,22 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\V1\Project;
 
 use App\Data\Project\UpdateProjectData;
+use App\Http\Requests\Concerns\ValidatesBuildConfiguration;
 use App\Models\Project;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class UpdateProjectRequest extends FormRequest
 {
+    use ValidatesBuildConfiguration;
+
+    protected function receivesPushWebhooks(): bool
+    {
+        $project = $this->route('project');
+
+        return $project instanceof Project && $project->github_installation_id !== null;
+    }
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -33,6 +43,7 @@ final class UpdateProjectRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:120'],
             'thumbnail_url' => ['sometimes', 'nullable', 'string', 'url', 'max:2048'],
             'branch' => ['sometimes', 'required', 'string', 'max:255'],
+            ...$this->buildConfigurationRules(),
         ];
     }
 
@@ -54,6 +65,8 @@ final class UpdateProjectRequest extends FormRequest
             thumbnailUrl: $thumbnailUrl,
             branch: $branch,
             thumbnailUrlProvided: array_key_exists('thumbnail_url', $validated),
+            buildConfiguration: $this->buildConfiguration(),
+            autoDeploy: array_key_exists('auto_deploy', $validated) ? $this->boolean('auto_deploy') : null,
         );
     }
 }

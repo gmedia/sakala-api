@@ -222,3 +222,25 @@ test('deployment events are returned in sequence order', function (): void {
         ->assertJsonPath('data.1.sequence', 2)
         ->assertJsonPath('data.2.sequence', 3);
 });
+
+test('event metadata is always a JSON object or null, never a list', function (mixed $stored, string $expected): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->create(['user_id' => $user->id]);
+    $deployment = Deployment::factory()->create(['project_id' => $project->id, 'sequence' => 1]);
+    DeploymentEvent::factory()->create([
+        'deployment_id' => $deployment->id,
+        'sequence' => 1,
+        'metadata' => $stored,
+    ]);
+
+    $body = $this->actingAs($user)
+        ->getJson("/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}/events")
+        ->assertOk()
+        ->getContent();
+
+    expect($body)->toContain('"metadata":'.$expected);
+})->with([
+    'empty' => [[], '{}'],
+    'null' => [null, 'null'],
+    'filled' => [['image' => 'a'], '{"image":"a"}'],
+]);

@@ -17,6 +17,8 @@ use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
+use App\Services\Security\ProjectSecretValues;
+use App\Services\Security\SecretRedactionService;
 use Illuminate\Support\Facades\DB;
 
 final class FailAgentCommandAction
@@ -25,10 +27,14 @@ final class FailAgentCommandAction
 
     public const MAX_ERROR_MESSAGE_LENGTH = 1000;
 
+    public const CODE_CANCELLED = 'runtime_cancelled';
+
     public function __construct(
         private readonly DeploymentFailureClassifier $failureClassifier,
         private readonly TransitionDeploymentAction $transitionDeploymentAction,
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
+        private readonly SecretRedactionService $redaction,
+        private readonly ProjectSecretValues $projectSecrets,
     ) {}
 
     /**
@@ -50,8 +56,15 @@ final class FailAgentCommandAction
             0,
             self::MAX_ERROR_CODE_LENGTH,
         );
+        // Redact before bounding (here and for the deployment detail): a cut
+        // could hide the shape a secret is recognised by and leave part of it.
+        $projectId = AgentCommand::query()->whereKey($commandId)->value('project_id');
+
         $errorMessage = mb_substr(
-            $this->sanitizeMessage($errorMessage),
+            $this->redaction->redactString(
+                $this->sanitizeMessage($errorMessage),
+                $this->projectSecrets->forProject($projectId),
+            ),
             0,
             self::MAX_ERROR_MESSAGE_LENGTH,
         );
@@ -72,6 +85,12 @@ final class FailAgentCommandAction
                 return; // idempotent: already failed
             }
 
+            $cancelled = $errorCode === self::CODE_CANCELLED;
+
+            if ($cancelled && $command->status === AgentCommandStatus::Cancelled) {
+                return; // idempotent: already cancelled
+            }
+
             if (! in_array($command->status->value, [
                 AgentCommandStatus::Claimed->value,
                 AgentCommandStatus::Running->value,
@@ -80,8 +99,8 @@ final class FailAgentCommandAction
             }
 
             $command->update([
-                'status' => AgentCommandStatus::Failed,
-                'failed_at' => now(),
+                'status' => $cancelled ? AgentCommandStatus::Cancelled : AgentCommandStatus::Failed,
+                'failed_at' => $cancelled ? null : now(),
                 'error_code' => $errorCode,
                 'error_message' => $errorMessage,
             ]);
@@ -95,10 +114,16 @@ final class FailAgentCommandAction
                 // The control plane may already have expired or failed the
                 // deployment; a late agent failure must not throw.
                 if ($deployment->status->isActive()) {
+                    // The owner asked for this cancellation, so it needs no
+                    // failure explanation. A cancellation nobody asked for
+                    // (the node stopped) keeps the reason on the deployment.
+                    $requested = $cancelled && $deployment->cancel_requested_at !== null;
+
                     $this->transitionDeploymentAction->handleWithinTransaction(
                         deployment: $deployment,
-                        nextStatus: DeploymentStatus::Failed,
-                        failureData: $this->failureClassifier->classify($errorCode),
+                        nextStatus: $cancelled ? DeploymentStatus::Cancelled : DeploymentStatus::Failed,
+                        failureData: $requested ? null : $this->failureClassifier->classify($errorCode),
+                        failureDetail: $requested ? null : $errorMessage,
                     );
                 }
             }

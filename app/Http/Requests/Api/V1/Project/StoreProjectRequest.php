@@ -6,6 +6,7 @@ namespace App\Http\Requests\Api\V1\Project;
 
 use App\Data\Project\CreateProjectData;
 use App\Enums\GithubRepositorySource;
+use App\Http\Requests\Concerns\ValidatesBuildConfiguration;
 use App\Models\Project;
 use App\Rules\GithubRepositoryUrl;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -13,6 +14,13 @@ use Illuminate\Foundation\Http\FormRequest;
 
 final class StoreProjectRequest extends FormRequest
 {
+    use ValidatesBuildConfiguration;
+
+    protected function receivesPushWebhooks(): bool
+    {
+        return $this->input('repository.type') === GithubRepositorySource::GithubInstallation->value;
+    }
+
     protected function prepareForValidation(): void
     {
         if ($this->has('repository') || ! $this->has('repository_url')) {
@@ -49,6 +57,7 @@ final class StoreProjectRequest extends FormRequest
             'repository.installation_id' => ['required_if:repository.type,github_installation', 'prohibited_unless:repository.type,github_installation', 'uuid'],
             'repository.repository_id' => ['required_if:repository.type,github_installation', 'prohibited_unless:repository.type,github_installation', 'integer', 'min:1'],
             'branch' => ['required', 'string', 'max:255'],
+            ...$this->buildConfigurationRules(),
         ];
     }
 
@@ -65,6 +74,8 @@ final class StoreProjectRequest extends FormRequest
             repositoryUrl: $repository['url'] ?? null,
             githubInstallationId: $repository['installation_id'] ?? null,
             githubRepositoryId: isset($repository['repository_id']) ? (int) $repository['repository_id'] : null,
+            buildConfiguration: $this->buildConfiguration(),
+            autoDeploy: $this->boolean('auto_deploy'),
         );
     }
 }

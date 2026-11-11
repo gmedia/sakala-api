@@ -39,7 +39,11 @@ final class DeploymentLogCreated implements ShouldBroadcast
     {
         return [
             'deployment_id' => $this->deploymentLog->deployment_id,
+            // Orders every realtime event of the deployment.
             'sequence' => $this->realtimeSequence,
+            // The log's own position, equal to `sequence` in GET .../logs, so a
+            // client can dedupe a broadcast against what it already fetched.
+            'log_sequence' => $this->deploymentLog->sequence,
             'stream' => $this->deploymentLog->stream->value,
             'message' => $this->deploymentLog->message,
             'recorded_at' => $this->deploymentLog->recorded_at?->toISOString(),

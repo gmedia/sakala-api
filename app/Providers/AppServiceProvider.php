@@ -14,6 +14,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Mail\Markdown;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -46,6 +47,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Mail goes through Markdown, and a registering stranger picks the name
+        // in the greeting: their link syntax must stay text in someone's inbox.
+        Markdown::withSecuredEncoding();
+
         Scramble::afterOpenApiGenerated(static function (OpenApi $openApi): OpenApi {
             $schema = $openApi->components->schemas['DeploymentEventResource'] ?? null;
 
@@ -66,10 +71,13 @@ class AppServiceProvider extends ServiceProvider
         );
 
         RateLimiter::for('api', function (Request $request): Limit {
-            $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
+            $userId = $request->user()?->getAuthIdentifier();
 
-            return Limit::perMinute((int) config('sakala.rate_limits.api'))
-                ->by((string) $identifier);
+            // Guests keep the tighter budget, so raising the limit for logged-in
+            // console pages does not loosen anything on the public routes.
+            return $userId !== null
+                ? Limit::perMinute((int) config('sakala.rate_limits.api'))->by('user:'.$userId)
+                : Limit::perMinute((int) config('sakala.rate_limits.api_guest'))->by('ip:'.$request->ip());
         });
 
         RateLimiter::for('login', function (Request $request): Limit {
@@ -93,6 +101,35 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute((int) config('sakala.rate_limits.email_verification', 5))
                 ->by($identifier);
+        });
+
+        RateLimiter::for('password-reset', function (Request $request): Limit {
+            $email = $request->input('email');
+            $normalizedEmail = is_string($email) ? mb_strtolower(trim($email), 'UTF-8') : 'invalid';
+
+            return Limit::perMinute((int) config('sakala.rate_limits.password_reset', 5))
+                ->by($normalizedEmail.'|'.(string) $request->ip());
+        });
+
+        RateLimiter::for('account-security', function (Request $request): Limit {
+            $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
+
+            return Limit::perMinute((int) config('sakala.rate_limits.account_security', 5))
+                ->by((string) $identifier);
+        });
+
+        RateLimiter::for('account-export', function (Request $request): Limit {
+            $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
+
+            return Limit::perHour((int) config('sakala.rate_limits.account_export', 3))
+                ->by('account-export:'.(string) $identifier);
+        });
+
+        RateLimiter::for('inspection', function (Request $request): Limit {
+            $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
+
+            return Limit::perMinute((int) config('sakala.rate_limits.inspection', 5))
+                ->by((string) $identifier);
         });
 
         RateLimiter::for('oauth', function (Request $request): Limit {

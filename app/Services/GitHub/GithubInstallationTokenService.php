@@ -88,7 +88,7 @@ final class GithubInstallationTokenService
     {
         if ($installation->status !== GithubInstallationStatus::Active) {
             throw new HttpResponseException(response()->json([
-                'message' => 'GitHub installation is no longer active. Reconnect GitHub and try again.',
+                'message' => 'Instalasi GitHub ini sudah tidak aktif. Hubungkan ulang GitHub, lalu coba lagi.',
             ], 409));
         }
     }

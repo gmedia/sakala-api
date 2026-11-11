@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Deployment;
 
+use App\Actions\Deployment\CancelDeploymentAction;
 use App\Actions\Deployment\CreateDeploymentAction;
 use App\Actions\Deployment\GetDeploymentCollectionAction;
 use App\Actions\Deployment\GetDeploymentEventAction;
 use App\Actions\Deployment\GetDeploymentLogAction;
+use App\Enums\DeploymentStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\Deployment\IndexDeploymentLogRequest;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentRequest;
 use App\Http\Requests\Api\V1\Deployment\PaginateDeploymentRequest;
 use App\Http\Requests\Api\V1\Deployment\StoreDeploymentRequest;
@@ -19,6 +22,7 @@ use App\Models\Deployment;
 use App\Models\Project;
 use Dedoc\Scramble\Attributes\HeaderParameter;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
 
@@ -81,6 +85,28 @@ final class DeploymentController extends Controller
         return DeploymentResource::collection($deployments);
     }
 
+    /**
+     * Cancel a deployment.
+     *
+     * Answers 200 once the deployment is `cancelled`, including on a repeat, and
+     * 202 while a node still has to stop it. Answers 409
+     * `DEPLOYMENT_ALREADY_FINISHED` when it already succeeded or failed.
+     */
+    public function cancel(
+        Request $request,
+        Project $project,
+        Deployment $deployment,
+        CancelDeploymentAction $action,
+    ): JsonResponse {
+        Gate::authorize('cancelDeployment', $project);
+
+        $deployment = $action->handle($deployment, $request->user());
+
+        return (new DeploymentResource($deployment))
+            ->response()
+            ->setStatusCode($deployment->status === DeploymentStatus::Cancelled ? 200 : 202);
+    }
+
     public function events(
         PaginateDeploymentRequest $request,
         Project $project,
@@ -97,8 +123,14 @@ final class DeploymentController extends Controller
         return DeploymentEventResource::collection($events);
     }
 
+    /**
+     * List deployment logs.
+     *
+     * Oldest first by default. `order=desc` starts from the newest line, and
+     * the cursor then walks back through older ones.
+     */
     public function logs(
-        PaginateDeploymentRequest $request,
+        IndexDeploymentLogRequest $request,
         Project $project,
         Deployment $deployment,
         GetDeploymentLogAction $action

@@ -54,13 +54,13 @@ final class ReconcileProjectAction
 
             if ($data->idempotencyKey !== null
                 && AgentCommand::query()->where('idempotency_key', $data->idempotencyKey)->exists()) {
-                abort(409, 'Idempotency key has already been used for a different request.');
+                abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
             }
 
             // Reconciliation may bring a workload back; it is withheld from
             // suspended projects, so do not enqueue what cannot run.
             if ($locked->status === ProjectStatus::Suspended) {
-                abort(409, 'Project is suspended.');
+                abort(409, 'Proyek ini sedang ditangguhkan.');
             }
 
             $inFlight = AgentCommand::query()
@@ -70,7 +70,7 @@ final class ReconcileProjectAction
                 ->exists();
 
             if ($inFlight) {
-                abort(409, 'A reconciliation is already in progress for this project.');
+                abort(409, 'Rekonsiliasi proyek ini masih berjalan. Tunggu sampai selesai.');
             }
 
             // Routes are per project: a mutating action such as restore_route
@@ -79,7 +79,7 @@ final class ReconcileProjectAction
             // while any deployment is still in flight; the claim re-checks
             // that the target is still current.
             if (Deployment::query()->where('project_id', $locked->id)->active()->exists()) {
-                abort(409, 'A deployment is in progress; reconcile after it finishes.');
+                abort(409, 'Masih ada deployment yang berjalan. Jalankan rekonsiliasi setelah selesai.');
             }
 
             $deployment = Deployment::query()
@@ -90,7 +90,7 @@ final class ReconcileProjectAction
                 ->first();
 
             if ($deployment === null || $deployment->agent_node_id === null) {
-                abort(409, 'Project does not have an active deployment target.');
+                abort(409, 'Proyek ini tidak punya deployment aktif yang bisa dijadikan target.');
             }
 
             $responseContext = [
@@ -178,7 +178,7 @@ final class ReconcileProjectAction
             || ($context['desired_state'] ?? null) !== $data->desiredState->value
             || ($context['actions'] ?? null) !== $data->actionValues()
         ) {
-            abort(409, 'Idempotency key has already been used for a different request.');
+            abort(409, 'Idempotency key ini sudah dipakai untuk permintaan lain. Pakai key baru.');
         }
     }
 }
