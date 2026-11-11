@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Project;
 
 use App\Actions\Admin\RecordUsageSignalAction;
+use App\Actions\Workspace\CreatePersonalWorkspaceAction;
 use App\Data\Project\CreateProjectData;
 use App\Enums\GithubRepositorySource;
 use App\Enums\UsageSignalType;
@@ -12,9 +13,11 @@ use App\Exceptions\Runtime\ProjectLimitExceededException;
 use App\Models\GithubInstallation;
 use App\Models\Project;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Services\GitHub\GithubInstallationService;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\GitHub\RepositoryParser;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
 final class CreateProjectAction
@@ -33,15 +36,34 @@ final class CreateProjectAction
         private readonly GithubInstallationService $githubInstallationService,
         private readonly RecordUsageSignalAction $recordAction,
         private readonly RequestProjectInspectionAction $requestInspection,
+        private readonly CreatePersonalWorkspaceAction $createPersonalWorkspace,
     ) {}
 
+    /**
+     * The project belongs to the named workspace, or to the creator's personal
+     * workspace, and counts against that workspace's limits. The user row is
+     * locked first, as account deletion does, then the workspace row, so the
+     * count and the membership cannot change before the insert commits.
+     */
     public function handle(User $user, CreateProjectData $data): Project
     {
+        $workspaceId = $data->workspaceId ?? $this->createPersonalWorkspace->handle($user)->id;
+        $scope = 'user';
+
         try {
-            $project = DB::transaction(function () use ($user, $data): Project {
+            $project = DB::transaction(function () use ($user, $data, $workspaceId, &$scope): Project {
                 User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
-                $this->runtimeLimitService->checkProjectCreationLimit($user);
+                /** @var Workspace $workspace */
+                $workspace = Workspace::query()->whereKey($workspaceId)->lockForUpdate()->firstOrFail();
+                $scope = $workspace->isPersonal() ? 'user' : 'workspace';
+
+                // The request checked this too; under the lock it cannot be stale.
+                if ($workspace->roleOf($user)?->managesProjects() !== true) {
+                    throw new AuthorizationException;
+                }
+
+                $this->runtimeLimitService->checkProjectCreationLimit($user, $workspace);
 
                 $projectIdentity = $this->generateIdentity->handle($data->name);
 
@@ -52,6 +74,7 @@ final class CreateProjectAction
 
                 return Project::create([
                     'user_id' => $user->id,
+                    'workspace_id' => $workspace->id,
                     'name' => $data->name,
                     'slug' => $projectIdentity->slug,
                     ...$attributes,
@@ -63,7 +86,7 @@ final class CreateProjectAction
             });
 
             // Outside the creation transaction: the preview talks to GitHub
-            // and must never hold the user lock or fail the creation.
+            // and must never hold the user or workspace lock or fail the creation.
             $this->requestInspection->handle($project);
 
             return $project->refresh();
@@ -72,7 +95,7 @@ final class CreateProjectAction
             $this->recordAction->handle(
                 type: UsageSignalType::RejectedLimits,
                 count: 1,
-                scope: 'user',
+                scope: $scope,
                 tags: ['limit_name' => $limitName],
             );
 
