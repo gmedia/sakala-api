@@ -435,13 +435,15 @@ diserahkan dan kedaluwarsa sendiri):
   installation yang `active` dengan repository yang sama, dan orang yang menjadi
   sandaran akses project masih terhubung ke installation tersebut — selain itu
   `409` "GitHub App no longer has access…". Sandaran akses adalah pemilik untuk
-  project di workspace pribadi, dan pembuat project yang masih owner atau member
-  untuk project tim; project tim dari installation di akun organisasi GitHub
-  bersandar pada installation itu sendiri dan tidak memeriksa orang. Lihat
+  project di workspace pribadi, dan untuk project tim owner atau member saat ini
+  yang terhubung ke installation dan punya identitas GitHub tertaut (pembuat
+  project lebih dulu); tanpa orang seperti itu lease ditolak. Pada installation
+  di akun organisasi GitHub, orang itu hanya jangkar dan tokennya tidak dipakai
+  untuk membaca repository. Lihat
   [Akses GitHub untuk project tim](API_CONVENTIONS.md#akses-github-untuk-project-tim).
 
-API juga memeriksa ke GitHub dengan token milik orang itu bahwa ia masih bisa
-membaca repository (grant disimpan 5 menit, penolakan 1 menit). Bila tidak, command
+Kecuali untuk project tim pada installation organisasi, API juga memeriksa ke GitHub
+dengan token milik orang itu bahwa ia masih bisa membaca repository (grant disimpan 5 menit, penolakan 1 menit). Bila tidak, command
 langsung ditutup `Failed` dengan `error_code = repository_access_revoked`, lalu API
 menjawab `409` dengan `code` yang sama. Jawaban yang sama berlaku bila GitHub menolak
 mencetak token (`404` atau `422`) karena repository sudah tidak termasuk installation;

@@ -79,7 +79,8 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `WORKSPACE_IS_PERSONAL` | `409` | Mengganti nama, menghapus, meninggalkan, atau mengundang ke workspace pribadi. | - |
 | `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek. | `workspaces` (`id`, `name`, `slug`) |
 | `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek. | `projects` |
-| `TEAM_LIMIT_EXCEEDED` | `422` | Membuat tim saat jumlah tim yang dimiliki sudah di batas. | `limit`, `current` |
+| `TEAM_LIMIT_EXCEEDED` | `422` | Menjadi owner satu tim lagi akan melewati batas tim yang dimiliki: membuat tim, menerima undangan owner, atau dijadikan owner. | `limit`, `current` |
+| `INVITATION_EMAIL_MISMATCH` | `403` | Menerima undangan sebagai `owner` dari akun yang email terverifikasinya bukan alamat undangan, walaupun membawa token. | - |
 | `EMAIL_VERIFICATION_REQUIRED` | `403` | Membuat atau bergabung ke tim dengan email yang belum diverifikasi. | - |
 | `ALREADY_WORKSPACE_MEMBER` | `409` | Mengundang alamat milik anggota, atau menerima undangan saat sudah menjadi anggota. | - |
 | `INVITATION_EXPIRED` | `409` | Menerima undangan yang sudah kedaluwarsa. | - |
@@ -377,9 +378,11 @@ Setiap project dimiliki satu workspace. Setiap user punya tepat satu workspace p
 | `member` | Membuat, men-deploy, membatalkan deployment, meminta inspeksi, mengubah, dan menghapus project tim, termasuk environment variable dan nilai secret. |
 | `viewer` | Membaca project, deployment, event, dan log. Tidak pernah melihat nilai secret dan tidak pernah mengubah apa pun. |
 
-Admin tetap punya semua kuasanya atas project. Pengguna di luar workspace menerima `403` generik tanpa `code` pada project dan workspace itu, sama seperti project orang lain sebelumnya; ID yang tidak ada menjadi `404`. Akses diperiksa ulang di setiap request, jadi anggota yang keluar atau dikeluarkan langsung kehilangan akses, sementara project tetap milik workspace. Langganan realtime `deployment.{id}` yang sudah terbuka baru berhenti saat tersambung ulang.
+Admin tetap punya semua kuasanya atas project. Pengguna di luar workspace menerima `403` generik tanpa `code` pada project dan workspace itu, sama seperti project orang lain sebelumnya; ID yang tidak ada menjadi `404`. Akses diperiksa ulang di setiap request HTTP, jadi anggota yang keluar atau dikeluarkan langsung kehilangan akses, sementara project tetap milik workspace.
 
-Tim selalu punya setidaknya satu owner: pemilik terakhir tidak bisa keluar, dikeluarkan, atau diturunkan (`409 LAST_WORKSPACE_OWNER`). Workspace pribadi tidak bisa diganti namanya, dihapus, ditinggalkan, atau diberi anggota (`409 WORKSPACE_IS_PERSONAL`).
+Langganan realtime berbeda: channel privat `deployment.{id}` diotorisasi sekali, saat berlangganan lewat `/broadcasting/auth`, dan server realtime tidak memeriksa ulang di setiap event. Anggota yang dikeluarkan tetap menerima event dari langganan yang sudah terbuka sampai koneksinya tersambung ulang, lalu ditolak. Isinya sama dengan yang sudah bisa ia baca sebelum dikeluarkan, dan log sudah diredaksi.
+
+Tim selalu punya setidaknya satu owner: pemilik terakhir tidak bisa keluar, dikeluarkan, atau diturunkan (`409 LAST_WORKSPACE_OWNER`). Keputusan itu diambil di bawah row lock workspace, juga saat menghapus akun, yang mengunci semua tim tempat akun itu menjadi owner sebelum menghitung ulang siapa pemilik lainnya, sehingga dua owner yang keluar bersamaan tidak bisa meninggalkan tim tanpa owner. Owner yang keluar, dikeluarkan, diturunkan, atau menghapus akunnya ikut mencabut undangan tertunda yang ia kirim (`workspace.invitation_revoked` dengan `reason`). Workspace pribadi tidak bisa diganti namanya, dihapus, ditinggalkan, atau diberi anggota (`409 WORKSPACE_IS_PERSONAL`).
 
 | Endpoint | Siapa | Hasil |
 | --- | --- | --- |
@@ -403,7 +406,7 @@ Tim selalu punya setidaknya satu owner: pemilik terakhir tidak bisa keluar, dike
 
 ### Membuat Tim
 
-User dengan email terverifikasi boleh membuat tim (`403 EMAIL_VERIFICATION_REQUIRED` bila belum). Jumlah tim yang dimiliki dibatasi `SAKALA_MAX_OWNED_TEAMS_PER_USER` (default 2); `users.max_owned_teams` menaikkannya per user dan diatur lewat API admin. Yang dihitung adalah tim tempat user menjadi owner, di bawah row lock user, jadi dua request tidak bisa sama-sama lolos dari slot terakhir (`422 TEAM_LIMIT_EXCEEDED`). Admin tidak dibatasi, sama seperti kuota project.
+User dengan email terverifikasi boleh membuat tim (`403 EMAIL_VERIFICATION_REQUIRED` bila belum). Jumlah tim yang dimiliki dibatasi `SAKALA_MAX_OWNED_TEAMS_PER_USER` (default 2); `users.max_owned_teams` menaikkannya per user dan diatur lewat API admin. Yang dihitung adalah tim tempat user menjadi owner, di bawah row lock user, dan batas ini berlaku di setiap jalan menuju kepemilikan: membuat tim, menerima undangan owner, dan dijadikan owner oleh owner lain (`422 TEAM_LIMIT_EXCEEDED`). Dua request tidak bisa sama-sama lolos dari slot terakhir. Admin tidak dibatasi, sama seperti kuota project.
 
 ### Undangan
 
@@ -414,6 +417,8 @@ Akun yang sudah memakai alamat itu dengan email terverifikasi juga menerima noti
 - dengan `token` dari email, dari akun terverifikasi mana pun, karena tautan itu buktinya, seperti undangan email pada umumnya;
 - tanpa token, oleh akun yang email terverifikasinya sama dengan alamat undangan.
 
+Undangan sebagai `owner` lebih ketat: hanya akun yang email terverifikasinya sama dengan alamat undangan (tanpa membedakan huruf besar dan kecil) yang bisa menerimanya, dengan atau tanpa token. Tautan yang diteruskan ke orang lain tidak boleh menyerahkan tim; akun lain yang membawa token dijawab `403 INVITATION_EMAIL_MISMATCH`. Undangan `member` dan `viewer` tetap bisa diterima dengan token dari akun terverifikasi mana pun.
+
 Selain itu jawabannya `404`, sehingga ID undangan tidak membocorkan apa pun. Akun yang belum terverifikasi dijawab `403 EMAIL_VERIFICATION_REQUIRED`, undangan kedaluwarsa `409 INVITATION_EXPIRED`, dan anggota yang sudah ada `409 ALREADY_WORKSPACE_MEMBER`. Menerima atau menolak menghabiskan undangan.
 
 ### Batas Workspace
@@ -422,14 +427,14 @@ Batas dihitung per workspace, tidak pernah per anggota, dan datang dari profil b
 
 | Batas | Workspace pribadi tanpa profil | Tim tanpa profil |
 | --- | --- | --- |
-| Jumlah project | `SAKALA_MAX_PROJECTS_PER_USER` (3) | `SAKALA_TEAM_MAX_PROJECTS`, bila kosong sama dengan pribadi |
-| Container berjalan | `SAKALA_MAX_ACTIVE_CONTAINERS_PER_WORKSPACE`, bila kosong sama dengan jumlah project | `SAKALA_TEAM_MAX_ACTIVE_CONTAINERS`, bila kosong sama dengan jumlah project |
-| Deployment berjalan | `SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_USER` (2) | `SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS`, bila kosong sama dengan pribadi |
+| Jumlah project | `SAKALA_MAX_PROJECTS_PER_USER` (3) | `SAKALA_TEAM_MAX_PROJECTS` (2) |
+| Container berjalan | `SAKALA_MAX_ACTIVE_CONTAINERS_PER_WORKSPACE`, bila kosong sama dengan jumlah project | `SAKALA_TEAM_MAX_ACTIVE_CONTAINERS` (2) |
+| Deployment berjalan | `SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_USER` (2) | `SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS` (1) |
 | Memory per project | `SAKALA_MAX_CONTAINER_MEMORY_MB` (512) | `SAKALA_TEAM_MAX_CONTAINER_MEMORY_MB`, bila kosong sama dengan pribadi |
 | CPU per project | `SAKALA_MAX_CONTAINER_CPU_MILLIS` (1000) | `SAKALA_TEAM_MAX_CONTAINER_CPU_MILLIS`, bila kosong sama dengan pribadi |
 | Build per jam | belum ditegakkan | belum ditegakkan |
 
-Dengan default ini tidak ada yang berubah bagi user yang sudah ada. Container berjalan adalah project yang melayani (`active_deployment_id` terisi) atau sedang di-deploy; batasnya hanya berlaku saat men-deploy project yang belum melayani. Default memory dan CPU tidak pernah melebihi batas profil. `max_builds_per_hour` disiapkan untuk batas build (#124). Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
+Dengan default ini tidak ada yang berubah bagi user yang sudah ada. Default tim sengaja kecil dan tidak mengikuti nilai pribadi, supaya membuat tim tidak menggandakan kuota; tim yang butuh lebih mendapat profil batas dari admin. Nilai env yang kosong memakai default di tabel. Container berjalan adalah project yang melayani (`active_deployment_id` terisi) atau sedang di-deploy; batasnya hanya berlaku saat men-deploy project yang belum melayani. Default memory dan CPU tidak pernah melebihi batas profil. `max_builds_per_hour` disiapkan untuk batas build (#124). Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
 
 Membuat project mengunci baris user lalu baris workspace, dan membuat deployment mengunci baris workspace lalu baris project, sehingga dua request di workspace yang sama dihitung bergantian. Admin yang bertindak tidak dibatasi, sama seperti sebelumnya.
 
@@ -437,19 +442,20 @@ Membuat project mengunci baris user lalu baris workspace, dan membuat deployment
 
 ### Akses GitHub untuk Project Tim
 
-Project dari URL publik tidak memakai credential, jadi deploy-nya tetap berjalan walaupun pembuatnya keluar. Untuk project dari GitHub App:
+Project dari URL publik tidak memakai credential, jadi deploy-nya tetap berjalan walaupun pembuatnya keluar. Project dari GitHub App selalu bersandar pada satu orang yang masih bisa bertindak atas project:
 
-| Workspace dan installation | Akses bersandar pada | Bila sandarannya hilang |
+| Workspace | Sandaran akses | Yang diperiksa |
 | --- | --- | --- |
-| Workspace pribadi | Pemiliknya (pembuat project), seperti sebelumnya: masih terhubung ke installation dan masih bisa membaca repository dengan token GitHub-nya. | `REPOSITORY_ACCESS_REVOKED` |
-| Tim, installation di akun organisasi GitHub | Installation itu sendiri. Tidak ada orang yang diperiksa; organisasi yang menentukan repository mana yang dilihat installation. | GitHub menolak mencetak token untuk repository yang sudah dikeluarkan dari installation, lalu lease ditolak `409 repository_access_revoked` dan deployment gagal dengan kode itu |
-| Tim, installation di akun GitHub pribadi | Pembuat project, yang juga harus masih owner atau member tim. | `REPOSITORY_ACCESS_REVOKED` sampai tim menghubungkannya lewat installation organisasi |
+| Pribadi | Pemiliknya, seperti sebelumnya. | Masih terhubung ke installation dan masih bisa membaca repository dengan token GitHub-nya. |
+| Tim | Owner atau member saat ini yang punya identitas GitHub tertaut dan terhubung ke installation project. Urutannya: pembuat project selama ia masih owner atau member, lalu owner yang paling lama, lalu member yang paling lama. | Pada installation di akun organisasi GitHub, orang itu hanya jangkar: token installation yang membaca repository, dan organisasi yang menentukan repository mana yang dilihat installation. Pada installation di akun GitHub pribadi, token orang itu juga harus masih bisa membaca repository. |
+
+Bila tidak ada lagi orang yang memenuhi syarat, misalnya semua yang menghubungkan installation sudah keluar dari tim, aksesnya dianggap dicabut: deploy dijawab `409 REPOSITORY_ACCESS_REVOKED`, webhook `push` dilewati dengan alasan `repository_access_revoked`, dan lease credential ditolak `409`. Tim memulihkannya dengan menghubungkan installation lewat akun owner atau member yang masih ada. GitHub yang menolak mencetak token untuk repository yang sudah dikeluarkan dari installation juga membuat lease ditolak `409 repository_access_revoked`.
 
 Aturan yang sama dipakai saat deploy manual, webhook `push`, dan lease credential agent.
 
 ### Menghapus Akun dan Tim
 
-Menghapus akun menghapus workspace pribadi dan project-nya seperti sebelumnya, juga semua keanggotaannya. Tim yang dimiliki sendirian ikut dihapus bila kosong; bila masih punya project, penghapusan ditolak `409 LAST_WORKSPACE_OWNER` dengan daftar tim itu, sebelum apa pun dihapus. Project tim yang dibuat akun itu tetap milik timnya dengan `user_id` kosong. Lihat [Menghapus Akun](AUTHENTICATION.md#menghapus-akun).
+Menghapus akun menghapus workspace pribadi dan project-nya seperti sebelumnya, juga semua keanggotaannya dan undangan tertunda yang dikirimnya. Tim yang dimiliki sendirian ikut dihapus bila kosong; bila masih punya project, penghapusan ditolak `409 LAST_WORKSPACE_OWNER` dengan daftar tim itu, sebelum apa pun dihapus. Project tim yang dibuat akun itu tetap milik timnya dengan `user_id` kosong. Lihat [Menghapus Akun](AUTHENTICATION.md#menghapus-akun).
 
 ### Audit
 

@@ -190,7 +190,7 @@ Tabel `legal_acceptances` menyimpan satu baris per user, dokumen, dan versi, den
 | Yang terjadi | Keterangan |
 | --- | --- |
 | Proyek di workspace pribadi | Lewat jalur [Menghapus Project](API_CONVENTIONS.md#menghapus-project): workload dihentikan, attempt dibatalkan, baris menunggu `projects:purge-deleted`. Selama menunggu, `projects.user_id` dan `projects.workspace_id` bernilai `null`. Environment variable dan salinannya dihapus saat itu juga, tidak menunggu masa simpan. |
-| Workspace | Workspace pribadi dan semua keanggotaan dihapus. Tim yang dimiliki sendirian dan sudah kosong ikut dihapus. Tim lain tetap ada, dan project tim yang dibuat akun ini tetap milik timnya dengan `user_id` kosong. |
+| Workspace | Workspace pribadi, semua keanggotaan, dan undangan tertunda yang dikirim akun ini dihapus. Tim yang dimiliki sendirian dan sudah kosong ikut dihapus. Tim lain tetap ada, dan project tim yang dibuat akun ini tetap milik timnya dengan `user_id` kosong. |
 | Dihapus saat itu juga | Baris user, OAuth account dan tokennya, feedback, notifikasi, persetujuan dokumen, personal access token, semua session, token reset kata sandi, relasi GitHub installation, dan avatar. `pending_email` hilang bersama baris user, jadi tautan ganti email dan verifikasi yang lama menjadi tidak berlaku. |
 | GitHub installation | Baris installation ikut dihapus bila tidak ada user lain yang terhubung dan tidak ada proyek hidup yang memakainya, termasuk proyek tim. Akses GitHub App di sisi GitHub dicabut sendiri oleh pengguna. |
 | Yang tetap ada | `audit_events` berisi ID, termasuk event `account.deleted` tanpa email; `retired_project_slugs`; `usage_signal_records` sampai masa simpannya habis; `deployments` milik proyek sampai purge dengan `requested_by` kosong. |
@@ -245,8 +245,8 @@ temporary_credential`, agent yang memiliki command meminta
 installation token GitHub App yang dibatasi ke satu repository dengan
 `contents:read`. API memverifikasi kepemilikan command, status command,
 installation yang masih aktif, dan bahwa orang yang menjadi sandaran akses
-project masih terhubung ke installation sebelum mencetak token (project tim dari
-installation organisasi bersandar pada installation itu sendiri). Token ini tidak di-cache, tidak disimpan,
+project masih terhubung ke installation sebelum mencetak token (untuk project
+tim: owner atau member saat ini yang terhubung ke installation). Token ini tidak di-cache, tidak disimpan,
 dan hanya dicatat sebagai audit event tanpa nilai tokennya. Lihat
 [Agent API](AGENT_API.md#repository-credential).
 
