@@ -234,6 +234,7 @@ final class CompleteAgentCommandAction
                 'command_id' => $command->id,
                 'commit_sha' => $result->commitSha,
                 'dockerfile_found' => $result->dockerfileFound,
+                'exposed_ports' => $result->exposedPorts,
                 'package_manager' => $result->packageManager,
             ],
         ]);

@@ -32,3 +32,26 @@ test('messages for people say proyek, not project', function (): void {
         expect(sentencesMentioningProject((string) file_get_contents($path)))->toBe([], $path);
     }
 });
+
+test('Indonesian sentences anywhere in the API say proyek and kamu', function (): void {
+    // Only sentences that are Indonesian: English texts for agents and logs
+    // may say project.
+    $indonesian = '/\b(yang|tidak|belum|sudah|kamu|untuk|dengan|lalu|dulu|bisa|harus|jadi|karena|kalau|sedang|ini)\b/i';
+    $offending = [];
+
+    foreach (Finder::create()->files()->name('*.php')->in([app_path(), lang_path('id')]) as $file) {
+        foreach (token_get_all($file->getContents()) as $token) {
+            if (! is_array($token) || ! in_array($token[0], [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
+                continue;
+            }
+
+            $text = $token[1];
+
+            if (preg_match($indonesian, $text) === 1 && preg_match('/\b([Pp]rojects?|[Aa]nda)\b|project-nya/', $text) === 1) {
+                $offending[] = $file->getRelativePathname().':'.$token[2].' '.$text;
+            }
+        }
+    }
+
+    expect($offending)->toBe([]);
+});

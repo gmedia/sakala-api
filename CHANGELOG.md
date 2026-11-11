@@ -4,6 +4,14 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- `detected_port` now has a writer. When an `InspectProject` result carries `exposed_ports` with exactly one TCP port, that port becomes `detected_port`, so a Dockerfile that ends in `nginx` with `EXPOSE 80` gets `PORT=80` and a probe on 80 instead of failing with `runtime_app_not_listening` on 3000. No port, several ports, or an inspection of another `root_directory` clear it. The effective port stays `configured_port`, then `detected_port`, then 3000. A result without `exposed_ports`, from an agent before the field, leaves `detected_port` unchanged, so older agents keep 3000. Changing `root_directory` clears `detected_port` until the next inspection.
+
+### Changed
+
+- The copy test now checks every Indonesian sentence in `app/` and `lang/id`, not only failure texts, exceptions, and notifications, so `project` and `Anda` cannot come back in validation messages or action errors.
+
 ## [0.2.1] - 2026-11-11
 
 ### Changed

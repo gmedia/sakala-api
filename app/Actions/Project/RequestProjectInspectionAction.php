@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Project;
 
+use App\Data\Agent\ProjectInspectionResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\ProjectInspectionStatus;
@@ -91,9 +92,14 @@ final class RequestProjectInspectionAction
 
             if ($existing !== null && ! in_array($existing->status, self::RETRYABLE, true)) {
                 if ($existing->status === AgentCommandStatus::Succeeded && $locked->inspection !== null) {
+                    $result = ProjectInspectionResultData::fromArray($existing->result);
+
                     $locked->update([
                         'inspection_status' => ProjectInspectionStatus::Succeeded,
                         'inspection_error_code' => null,
+                        // Moving to another directory and back cleared the port
+                        // this directory exposed; the reused result still has it.
+                        ...($result->exposedPorts === null ? [] : ['detected_port' => $result->detectedPort()]),
                     ]);
                 }
 

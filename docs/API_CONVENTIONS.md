@@ -174,7 +174,7 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 | Field | Tipe | Keterangan |
 | --- | --- | --- |
 | `active_deployment_id` | UUID atau `null` | Deployment yang sedang melayani: terakhir `succeeded` dan belum dihentikan. Tetap terisi saat redeploy gagal dan saat `crashed`; kosong setelah stop atau sleep selesai. |
-| `detected_port` | integer atau `null` | Port hasil deteksi. Saat ini belum ada penulisnya. |
+| `detected_port` | integer atau `null` | Port dari inspeksi terakhir, diisi hanya bila Dockerfile di direktori itu mengekspos tepat satu port TCP lewat `EXPOSE`. `null` bila tidak ada, ada beberapa, agent belum melaporkannya, atau `root_directory` berubah sesudah inspeksi. |
 | `configured_port` | integer atau `null` | Port yang diisi pemilik, 1 sampai 65535. |
 | `effective_port` | integer | Nilai `PORT` untuk aplikasi: `configured_port`, lalu `detected_port`, lalu 3000. Sama dengan `container_port` deployment berikutnya. |
 | `serving_port` | integer atau `null` | Port yang sedang dipakai deployment aktif. Bisa berbeda dari `effective_port` sampai deployment berikutnya. `null` bila tidak ada yang melayani, termasuk saat `crashed`, dan untuk deployment lama yang port-nya tidak tercatat. |

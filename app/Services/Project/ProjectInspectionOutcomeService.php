@@ -30,16 +30,28 @@ final class ProjectInspectionOutcomeService
     {
         $project = $this->lockUnlessSuperseded($command);
 
-        $project?->update([
-            // Which directory this describes: the agent does not echo it, and
-            // the project's value can change after the inspection.
+        if ($project === null) {
+            return null;
+        }
+
+        // Which directory this describes: the agent does not echo it, and
+        // the project's value can change after the inspection.
+        $rootDirectory = $command->payload['root_directory'] ?? null;
+
+        $project->update([
             'inspection' => [
                 ...$result->toArray(),
-                'root_directory' => $command->payload['root_directory'] ?? null,
+                'root_directory' => $rootDirectory,
             ],
             'inspection_status' => ProjectInspectionStatus::Succeeded,
             'inspection_error_code' => null,
             'inspected_at' => now(),
+            // An agent that does not report ports leaves the stored one alone.
+            ...($result->exposedPorts === null ? [] : [
+                'detected_port' => $rootDirectory === $project->root_directory
+                    ? $result->detectedPort()
+                    : null,
+            ]),
         ]);
 
         return $project;
