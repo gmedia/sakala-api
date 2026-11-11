@@ -28,7 +28,7 @@ test('the OpenAPI document describes the versioned service status endpoint', fun
 
     $this->getJson('/docs/api.json')
         ->assertOk()
-        ->assertJsonPath('openapi', '3.1.0')
+        ->assertJsonPath('openapi', '3.1.2')
         ->assertJsonPath('info.title', 'Sakala API')
         ->assertJsonStructure([
             'paths' => [

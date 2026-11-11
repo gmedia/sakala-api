@@ -10,7 +10,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Auth\DeleteAccountRequest;
 use App\Http\Resources\Api\V1\Auth\AccountExportResource;
 use App\Models\User;
-use Illuminate\Auth\SessionGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -52,11 +51,7 @@ final class AccountController extends Controller
         $action->handle($user);
 
         // Not logout(): it writes a new remember token to a user that is gone.
-        $guard = Auth::guard('web');
-
-        if ($guard instanceof SessionGuard) {
-            $guard->forgetUser();
-        }
+        Auth::guard('web')->forgetUser();
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
