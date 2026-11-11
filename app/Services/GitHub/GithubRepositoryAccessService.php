@@ -5,37 +5,42 @@ declare(strict_types=1);
 namespace App\Services\GitHub;
 
 use App\Enums\RepositoryAccessState;
+use App\Enums\WorkspaceRole;
 use App\Enums\WorkspaceType;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Models\OAuthAccount;
 use App\Models\Project;
+use App\Models\WorkspaceMember;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 /**
  * Whether a GitHub App project may still read its repository right now.
  *
- * Who the access belongs to depends on the workspace and the installation:
- * - A team project from an installation on an organisation account uses the
- *   installation itself. No person is checked; the organisation decides which
- *   repositories the installation sees, and minting the repository-scoped token
- *   fails once the repository is removed from it.
- * - Every other GitHub App project goes through its creator: in a personal
- *   workspace that is the owner, as before workspaces. On a team the creator
- *   must also still be an owner or member, so a private repository from a
- *   personal GitHub account stops deploying once that person leaves.
- * Public URL projects need no credential and never come here, so a creator who
- * left never breaks them.
+ * Access always rests on a person who can still act on the project:
+ * - In a personal workspace that is the owner, as before workspaces.
+ * - On a team it is a current owner or member who has a linked GitHub identity
+ *   and is linked to the project's installation: the creator while still a
+ *   member, otherwise the longest-standing owner, then member. When nobody
+ *   qualifies, access is revoked, so a private repository stops deploying once
+ *   the people who connected it are gone.
+ * On an organisation installation the person only anchors the access: the
+ *   installation token reads the repository, and the organisation decides which
+ *   repositories it sees. Everywhere else the person's own GitHub token must
+ *   still read the repository.
+ * Public URL projects need no credential and never come here, so people
+ * leaving never breaks them.
  *
- * The installation pivot only records that the creator could read the repository
+ * The installation pivot only records that a person could see the installation
  * when they connected it, so a collaborator removed later would otherwise keep
  * deploying new private commits.
  *
- * Asks with the owner's own token, which costs from their 5000 requests per hour:
+ * Asks with that person's own token, which costs from their 5000 requests per hour:
  * a grant is reused for 5 minutes, a refusal for 1 minute so restored access works
  * quickly. During a GitHub outage the last answer holds for up to an hour, which is
  * how long a revocation can go unnoticed while GitHub cannot be asked; after that
@@ -57,7 +62,8 @@ final class GithubRepositoryAccessService
     ) {}
 
     /**
-     * True when the access belongs to the installation rather than a person.
+     * True for a team project on an organisation installation: a linked
+     * member anchors the access, and no personal token reads the repository.
      */
     public function throughInstallation(Project $project): bool
     {
@@ -66,33 +72,51 @@ final class GithubRepositoryAccessService
     }
 
     /**
-     * The person whose access the project relies on, or null when nobody
-     * qualifies any more (the creator left the team or deleted the account).
-     * Not meaningful when throughInstallation() is true.
+     * The person the project's GitHub access rests on, or null when nobody
+     * qualifies any more. See the class comment for the order.
      */
     public function accessHolderId(Project $project): ?int
     {
-        if ($project->user_id === null || $project->workspace === null) {
+        $workspace = $project->workspace;
+
+        if ($workspace === null || $project->github_installation_id === null) {
             return null;
         }
 
-        if ($project->workspace->type === WorkspaceType::Personal) {
+        if ($workspace->type === WorkspaceType::Personal) {
             return $project->user_id;
         }
 
-        return $project->workspace->roleOf($project->user)?->managesProjects() === true ? $project->user_id : null;
+        $holder = WorkspaceMember::query()
+            ->where('workspace_id', $workspace->id)
+            ->whereIn('role', WorkspaceRole::projectManagerValues())
+            ->whereIn('user_id', DB::table('github_installation_user')
+                ->select('user_id')
+                ->where('github_installation_id', $project->github_installation_id))
+            ->whereIn('user_id', OAuthAccount::query()
+                ->select('user_id')
+                ->where('provider', 'github'))
+            ->orderByRaw('CASE WHEN user_id = ? THEN 0 WHEN role = ? THEN 1 ELSE 2 END', [
+                $project->user_id ?? 0,
+                WorkspaceRole::Owner->value,
+            ])
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->first(['id', 'user_id']);
+
+        return $holder?->user_id;
     }
 
     public function forProject(Project $project): RepositoryAccessState
     {
-        if ($this->throughInstallation($project)) {
-            return RepositoryAccessState::Granted;
-        }
-
         $holderId = $this->accessHolderId($project);
 
         if ($holderId === null) {
             return RepositoryAccessState::Revoked;
+        }
+
+        if ($this->throughInstallation($project)) {
+            return RepositoryAccessState::Granted;
         }
 
         $key = "github-repository-access:{$holderId}:{$project->github_repository_id}";

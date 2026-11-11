@@ -586,18 +586,44 @@ function moveLeaseProjectToTeam(Project $project, GithubInstallation $installati
     return $team;
 }
 
-test('a team project on an organisation installation leases through the installation, without any person', function (): void {
+test('a team project on an organisation installation leases while a current owner or member is linked, without a per-person repository check', function (): void {
     ['agent' => $agent, 'command' => $command, 'project' => $project, 'installation' => $installation] = leaseContext('org-token', linkUser: false);
-    moveLeaseProjectToTeam($project, $installation, 'Organization', creatorRole: null);
-    OAuthAccount::query()->delete();
+    $team = moveLeaseProjectToTeam($project, $installation, 'Organization', creatorRole: null);
+    $owner = $team->members()->where('role', 'owner')->firstOrFail()->user;
+    OAuthAccount::factory()->for($owner)->create(['provider' => 'github', 'access_token' => 'team-owner-token']);
+    $installation->users()->attach($owner, ['last_verified_at' => now()]);
 
     $this->withHeaders(leaseHeaders($agent, 'org-token'))
         ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
         ->assertOk()
         ->assertJsonPath('token', LEASED_TOKEN);
 
-    // No person was asked: only the installation token was minted.
     Http::assertNotSent(fn (Request $request): bool => str_starts_with($request->url(), 'https://api.github.com/repositories/'));
+});
+
+test('a team project on an organisation installation stops leasing once no current owner or member is linked to it', function (): void {
+    ['agent' => $agent, 'command' => $command, 'project' => $project, 'installation' => $installation] = leaseContext('orphan-token');
+    // The creator is still linked to the installation but has left the team.
+    moveLeaseProjectToTeam($project, $installation, 'Organization', creatorRole: null);
+
+    $this->withHeaders(leaseHeaders($agent, 'orphan-token'))
+        ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])
+        ->assertStatus(409);
+
+    expect(app(GithubRepositoryAccessService::class)->forProject($project->refresh()))->toBe(RepositoryAccessState::Revoked)
+        ->and($command->fresh()->status)->not->toBe(AgentCommandStatus::Succeeded);
+});
+
+test('when the creator left, a linked owner of the team carries the access', function (): void {
+    ['project' => $project, 'installation' => $installation] = leaseContext();
+    $team = moveLeaseProjectToTeam($project, $installation, 'User', creatorRole: null);
+    $owner = $team->members()->where('role', 'owner')->firstOrFail()->user;
+    OAuthAccount::factory()->for($owner)->create(['provider' => 'github', 'access_token' => 'team-owner-token']);
+    $installation->users()->attach($owner, ['last_verified_at' => now()]);
+    $service = app(GithubRepositoryAccessService::class);
+
+    expect($service->accessHolderId($project->refresh()))->toBe($owner->id)
+        ->and($service->forProject($project))->toBe(RepositoryAccessState::Granted);
 });
 
 test('a team project on a personal installation still relies on its creator while they are a member', function (): void {
@@ -633,7 +659,7 @@ test('a personal project on an organisation installation keeps the per-person ru
 
 test('a repository removed from the installation refuses the lease with repository_access_revoked', function (): void {
     ['agent' => $agent, 'command' => $command, 'project' => $project, 'installation' => $installation] = leaseContext('removed-token', mintStatus: 422);
-    moveLeaseProjectToTeam($project, $installation, 'Organization', creatorRole: null);
+    moveLeaseProjectToTeam($project, $installation, 'Organization', creatorRole: WorkspaceRole::Member);
 
     $this->withHeaders(leaseHeaders($agent, 'removed-token'))
         ->postJson("/api/agent/v1/commands/{$command->id}/repository-credential", [])

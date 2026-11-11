@@ -187,15 +187,13 @@ final class LeaseRepositoryCredentialAction
             $this->throwRepositoryAccessRemoved();
         }
 
-        // Unless the access belongs to the installation (a team project on an
-        // organisation installation), the person it relies on must still be
-        // linked to the installation; a removed link revokes the lease.
-        if (! $this->repositoryAccess->throughInstallation($project)) {
-            $holderId = $this->repositoryAccess->accessHolderId($project);
+        // The person the access rests on must still be linked to the
+        // installation; on a team that means a current owner or member, and
+        // nobody left revokes the lease.
+        $holderId = $this->repositoryAccess->accessHolderId($project);
 
-            if ($holderId === null || ! $installation->users()->whereKey($holderId)->exists()) {
-                $this->throwRepositoryAccessRemoved();
-            }
+        if ($holderId === null || ! $installation->users()->whereKey($holderId)->exists()) {
+            $this->throwRepositoryAccessRemoved();
         }
 
         return [
