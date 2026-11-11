@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Admin\AgentController;
 use App\Http\Controllers\Api\V1\Admin\DeploymentController;
 use App\Http\Controllers\Api\V1\Admin\LimitProfileController;
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
@@ -61,6 +62,13 @@ Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function ()
     Route::get('deployments/{deployment}/logs', [DeploymentController::class, 'logs'])->whereUuid('deployment');
 
     // Runtime nodes
+    Route::get('agents', [AgentController::class, 'index']);
+    Route::post('agents', [AgentController::class, 'store']);
+    Route::get('agents/{agent}', [AgentController::class, 'show'])->whereUuid('agent');
+    Route::post('agents/{agent}/rotate', [AgentController::class, 'rotate'])->whereUuid('agent');
+    Route::post('agents/{agent}/revoke', [AgentController::class, 'revoke'])->whereUuid('agent');
+    Route::get('agents/{agent}/commands', [AgentController::class, 'commands'])->whereUuid('agent');
+    Route::get('agents/{agent}/commands/{command}', [AgentController::class, 'command'])->whereUuid(['agent', 'command']);
 
     // Feedback and audit
 
