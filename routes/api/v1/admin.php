@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Admin\DeploymentController;
 use App\Http\Controllers\Api\V1\Admin\LimitProfileController;
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\PilotValidationMetricsController;
 use App\Http\Controllers\Api\V1\Admin\ProjectControlController;
+use App\Http\Controllers\Api\V1\Admin\ProjectController;
 use App\Http\Controllers\Api\V1\Admin\UsageSignalsController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use App\Http\Controllers\Api\V1\Admin\WorkspaceController;
@@ -27,6 +29,8 @@ Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function ()
     Route::get('overview', OverviewController::class);
 
     // Projects, with the stop, suspend, unsuspend, and reconcile controls
+    Route::get('projects', [ProjectController::class, 'index']);
+    Route::get('projects/{project}', [ProjectController::class, 'show'])->whereUuid('project');
     Route::post('projects/{project}/stop', [ProjectControlController::class, 'stop']);
     Route::post('projects/{project}/suspend', [ProjectControlController::class, 'suspend']);
     Route::post('projects/{project}/unsuspend', [ProjectControlController::class, 'unsuspend']);
@@ -50,6 +54,11 @@ Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function ()
     Route::delete('limit-profiles/{limitProfile}', [LimitProfileController::class, 'destroy'])->whereUuid('limitProfile');
 
     // Deployments
+    Route::get('deployments/failures', [DeploymentController::class, 'failures']);
+    Route::get('deployments/failure-summary', [DeploymentController::class, 'failureSummary']);
+    Route::get('deployments/{deployment}', [DeploymentController::class, 'show'])->whereUuid('deployment');
+    Route::get('deployments/{deployment}/events', [DeploymentController::class, 'events'])->whereUuid('deployment');
+    Route::get('deployments/{deployment}/logs', [DeploymentController::class, 'logs'])->whereUuid('deployment');
 
     // Runtime nodes
 
