@@ -18,10 +18,16 @@ use Illuminate\Support\Facades\DB;
  */
 final class AssignLimitProfileAction
 {
-    public function handle(?User $actor, Workspace $workspace, ?LimitProfile $profile): Workspace
+    public function handle(?User $actor, Workspace $workspace, ?LimitProfile $profile, ?string $reason = null): Workspace
     {
-        return DB::transaction(function () use ($actor, $workspace, $profile): Workspace {
+        return DB::transaction(function () use ($actor, $workspace, $profile, $reason): Workspace {
             $locked = WorkspaceOwnership::lock($workspace);
+
+            // Shares the row lock that deleting a profile takes, so a profile
+            // cannot be attached while it is being deleted.
+            if ($profile !== null) {
+                LimitProfile::query()->whereKey($profile->id)->sharedLock()->firstOrFail();
+            }
             $previous = $locked->limit_profile_id;
 
             if ($previous !== $profile?->id) {
@@ -30,6 +36,7 @@ final class AssignLimitProfileAction
                 WorkspaceAudit::record($actor, 'workspace.limit_profile_changed', $locked, [
                     'from_limit_profile_id' => $previous,
                     'to_limit_profile_id' => $profile?->id,
+                    ...($reason === null ? [] : ['reason' => $reason]),
                 ]);
             }
 

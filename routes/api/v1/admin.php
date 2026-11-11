@@ -2,10 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Admin\LimitProfileController;
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\PilotValidationMetricsController;
 use App\Http\Controllers\Api\V1\Admin\ProjectControlController;
 use App\Http\Controllers\Api\V1\Admin\UsageSignalsController;
+use App\Http\Controllers\Api\V1\Admin\UserController;
+use App\Http\Controllers\Api\V1\Admin\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -30,8 +33,21 @@ Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function ()
     Route::post('projects/{project}/reconcile', [ProjectControlController::class, 'reconcile']);
 
     // Users
+    Route::get('users', [UserController::class, 'index']);
+    Route::get('users/{user}', [UserController::class, 'show'])->whereNumber('user');
+    Route::patch('users/{user}/role', [UserController::class, 'updateRole'])->whereNumber('user');
+    Route::patch('users/{user}/team-limit', [UserController::class, 'updateTeamLimit'])->whereNumber('user');
+    Route::put('users/{user}/limit-profile', [UserController::class, 'assignLimitProfile'])->whereNumber('user');
 
     // Workspaces and limit profiles
+    Route::get('workspaces', [WorkspaceController::class, 'index']);
+    Route::get('workspaces/{workspace}', [WorkspaceController::class, 'show'])->whereUuid('workspace');
+    Route::put('workspaces/{workspace}/limit-profile', [WorkspaceController::class, 'assignLimitProfile'])->whereUuid('workspace');
+    Route::get('limit-profiles', [LimitProfileController::class, 'index']);
+    Route::post('limit-profiles', [LimitProfileController::class, 'store']);
+    Route::get('limit-profiles/{limitProfile}', [LimitProfileController::class, 'show'])->whereUuid('limitProfile');
+    Route::patch('limit-profiles/{limitProfile}', [LimitProfileController::class, 'update'])->whereUuid('limitProfile');
+    Route::delete('limit-profiles/{limitProfile}', [LimitProfileController::class, 'destroy'])->whereUuid('limitProfile');
 
     // Deployments
 
