@@ -238,7 +238,7 @@ Filter `GET /api/v1/app/projects?filter=` menerima `7_days`, `30_days`, `90_days
 
 ### Menghapus Project
 
-`DELETE /api/v1/app/projects/{project}` menjawab `204` dan project langsung hilang dari API (soft delete, kuota kembali). Bila ada deployment aktif, API membuat `StopProject` yang menghapus route dan container di node. Antrean yang belum diambil dibatalkan, dan attempt yang sedang berjalan diminta batal; bila tetap sukses, workload-nya ikut dihentikan.
+`DELETE /api/v1/app/projects/{project}` menjawab `204` dan project langsung hilang dari API (soft delete, kuota kembali). Bila ada deployment aktif, API membuat `StopProject` dengan `remove_images: true` yang menghapus route, container, dan image project di node. Antrean yang belum diambil dibatalkan, dan attempt yang sedang berjalan diminta batal; bila tetap sukses, workload-nya ikut dihentikan.
 
 `StopProject` tidak punya batas waktu. Saat node offline, workload tetap melayani sampai node itu kembali dan menerima command-nya, jadi penghapusan di API bukan bukti container sudah berhenti. Slug project yang dihapus tidak pernah dipakai ulang, jadi route lama tidak bisa melayani project baru.
 

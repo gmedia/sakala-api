@@ -191,6 +191,7 @@ final class PurgeDeletedProjectsAction
             deployment: $workload,
             reason: 'project_deleted',
             idempotencyKey: "project-purge:{$project->id}:{$workload->id}:".now()->format('Ymd'),
+            removeImages: true,
         );
     }
 

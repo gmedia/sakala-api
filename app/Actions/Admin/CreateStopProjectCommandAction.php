@@ -18,6 +18,10 @@ final class CreateStopProjectCommandAction
      * deployment. When an idempotency key is given the call is safe to
      * repeat: an existing command with that key is returned untouched.
      *
+     * Pass `$removeImages` only when the project is deleted: the agent then
+     * also removes every image of the project once the container is gone.
+     * Every other stop keeps the images, so the payload stays empty.
+     *
      * @param  array<string, mixed>  $responseContext
      */
     public function handle(
@@ -26,6 +30,7 @@ final class CreateStopProjectCommandAction
         ?string $reason = null,
         ?string $idempotencyKey = null,
         ?array $responseContext = null,
+        bool $removeImages = false,
     ): AgentCommand {
         if ($deployment->agent_node_id === null) {
             throw new \RuntimeException(
@@ -49,7 +54,7 @@ final class CreateStopProjectCommandAction
             'agent_node_id' => $deployment->agent_node_id,
             'type' => AgentCommandType::StopProject,
             'status' => AgentCommandStatus::Pending,
-            'payload' => [],
+            'payload' => $removeImages ? ['remove_images' => true] : [],
 
             'request_context' => [
                 'reason' => $reason,
