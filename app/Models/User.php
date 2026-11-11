@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -44,6 +45,7 @@ use Laravel\Sanctum\HasApiTokens;
  * @property CarbonImmutable|null $onboarding_completed_at
  * @property CarbonImmutable|null $last_login_at
  * @property UserRole $role
+ * @property int|null $max_owned_teams Null follows config('sakala.workspaces.max_owned_teams_per_user').
  */
 #[Fillable([
     'name',
@@ -130,10 +132,43 @@ class User extends Authenticatable implements MustVerifyEmail
         return $accepted < 2;
     }
 
-    /** @return HasMany<Project, $this> */
+    /**
+     * Projects this user created, in any workspace. Ownership is the workspace's:
+     * see personalWorkspace() and workspaces().
+     *
+     * @return HasMany<Project, $this>
+     */
     public function projects(): HasMany
     {
         return $this->hasMany(Project::class);
+    }
+
+    /** @return HasOne<Workspace, $this> */
+    public function personalWorkspace(): HasOne
+    {
+        return $this->hasOne(Workspace::class, 'personal_user_id');
+    }
+
+    /** @return BelongsToMany<Workspace, $this, WorkspaceMember, 'membership'> */
+    public function workspaces(): BelongsToMany
+    {
+        return $this->belongsToMany(Workspace::class, 'workspace_members')
+            ->using(WorkspaceMember::class)
+            ->as('membership')
+            ->withPivot(['id', 'role'])
+            ->withTimestamps();
+    }
+
+    /** @return HasMany<WorkspaceMember, $this> */
+    public function workspaceMemberships(): HasMany
+    {
+        return $this->hasMany(WorkspaceMember::class);
+    }
+
+    /** The cap on teams this user may own; an admin can raise it per user. */
+    public function maxOwnedTeams(): int
+    {
+        return $this->max_owned_teams ?? (int) config('sakala.workspaces.max_owned_teams_per_user', 2);
     }
 
     /** @return BelongsToMany<GithubInstallation, $this> */
@@ -171,6 +206,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'last_login_at' => 'immutable_datetime',
             'notification_preferences' => 'array',
             'created_at' => 'immutable_datetime',
+            'max_owned_teams' => 'integer',
         ];
     }
 }

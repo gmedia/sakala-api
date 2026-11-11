@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Factories;
 
 use App\Actions\Legal\RecordLegalAcceptanceAction;
+use App\Actions\Workspace\CreatePersonalWorkspaceAction;
 use App\Enums\LegalAcceptanceSource;
 use App\Enums\UserRole;
 use App\Models\User;
@@ -55,6 +56,7 @@ class UserFactory extends Factory
     public function configure(): static
     {
         return $this->afterCreating(function (User $user): void {
+            app(CreatePersonalWorkspaceAction::class)->handle($user);
             app(RecordLegalAcceptanceAction::class)->handle($user, LegalAcceptanceSource::Register);
         });
     }

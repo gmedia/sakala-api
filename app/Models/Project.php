@@ -22,7 +22,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * @property string $id
- * @property int|null $user_id
+ * @property int|null $user_id The creator. Null once that account is deleted.
+ * @property string|null $workspace_id The owner. Null only on a soft-deleted project whose workspace is gone.
  * @property string|null $github_installation_id
  * @property int|null $github_repository_id
  * @property string $name
@@ -53,6 +54,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 #[Fillable([
     'user_id',
+    'workspace_id',
     'github_installation_id',
     'github_repository_id',
     'name',
@@ -149,10 +151,20 @@ class Project extends Model
         return $this->belongsTo(Deployment::class, 'active_deployment_id');
     }
 
-    /** @return BelongsTo<User, $this> */
+    /**
+     * The creator. Ownership and access go through workspace().
+     *
+     * @return BelongsTo<User, $this>
+     */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** @return BelongsTo<Workspace, $this> */
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
     }
 
     /** @return BelongsTo<GithubInstallation, $this> */
@@ -253,6 +265,8 @@ class Project extends Model
             return $query;
         }
 
-        return $query->where('user_id', $user->id);
+        return $query->whereIn('workspace_id', WorkspaceMember::query()
+            ->select('workspace_id')
+            ->where('user_id', $user->id));
     }
 }
