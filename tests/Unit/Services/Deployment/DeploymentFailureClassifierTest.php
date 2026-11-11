@@ -107,13 +107,55 @@ test('new runtime failure codes map to stable categories', function (
     ['runtime_port_conflict', DeploymentFailureCategory::Start],
 ]);
 
-test('the not listening hint tells the student to listen on 0.0.0.0:$PORT and that Sakala sets PORT', function (string $errorCode) {
+test('the not listening hint tells the student to listen on 0.0.0.0 with PORT and that Sakala sets PORT', function (string $errorCode) {
     $failure = app(DeploymentFailureClassifier::class)->classify($errorCode);
 
     expect($failure->userFixable)->toBeTrue()
-        ->and($failure->recoveryHint)->toContain('0.0.0.0:$PORT')
-        ->and($failure->recoveryHint)->toContain('`PORT` sudah diisi otomatis oleh Sakala');
+        ->and($failure->recoveryHint)->toContain('listen di alamat 0.0.0.0 dengan port dari environment variable PORT')
+        ->and($failure->recoveryHint)->toContain('PORT sudah diisi otomatis oleh Sakala');
 })->with(['runtime_app_not_listening', 'runtime_health_check_failed']);
+
+/** @return list<string> Every error code with its own arm in the classifier. */
+function classifierErrorCodes(): array
+{
+    $source = (string) file_get_contents(app_path('Services/Deployment/DeploymentFailureClassifier.php'));
+    preg_match_all("/^\s*'([a-z_]+)'(?:,$| =>)/m", $source, $matches);
+
+    return array_values(array_unique($matches[1]));
+}
+
+test('the error code list is read from the classifier source', function () {
+    expect(classifierErrorCodes())->toContain('runtime_port_conflict', 'runtime_app_not_listening', 'command_expired')
+        ->and(count(classifierErrorCodes()))->toBeGreaterThan(30);
+});
+
+test('summaries and hints are plain text because the console does not render markdown', function () {
+    $classifier = app(DeploymentFailureClassifier::class);
+
+    foreach ([...classifierErrorCodes(), 'something_we_do_not_know', 'runtime_registry_unreachable'] as $code) {
+        $failure = $classifier->classify($code);
+
+        foreach ([$failure->summary, $failure->recoveryHint] as $text) {
+            expect($text)->not->toMatch('/[`*]|\]\(/', $code);
+        }
+    }
+});
+
+test('unknown registry and network codes read as a platform network fault', function (string $errorCode) {
+    $failure = app(DeploymentFailureClassifier::class)->classify($errorCode);
+
+    expect($failure->code)->toBe($errorCode)
+        ->and($failure->category)->toBe(DeploymentFailureCategory::Node)
+        ->and($failure->userFixable)->toBeFalse()
+        ->and($failure->summary)->toContain('registry image')
+        ->and($failure->recoveryHint)->toContain('sisi Sakala')
+        ->and(mb_strtolower($failure->recoveryHint))->toContain('deploy ulang');
+})->with(['runtime_registry_unreachable', 'runtime_registry_pull_failed', 'runtime_network_unavailable']);
+
+test('only the registry and network prefixes leave the unknown category', function (string $errorCode) {
+    expect(app(DeploymentFailureClassifier::class)->classify($errorCode)->category)
+        ->toBe(DeploymentFailureCategory::Unknown);
+})->with(['registry_unreachable', 'runtime_unexpected', 'build_runtime_network_failed']);
 
 test('checkout codes with different remedies get different hints', function () {
     $classifier = app(DeploymentFailureClassifier::class);

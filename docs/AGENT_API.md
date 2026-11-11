@@ -568,7 +568,7 @@ dilihat console (`failure.category`):
 | `timeout` | tidak | `command_lease_expired` (control plane) |
 | `resource` | ya | `runtime_app_out_of_memory` |
 | `resource` | tidak | `runtime_capacity_exceeded`, `runtime_disk_pressure` |
-| `node` | tidak | `runtime_preflight_failed`, `runtime_dependency_failed`, `invalid_runtime_configuration`, `invalid_runtime_command`, `unsupported_runtime_command`, `runtime_cancelled` |
+| `node` | tidak | `runtime_preflight_failed`, `runtime_dependency_failed`, `invalid_runtime_configuration`, `invalid_runtime_command`, `unsupported_runtime_command`, `runtime_cancelled`, serta kode lain yang belum dikenali dan berawalan `runtime_registry` atau `runtime_network` (node gagal menjangkau registry image atau jaringan) |
 | `scheduling` | tidak | `command_expired` (control plane) |
 | `unknown` | tidak | lainnya |
 
@@ -578,6 +578,9 @@ HTTP di agent (status di bawah 500 dianggap sehat). Kontrak `PORT` tidak berubah
 Sakala mengisi `PORT`, dan aplikasi harus listen di `0.0.0.0:$PORT`.
 `runtime_port_conflict` berarti environment variable `PORT` milik project berbeda
 dengan `container_port`, jadi student cukup menghapus atau menyamakan variabel itu.
+
+`failure.summary` dan `failure.recovery_hint` adalah teks polos. Console
+menampilkannya apa adanya, jadi keduanya tidak memakai markdown seperti backtick.
 
 ## Fixture
 

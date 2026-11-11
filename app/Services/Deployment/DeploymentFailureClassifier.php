@@ -15,6 +15,9 @@ use App\Enums\DeploymentFailureCategory as Category;
  * for a redeploy: there is no setting the student could change for those.
  * Students cannot edit a start command, timeouts, or memory limits, so hints
  * never point at them.
+ *
+ * Every string here is shown as plain text: the console does not render
+ * markdown, so summaries and hints never use backticks or other markup.
  */
 final class DeploymentFailureClassifier
 {
@@ -22,7 +25,41 @@ final class DeploymentFailureClassifier
 
     private const RETRY = 'Coba deploy ulang. Kalau gagal lagi, hubungi admin Sakala.';
 
+    /**
+     * Agent code families for a node that cannot reach a container registry
+     * or the network during a deployment. Only codes without an exact match
+     * below fall into this family, so a specific code keeps its own mapping.
+     */
+    private const PLATFORM_NETWORK_PREFIXES = ['runtime_registry', 'runtime_network'];
+
     public function classify(string $errorCode): DeploymentFailureData
+    {
+        $failure = $this->classifyKnown($errorCode);
+
+        if ($failure->category === Category::Unknown && $this->isPlatformNetworkCode($errorCode)) {
+            return $this->platform(
+                $errorCode,
+                Category::Node,
+                'Server Sakala gagal terhubung ke jaringan atau registry image saat menyiapkan deployment.',
+                self::RETRY,
+            );
+        }
+
+        return $failure;
+    }
+
+    private function isPlatformNetworkCode(string $errorCode): bool
+    {
+        foreach (self::PLATFORM_NETWORK_PREFIXES as $prefix) {
+            if (str_starts_with($errorCode, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function classifyKnown(string $errorCode): DeploymentFailureData
     {
         return match ($errorCode) {
             'repository_not_found' => $this->userFixable(
@@ -113,8 +150,8 @@ final class DeploymentFailureClassifier
             'runtime_port_conflict' => $this->userFixable(
                 $errorCode,
                 Category::Start,
-                'Environment variable `PORT` di proyek ini berbeda dengan port yang dipakai Sakala untuk aplikasimu.',
-                'Hapus environment variable `PORT` di pengaturan proyek, karena Sakala sudah mengisinya otomatis, atau samakan nilainya dengan port yang tertulis di detail kegagalan. Lalu deploy ulang.',
+                'Environment variable PORT di proyek ini berbeda dengan port yang dipakai Sakala untuk aplikasimu.',
+                'Hapus environment variable PORT di pengaturan proyek, karena Sakala sudah mengisinya otomatis, atau samakan nilainya dengan port yang tertulis di detail kegagalan. Lalu deploy ulang.',
             ),
 
             'runtime_execution_failed',
@@ -134,7 +171,7 @@ final class DeploymentFailureClassifier
                 $errorCode,
                 Category::Health,
                 'Aplikasi berjalan, tetapi tidak menerima koneksi di port yang ditentukan Sakala.',
-                'Pastikan aplikasimu listen di `0.0.0.0:$PORT`. Environment variable `PORT` sudah diisi otomatis oleh Sakala, jadi baca nilainya di kode dan jangan menulis port secara tetap. Listen di `localhost` saja juga tidak bisa dijangkau. Perbaiki, lalu deploy ulang.',
+                'Pastikan aplikasimu listen di alamat 0.0.0.0 dengan port dari environment variable PORT. Nilai PORT sudah diisi otomatis oleh Sakala, jadi baca nilainya di kode dan jangan menulis port secara tetap. Listen di localhost saja tidak bisa dijangkau. Perbaiki, lalu deploy ulang.',
             ),
 
             'runtime_app_unhealthy' => $this->userFixable(
