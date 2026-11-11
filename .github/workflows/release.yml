@@ -46,7 +46,7 @@ jobs:
       # The API image and its web front end come from the same Dockerfile but
       # different targets, so they are built as two images from one context.
       - name: Build and push the PHP-FPM image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
         with:
           context: .
           target: app
@@ -57,7 +57,7 @@ jobs:
           cache-to: type=gha,scope=api,mode=max
 
       - name: Build and push the web image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
         with:
           context: .
           target: web
