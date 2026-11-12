@@ -48,6 +48,8 @@ Dokumentasi interaktif tersedia di `http://api.sakala.localhost:8000/docs/api` d
 - `app`: PHP-FPM untuk Laravel API pada port `9000`.
 - `web`: Nginx yang hanya melayani `public/` pada port `8080` dan meneruskan PHP ke hostname internal `api:9000`.
 
+Keduanya mendukung penggantian container API tanpa jeda. Nginx me-resolve `api` ke semua container API yang sedang jalan setiap detik, lalu mencoba container lain kalau satu menolak koneksi atau tidak menjawab dalam satu detik. PHP-FPM yang dihentikan dengan `SIGQUIT` langsung menolak koneksi baru dan menyelesaikan request yang sedang berjalan selama paling lama 25 detik (`docker/php/php-fpm.d/zz-sakala.conf`). Urutan penggantiannya ada di `scripts/lib/rollout.sh` repository `sakala-deployment`.
+
 Contoh build lokal:
 
 ```bash

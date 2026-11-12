@@ -4,6 +4,11 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- The `web` image's nginx re-resolves `api` every second instead of every 10 (`resolver 127.0.0.11 valid=1s`) and uses every running api container. It gives up on a container that does not accept a connection within 1 second instead of 60, and retries the other one. A POST that a stopping container reset before reading it is retried too, but only within the first 2 seconds of the request, so a slow POST is never replayed. Together with the deployment's new api rollout this removes the `502` responses and the long-held request seen while the api container was replaced. Nothing changes while only one api container runs.
+- The `app` image lets PHP-FPM finish in-flight requests for up to 25 seconds when it is stopped with `SIGQUIT` (`process_control_timeout`, which defaulted to 0 and cut those requests off). New connections are refused at once.
+
 ### Added
 
 - `php artisan user:admin <email> --demote` takes the admin role away from an account and refuses the last admin, like the admin API (`LAST_ADMIN`).
