@@ -36,6 +36,7 @@ final class AdminWorkspaceDetailResource extends JsonResource
                     'name' => $member->user->name,
                     'username' => $member->user->username,
                     'email' => $member->user->email,
+                    /** @var string|null */
                     'avatar_url' => $avatars->resolve($member->user),
                 ],
             ])->values()->all(),

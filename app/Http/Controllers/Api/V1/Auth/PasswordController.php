@@ -21,7 +21,6 @@ use Illuminate\Http\Response;
 
 final class PasswordController extends Controller
 {
-    /** @scramble-return 202 VerificationNotificationResource */
     public function forgot(ForgotPasswordRequest $request, SendPasswordResetLinkAction $action): JsonResponse
     {
         $action->handle($request->email());

@@ -11,6 +11,10 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Fixed
 
+- The OpenAPI document now matches what the API sends. `EnvironmentVariableResource.id` is an integer, not a string. `PilotLimitsResource.runtime_defaults.memory_mb` and `cpu_millis` are integers, the seven text and ID fields of `NotificationResource` (`category`, `title`, `message`, `project_id`, `deployment_id`, `invitation_id`, `workspace_id`) and the notifications in the account export are `string|null`, and deployment event `occurred_at` and deployment log `recorded_at` are no longer nullable. Also fixed: the unread notification `count` is an integer, admin user `avatar_url` is nullable, heartbeat `metadata` is an object, and the admin project control `status` and `runtime_status` use their enums.
+- The OpenAPI document gives the real status and body of `POST app/feedback` (201), `auth/register`, `auth/forgot-password`, `auth/email/verification-notification`, `auth/email/change`, `app/projects/{project}/inspection`, the four admin project controls and the three node controls (all 202). It used to document them as 200, some with a number as the body. Cancelling a deployment documents both 200 and 202 with the deployment, and the agent command poll documents its `data` wrapper and the optional `cancel_requested`.
+- A deployment answered right after it is created sends `finalization_deferred: false` instead of `null`.
+- Empty audit event `metadata` and admin command report `metadata` are sent as `{}` instead of `[]`, as documented.
 - `php artisan user:admin` now writes an audit event, as role changes through the admin API already did. Promoting and demoting record `user.role_changed` and creating an account records `user.admin_created`, with actor `system`/`cli`, the subject user, `from` and `to` roles, the reason, and `os_user` (the operating system user that ran the command). No email, password, IP address, or user agent is stored. Earlier CLI promotions have no audit event.
 
 ## [0.4.1] - 2026-11-12

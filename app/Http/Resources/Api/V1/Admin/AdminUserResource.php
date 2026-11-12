@@ -29,6 +29,7 @@ final class AdminUserResource extends JsonResource
             'name' => $user->name,
             'username' => $user->username,
             'email' => $user->email,
+            /** @var string|null */
             'avatar_url' => app(AvatarUrlResolver::class)->resolve($user),
             /** `user` or `admin`. */
             'role' => $user->role->value,

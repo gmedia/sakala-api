@@ -109,6 +109,16 @@ class Deployment extends Model
     /** Bound (in characters) of the stored commit subject; the column is varchar(500). */
     public const MAX_COMMIT_MESSAGE_LENGTH = 500;
 
+    /**
+     * The column default, so a deployment answered right after it is created
+     * sends `false` instead of null.
+     *
+     * @var array<string, bool>
+     */
+    protected $attributes = [
+        'finalization_deferred' => false,
+    ];
+
     /** @return BelongsTo<Project, $this> */
     public function project(): BelongsTo
     {

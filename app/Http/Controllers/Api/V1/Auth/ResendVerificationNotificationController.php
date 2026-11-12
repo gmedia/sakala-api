@@ -13,7 +13,6 @@ use Illuminate\Http\JsonResponse;
 
 final class ResendVerificationNotificationController extends Controller
 {
-    /** @scramble-return 202 VerificationNotificationResource */
     public function __invoke(
         ResendVerificationNotificationRequest $request,
         ResendVerificationNotificationAction $action,

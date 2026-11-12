@@ -15,8 +15,6 @@ final class FeedbackController extends Controller
 {
     /**
      * Submit pilot feedback.
-     *
-     * @scramble-return 201 FeedbackResource
      */
     public function store(
         StoreFeedbackRequest $request,

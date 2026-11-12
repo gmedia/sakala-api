@@ -22,6 +22,7 @@ final class AgentHeartbeatResource extends JsonResource
             'hostname' => $this->resource->hostname,
             'runtime_network' => $this->resource->runtime_network,
             'capabilities' => $this->resource->capabilities,
+            /** @var array<string, mixed>|null */
             'metadata' => $this->resource->metadata,
             'registered_at' => $this->resource->registered_at,
             'last_seen_at' => $this->resource->last_seen_at,

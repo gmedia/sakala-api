@@ -41,8 +41,11 @@ final class AuditEventResource extends JsonResource
             ],
             /**
              * IDs, changed values, and the admin's `reason`. Never secret values or tokens.
+             * An object, `{}` when empty, or null.
+             *
+             * @var array<string, mixed>|null
              */
-            'metadata' => $event->metadata,
+            'metadata' => $event->metadata === null ? null : (object) $event->metadata,
             /**
              * Recorded for admin actions and for secret reveals by someone outside the project's workspace.
              */

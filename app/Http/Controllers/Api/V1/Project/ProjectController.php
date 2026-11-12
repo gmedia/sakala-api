@@ -91,8 +91,6 @@ final class ProjectController extends Controller
      *
      * Answers 202: the result arrives later as `preview_status` and `stack`.
      * Reuses an inspection of the same commit that is running or finished.
-     *
-     * @scramble-return 202 ProjectResource
      */
     public function inspect(Project $project, RequestProjectInspectionAction $action): JsonResponse
     {

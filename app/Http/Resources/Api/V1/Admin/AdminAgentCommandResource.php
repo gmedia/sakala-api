@@ -79,7 +79,7 @@ final class AdminAgentCommandResource extends JsonResource
             /**
              * Present on the command detail only: up to the 200 newest reports, oldest first.
              *
-             * @var list<array{sequence: int, kind: string, level: string|null, stream: string|null, type: string|null, message: string, metadata: array<string, mixed>|null, occurred_at: string|null}>
+             * @var list<array{sequence: int, kind: string, level: string|null, stream: string|null, type: string|null, message: string, metadata: array<string, mixed>|null, occurred_at: string}>
              */
             'reports' => $this->whenLoaded('reports', fn (): array => $command->reports
                 ->map(fn (AgentCommandReport $report): array => [
@@ -89,7 +89,7 @@ final class AdminAgentCommandResource extends JsonResource
                     'stream' => $report->stream?->value,
                     'type' => $report->type,
                     'message' => $report->message,
-                    'metadata' => $report->metadata,
+                    'metadata' => $report->metadata === null ? null : (object) $report->metadata,
                     'occurred_at' => $report->occurred_at->toAtomString(),
                 ])
                 ->values()

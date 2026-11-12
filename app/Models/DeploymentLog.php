@@ -14,7 +14,7 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property LogStream $stream
- * @property Carbon|null $recorded_at
+ * @property Carbon $recorded_at
  */
 #[Fillable([
     'deployment_id',

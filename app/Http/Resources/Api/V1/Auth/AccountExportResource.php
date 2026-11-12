@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Auth;
 
 use App\Data\Auth\AccountExportData;
+use App\Http\Resources\Api\V1\Notification\NotificationResource;
 use App\Models\Deployment;
 use App\Models\EnvironmentVariable;
 use App\Models\Feedback;
@@ -123,11 +124,11 @@ final class AccountExportResource extends JsonResource
             ])->all(),
             'notifications' => $data->notifications->map(static fn (DatabaseNotification $notification): array => [
                 'id' => $notification->id,
-                'category' => $notification->data['category'] ?? null,
-                'title' => $notification->data['title'] ?? null,
-                'message' => $notification->data['message'] ?? null,
-                'project_id' => $notification->data['project_id'] ?? null,
-                'deployment_id' => $notification->data['deployment_id'] ?? null,
+                'category' => NotificationResource::payloadString($notification, 'category'),
+                'title' => NotificationResource::payloadString($notification, 'title'),
+                'message' => NotificationResource::payloadString($notification, 'message'),
+                'project_id' => NotificationResource::payloadString($notification, 'project_id'),
+                'deployment_id' => NotificationResource::payloadString($notification, 'deployment_id'),
                 'read_at' => $notification->read_at?->toAtomString(),
                 'created_at' => $notification->created_at?->toAtomString(),
             ])->all(),

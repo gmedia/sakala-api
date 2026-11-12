@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Project;
 
+use App\Models\EnvironmentVariable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * @property EnvironmentVariable $resource
+ */
 class EnvironmentVariableResource extends JsonResource
 {
     /** Set on writes, where the console has to say a redeploy is needed. */

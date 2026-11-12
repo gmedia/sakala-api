@@ -22,7 +22,9 @@ final class DeploymentLogResource extends JsonResource
             'sequence' => $this->sequence,
             'stream' => $this->stream,
             'message' => $this->message,
-            'recorded_at' => $this->recorded_at?->toISOString(),
+            // The column is NOT NULL; Carbon only declares toISOString() as nullable.
+            /** @var string */
+            'recorded_at' => $this->recorded_at->toISOString(),
         ];
     }
 }

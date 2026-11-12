@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Admin;
 
 use App\Data\Admin\ProjectControlResultData;
+use App\Enums\ProjectStatus;
+use App\Enums\RuntimeStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -26,7 +28,10 @@ final class ProjectControlResource extends JsonResource
 
         return [
             'project_id' => $this->project->id,
+            // The enum, or its value replayed from the stored response context.
+            /** @var ProjectStatus */
             'status' => $status,
+            /** @var RuntimeStatus */
             'runtime_status' => $runtimeStatus,
             'command' => $this->command === null
                 ? null

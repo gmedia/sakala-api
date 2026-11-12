@@ -15,8 +15,6 @@ final class RegisterController extends Controller
     /**
      * Always 202 with the same body, whether or not the email already has an
      * account, so this endpoint cannot be used to learn which emails exist.
-     *
-     * @scramble-return 202 RegistrationResource
      */
     public function __invoke(
         RegisterRequest $request,

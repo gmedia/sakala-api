@@ -21,6 +21,7 @@ use App\Http\Resources\Api\V1\Deployment\DeploymentResource;
 use App\Models\Deployment;
 use App\Models\Project;
 use Dedoc\Scramble\Attributes\HeaderParameter;
+use Dedoc\Scramble\Attributes\Response as OpenApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -92,6 +93,8 @@ final class DeploymentController extends Controller
      * 202 while a node still has to stop it. Answers 409
      * `DEPLOYMENT_ALREADY_FINISHED` when it already succeeded or failed.
      */
+    #[OpenApiResponse(200, 'The deployment is `cancelled`.', type: 'array{data: DeploymentResource}')]
+    #[OpenApiResponse(202, 'A node still has to stop the deployment.', type: 'array{data: DeploymentResource}')]
     public function cancel(
         Request $request,
         Project $project,
