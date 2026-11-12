@@ -13,6 +13,7 @@ RUN apk add --no-cache icu-libs libpq libzip \
 WORKDIR /var/www/html
 
 COPY docker/php/conf.d/zz-sakala.ini "$PHP_INI_DIR/conf.d/zz-sakala.ini"
+COPY docker/php/php-fpm.d/zz-sakala.conf /usr/local/etc/php-fpm.d/zz-sakala.conf
 
 FROM php-base AS vendor
 
