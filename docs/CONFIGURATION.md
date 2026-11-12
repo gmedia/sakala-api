@@ -17,6 +17,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_PASSWORD_RESET_RATE_LIMIT`: request lupa dan reset kata sandi per menit berdasarkan email ternormalisasi dan IP (default `5`).
 - `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT`: request ganti kata sandi dan email, serta membaca, menerima, dan menolak undangan workspace, per menit per user (default `5`, dihitung bersama).
 - `SAKALA_INSPECTION_RATE_LIMIT`: permintaan inspeksi ulang per menit per user (default `5`).
+- `SAKALA_FEEDBACK_RATE_LIMIT`: pengiriman feedback per menit per user (berdasarkan IP bila belum login) (default `5`).
 - `SAKALA_ACCOUNT_EXPORT_RATE_LIMIT`: ekspor data per jam per user (default `3`).
 - `SAKALA_WORKSPACE_INVITATION_RATE_LIMIT`: undangan workspace per jam per user (default `20`), karena setiap undangan mengirim email ke alamat pilihan pengguna.
 - `SAKALA_ACCOUNT_EXPORT_MAX_ITEMS`: isi maksimal per koleksi dalam satu ekspor (default `1000`).
@@ -29,6 +30,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_WORKSPACE_INVITATION_TTL_HOURS`: masa berlaku undangan workspace dalam jam (default `168`).
 - `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS`: berapa jam undangan, tertutup atau tidak, disimpan setelah masa berlakunya sebelum `workspaces:prune-invitations` menghapusnya (default `168`). Selama itu tautannya masih menjelaskan kenapa tidak berlaku. Lihat [Undangan](API_CONVENTIONS.md#undangan).
 - `SAKALA_MAX_PROJECTS_PER_USER`, `SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_USER`, `SAKALA_MAX_CONTAINER_MEMORY_MB`, `SAKALA_MAX_CONTAINER_CPU_MILLIS`: batas workspace pribadi yang tidak punya profil batas. Namanya lebih tua dari workspace; artinya per workspace. `SAKALA_MAX_ACTIVE_CONTAINERS_PER_WORKSPACE` membatasi container berjalan, dan bila kosong sama dengan jumlah project, sehingga tidak pernah membatasi.
+- `SAKALA_DEFAULT_CONTAINER_MEMORY_MB` (default `256`), `SAKALA_DEFAULT_CONTAINER_CPU_MILLIS` (default `500`), `SAKALA_DEFAULT_CONTAINER_PIDS_LIMIT` (default `128`): sumber daya default container project yang tidak punya profil batas. `SAKALA_MAX_CONTAINER_PIDS_LIMIT` (default `256`): batas atas jumlah proses (PID) per container.
 - `SAKALA_TEAM_MAX_PROJECTS` (default `2`), `SAKALA_TEAM_MAX_ACTIVE_CONTAINERS` (default `2`), `SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS` (default `1`): batas workspace tim tanpa profil batas. Sengaja kecil dan tidak mengikuti batas pribadi, supaya membuat tim tidak menggandakan kuota; nilai kosong memakai default ini. `SAKALA_TEAM_MAX_CONTAINER_MEMORY_MB` dan `SAKALA_TEAM_MAX_CONTAINER_CPU_MILLIS` yang kosong memakai batas pribadi. Lihat [Batas Workspace](API_CONVENTIONS.md#batas-workspace).
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
@@ -55,6 +57,7 @@ GitHub App harus berlangganan event `push` supaya `auto_deploy` bekerja, selain 
 ## Deployments
 
 - `SAKALA_SIMULATE_DEPLOYMENTS`: `true` menjalankan `SimulatedDeploymentJob` yang memalsukan lifecycle deployment tanpa runtime node — hanya untuk pengembangan console lokal. Default `false`; jangan aktifkan bila ada agent yang terhubung karena keduanya akan menggerakkan record deployment yang sama.
+- `SAKALA_BUILD_TIMEOUT_SECONDS` (default `600`), `SAKALA_START_TIMEOUT_SECONDS` (default `120`), `SAKALA_COMMAND_TIMEOUT_SECONDS` (default `900`): batas waktu dalam detik untuk tahap build, start, dan pelaksanaan command deployment.
 
 ## Agent Reporting dan Log Retention
 
@@ -63,6 +66,8 @@ GitHub App harus berlangganan event `push` supaya `auto_deploy` bekerja, selain 
 - `SAKALA_LOG_MAX_TOTAL_BYTES`: budget kumulatif message log per command.
 - `SAKALA_LOG_MAX_REQUEST_BYTES`: batas ukuran body setiap request report, terpisah dari budget kumulatif.
 - `SAKALA_LOG_RETENTION_DAYS`: durasi retensi log pilot dalam hari (default: `7`). Lihat [Pilot Log Retention Policy](LOG_RETENTION.md). Cleanup otomatis berjalan melalui scheduler harian ketika runtime menjalankan Laravel scheduler.
+- `SAKALA_USAGE_SIGNALS_RETENTION_DAYS`: umur sinyal penggunaan (usage signals) dalam hari sebelum dihapus (default `30`).
+- `SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD`: jumlah kegagalan build runtime (`runtime_build_failed`) untuk project yang sama dalam satu jendela pengumpulan sebelum sinyal kegagalan berulang dicatat (default `3`).
 
 ## Database dan Infrastruktur
 
