@@ -10,6 +10,8 @@ use App\Actions\Deployment\GetDeploymentCollectionAction;
 use App\Actions\Deployment\GetDeploymentEventAction;
 use App\Actions\Deployment\GetDeploymentLogAction;
 use App\Enums\DeploymentStatus;
+use App\Exceptions\GitHub\GithubRateLimitedException;
+use App\Exceptions\GitHub\GithubUnavailableException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentLogRequest;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentRequest;
@@ -31,6 +33,9 @@ final class DeploymentController extends Controller
 {
     /**
      * Store a newly created resource in storage.
+     *
+     * @throws GithubUnavailableException
+     * @throws GithubRateLimitedException
      */
 
     // Untuk Testing

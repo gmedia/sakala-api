@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Support\Scramble\DeploymentEventPropertyTypeExtension;
 use App\Support\Scramble\DeploymentPropertyTypeExtension;
+use App\Support\Scramble\GithubUnavailableExceptionToResponseExtension;
 use Dedoc\Scramble\Http\Middleware\RestrictedDocsAccess;
 
 return [
@@ -157,6 +158,7 @@ return [
     'extensions' => [
         DeploymentPropertyTypeExtension::class,
         DeploymentEventPropertyTypeExtension::class,
+        GithubUnavailableExceptionToResponseExtension::class,
     ],
 
     /*

@@ -8,6 +8,8 @@ use App\Actions\GitHub\GetBranchAction;
 use App\Actions\GitHub\GetRepositoryGithubCollectionAction;
 use App\Actions\GitHub\GetRepositoryGithubCountAction;
 use App\Actions\GitHub\ValidateRepositoryUrlAction;
+use App\Exceptions\GitHub\GithubRateLimitedException;
+use App\Exceptions\GitHub\GithubUnavailableException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\GitHub\GetBranchRequest;
 use App\Http\Requests\Api\V1\GitHub\GetGithubRequest;
@@ -33,6 +35,10 @@ final class GithubRepositoryController extends Controller
         return new GithubRepositoryCollectionResource($repositories);
     }
 
+    /**
+     * @throws GithubUnavailableException
+     * @throws GithubRateLimitedException
+     */
     public function validate(
         ValidateUrlRequest $request,
         ValidateRepositoryUrlAction $action,
@@ -55,6 +61,10 @@ final class GithubRepositoryController extends Controller
         );
     }
 
+    /**
+     * @throws GithubUnavailableException
+     * @throws GithubRateLimitedException
+     */
     public function branches(
         GetBranchRequest $request,
         GetBranchAction $action,

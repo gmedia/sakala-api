@@ -129,6 +129,25 @@ test('the OpenAPI document gives the status and body the API answers with', func
         ->and($poll['required'])->toBe(['data']);
 });
 
+test('the OpenAPI document gives the GitHub 503 errors of the endpoints that read GitHub', function (): void {
+    $document = openApiDocumentForTypes();
+    $body = $document['components']['responses']['GithubUnavailable']['content']['application/json']['schema'];
+
+    expect($body['properties']['message']['type'])->toBe('string')
+        ->and($body['properties']['code']['enum'])->toBe(['GITHUB_UNAVAILABLE', 'GITHUB_RATE_LIMITED'])
+        ->and($body['properties']['retry_after']['type'])->toBe('integer')
+        ->and($body['required'])->toBe(['message', 'code']);
+
+    foreach ([
+        ['/v1/app/github/repositories/validate', 'post'],
+        ['/v1/app/github/repositories/branches', 'get'],
+        ['/v1/app/projects/{project}/deployments', 'post'],
+    ] as [$path, $method]) {
+        expect($document['paths'][$path][$method]['responses'][503]['$ref'] ?? null)
+            ->toBe('#/components/responses/GithubUnavailable', $path);
+    }
+});
+
 test('responses send the types the OpenAPI document gives', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();
