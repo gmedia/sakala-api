@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\GitHub;
 
 use App\Exceptions\GitHub\GithubRateLimitedException;
+use App\Exceptions\GitHub\GithubUnavailableException;
 use App\Models\GithubInstallation;
 use App\Models\Project;
 use App\Models\User;
@@ -12,7 +13,6 @@ use App\Support\GitHub\RepositoryParser;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
-use RuntimeException;
 
 final class GithubBranchService
 {
@@ -94,7 +94,7 @@ final class GithubBranchService
             }
 
             if ($response->failed()) {
-                throw new RuntimeException(
+                throw new GithubUnavailableException(
                     'Sakala belum bisa mengambil daftar branch dari GitHub. Coba lagi beberapa saat lagi.',
                 );
             }
@@ -102,7 +102,7 @@ final class GithubBranchService
             $branches = $response->json;
 
             if (! is_array($branches)) {
-                throw new RuntimeException(
+                throw new GithubUnavailableException(
                     'Jawaban GitHub soal daftar branch tidak bisa dibaca. Coba lagi beberapa saat lagi.',
                 );
             }
@@ -126,6 +126,7 @@ final class GithubBranchService
      * @throws GithubRateLimitedException when limited and no earlier head is cached
      * @throws ValidationException when the branch is missing or has no commits
      * @throws HttpResponseException when the GitHub App lost access
+     * @throws GithubUnavailableException when GitHub fails
      */
     public function getBranchCommit(
         Project $project,
@@ -175,7 +176,7 @@ final class GithubBranchService
         }
 
         if ($response->failed()) {
-            throw new RuntimeException(
+            throw new GithubUnavailableException(
                 'Sakala belum bisa mengambil commit terbaru dari GitHub. Coba lagi beberapa saat lagi.',
             );
         }
@@ -199,7 +200,7 @@ final class GithubBranchService
         }
 
         if ($response->failed()) {
-            throw new RuntimeException(
+            throw new GithubUnavailableException(
                 'Sakala belum bisa mengambil commit terbaru dari GitHub. Coba lagi beberapa saat lagi.',
             );
         }

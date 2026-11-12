@@ -6,6 +6,8 @@ namespace App\Services\GitHub;
 
 use App\Data\GitHub\GithubPublicResponseData;
 use App\Exceptions\GitHub\GithubRateLimitedException;
+use App\Exceptions\GitHub\GithubUnavailableException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -53,6 +55,7 @@ final class GithubPublicReader
      * @param  bool  $revalidate  Skip the fresh window, for callers that need the current value.
      *
      * @throws GithubRateLimitedException when limited and nothing is cached
+     * @throws GithubUnavailableException when GitHub cannot be reached
      */
     public function get(string $uri, array $query, int $ttl, bool $revalidate = false): GithubPublicResponseData
     {
@@ -102,21 +105,71 @@ final class GithubPublicReader
         return $this->toData($entry);
     }
 
-    /** @param array<string, mixed> $query */
+    /**
+     * @param  array<string, mixed>  $query
+     *
+     * @throws GithubRateLimitedException
+     * @throws GithubUnavailableException when GitHub cannot be reached
+     */
     private function send(string $uri, array $query, string $etag): Response
     {
         $headers = $etag === '' ? [] : ['If-None-Match' => $etag];
         $token = $this->token();
-        $response = $this->client->get($uri, $token, $query, $headers);
 
-        // A revoked server token must not take public reads down with it.
-        if ($response->status() === 401 && $token !== null) {
-            Log::warning('GITHUB_PUBLIC_API_TOKEN was rejected by GitHub; falling back to anonymous requests.');
+        try {
+            $response = $this->client->get($uri, $token, $query, $headers);
 
-            return $this->client->get($uri, null, $query, $headers);
+            // A broken server token must not take public reads down with it.
+            if ($token !== null && $this->tokenWasRefused($response)) {
+                $this->warnTokenRefused($uri, $response);
+
+                return $this->client->get($uri, null, $query, $headers);
+            }
+
+            return $response;
+        } catch (ConnectionException) {
+            throw new GithubUnavailableException;
+        }
+    }
+
+    /**
+     * GitHub refuses a token with 401 when it is revoked or expired, and with 403
+     * when an organization policy blocks it: a fine-grained token living longer
+     * than the organization allows, or SAML SSO that the token was not
+     * authorized for. The same request without a token can still read a public
+     * repository. A rate limit is also a 403 (or 429), but anonymous requests
+     * share an even smaller quota, so that one stays a rate limit. The client
+     * already throws for those; the check here keeps the rule in one place.
+     */
+    private function tokenWasRefused(Response $response): bool
+    {
+        if (! in_array($response->status(), [401, 403], true)) {
+            return false;
         }
 
-        return $response;
+        return GithubRateLimitedException::fromResponse($response) === null;
+    }
+
+    /**
+     * Once per repository cache window and message, so a refused token does not
+     * write a warning for every public read. GitHub's message says why, for
+     * example which organization policy applies. The token itself is never logged.
+     */
+    private function warnTokenRefused(string $uri, Response $response): void
+    {
+        $message = mb_substr((string) $response->json('message', ''), 0, 500);
+        $key = 'github-public:token-refused:'.sha1($response->status().'|'.$message);
+
+        if (! Cache::add($key, true, self::TTL_REPOSITORY_SECONDS)) {
+            return;
+        }
+
+        Log::warning('GITHUB_PUBLIC_API_TOKEN was refused by GitHub; this read falls back to an anonymous request.', [
+            'status' => $response->status(),
+            'github_message' => $message,
+            'sso' => $response->header('X-GitHub-SSO') !== '',
+            'uri' => $uri,
+        ]);
     }
 
     /** @param array{status: int, json: mixed, has_next: bool, etag: string, fetched_at: int} $entry */

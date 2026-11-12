@@ -34,5 +34,5 @@ test('github api failure is handled when getting branches', function () {
             '/api/v1/app/github/repositories/branches?repository_url=https://github.com/gmedia/sakala-api',
         );
 
-    $response->assertServerError();
+    $response->assertStatus(503)->assertJsonPath('code', 'GITHUB_UNAVAILABLE');
 });

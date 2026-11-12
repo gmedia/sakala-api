@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
@@ -93,7 +94,12 @@ test('a plain 403 is not mistaken for a rate limit', function (): void {
 
     $this->actingAs(publicUser(), 'web');
 
-    expect(validateRepository($this)->json('code'))->not->toBe('GITHUB_RATE_LIMITED');
+    validateRepository($this)
+        ->assertStatus(503)
+        ->assertJsonPath('code', 'GITHUB_UNAVAILABLE');
+
+    // Without a token there is nothing to fall back from.
+    Http::assertSentCount(1);
 });
 
 test('a limit during ->throw() calls is mapped too', function (): void {
@@ -196,8 +202,69 @@ test('server errors are not cached', function (): void {
 
     $this->actingAs(publicUser(), 'web');
 
-    validateRepository($this)->assertServerError();
+    validateRepository($this)->assertStatus(503);
     validateRepository($this)->assertOk();
+});
+
+// ─── GitHub failures are a stable 503, never a 500 ───────────────────────────
+
+test('a GitHub server error is GITHUB_UNAVAILABLE, not a 500', function (int $status): void {
+    Http::fake(['api.github.com/*' => Http::response(['message' => 'Server Error'], $status)]);
+
+    $this->actingAs(publicUser(), 'web');
+
+    validateRepository($this)
+        ->assertStatus(503)
+        ->assertExactJson([
+            'message' => 'Sakala belum bisa mengambil data repository dari GitHub. Coba lagi beberapa saat lagi.',
+            'code' => 'GITHUB_UNAVAILABLE',
+        ]);
+})->with([500, 502, 503]);
+
+test('an unreadable GitHub answer is GITHUB_UNAVAILABLE', function (): void {
+    Http::fake(['api.github.com/*' => Http::response('not json', 200)]);
+
+    $this->actingAs(publicUser(), 'web');
+
+    validateRepository($this)
+        ->assertStatus(503)
+        ->assertJsonPath('code', 'GITHUB_UNAVAILABLE')
+        ->assertJsonPath('message', 'Jawaban GitHub soal repository ini tidak bisa dibaca. Coba lagi beberapa saat lagi.');
+});
+
+test('GitHub out of reach is GITHUB_UNAVAILABLE', function (): void {
+    Http::fake(['api.github.com/*' => Http::failedConnection()]);
+
+    $this->actingAs(publicUser(), 'web');
+
+    validateRepository($this)
+        ->assertStatus(503)
+        ->assertJsonPath('code', 'GITHUB_UNAVAILABLE');
+});
+
+test('a branch list failure is GITHUB_UNAVAILABLE', function (): void {
+    Http::fake(['api.github.com/*' => Http::response(['message' => 'Server Error'], 502)]);
+
+    $this->actingAs(publicUser(), 'web')
+        ->getJson(route('api.v1.app.github.repositories.branches', ['repository_url' => PUBLIC_REPO_URL]))
+        ->assertStatus(503)
+        ->assertJsonPath('code', 'GITHUB_UNAVAILABLE')
+        ->assertJsonPath('message', 'Sakala belum bisa mengambil daftar branch dari GitHub. Coba lagi beberapa saat lagi.');
+});
+
+test('a deployment whose branch head GitHub cannot give is GITHUB_UNAVAILABLE', function (): void {
+    Http::fake(['api.github.com/*' => Http::response(['message' => 'Server Error'], 500)]);
+
+    $user = publicUser();
+    $project = Project::factory()->for($user)->create(['branch' => 'main', 'repository_full_name' => 'example/app']);
+
+    $this->actingAs($user, 'web');
+
+    deployProject($this, $project)
+        ->assertStatus(503)
+        ->assertJsonPath('code', 'GITHUB_UNAVAILABLE');
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0);
 });
 
 // ─── Server token ────────────────────────────────────────────────────────────
@@ -235,15 +302,114 @@ test('a configured token authenticates reads and goes nowhere else', function ()
         ->and(json_encode($command->payload))->not->toContain('ghp_servertokenvalue');
 });
 
-test('a rejected token falls back to anonymous reads', function (): void {
-    config()->set('services.github.public_api_token', 'ghp_revoked');
+const ORG_TOKEN_POLICY = "The 'example' organization forbids access via a fine-grained personal access tokens if the token's lifetime is greater than 366 days. Please adjust your token's lifetime at the following URL: https://github.com/settings/personal-access-tokens/1";
+
+function sentWithToken(Request $request): bool
+{
+    return $request->hasHeader('Authorization');
+}
+
+test('a refused token falls back to one anonymous read', function (int $status, array $body, array $headers): void {
+    config()->set('services.github.public_api_token', 'ghp_refused');
+    Log::spy();
     Http::fakeSequence('api.github.com/*')
-        ->push(['message' => 'Bad credentials'], 401)
+        ->push($body, $status, $headers)
         ->push(REPO_BODY);
 
     $this->actingAs(publicUser(), 'web');
 
+    validateRepository($this)->assertOk()->assertJsonPath('data.full_name', 'example/app');
+
+    Http::assertSentCount(2);
+    $sent = Http::recorded()->map(fn (array $pair): bool => sentWithToken($pair[0]))->all();
+    expect($sent)->toBe([true, false]);
+
+    Log::shouldHaveReceived('warning')->once()->withArgs(
+        fn (string $message, array $context): bool => str_contains($message, 'GITHUB_PUBLIC_API_TOKEN')
+            && $context['status'] === $status
+            && $context['github_message'] === $body['message']
+            && ! str_contains($message.json_encode($context), 'ghp_refused'),
+    );
+})->with([
+    'revoked token' => [401, ['message' => 'Bad credentials'], []],
+    'organization token lifetime policy' => [403, ['message' => ORG_TOKEN_POLICY], ['X-RateLimit-Remaining' => '4999']],
+    'SAML SSO enforcement' => [403, ['message' => 'Resource protected by organization SAML enforcement. You must grant your Personal Access token access to this organization.'], ['X-GitHub-SSO' => 'required; url=https://github.com/orgs/example/sso?authorization_request=x']],
+]);
+
+test('a refused token is logged once per cache window', function (): void {
+    config()->set('services.github.public_api_token', 'ghp_refused');
+    Log::spy();
+    Http::fake(fn (Request $request) => sentWithToken($request)
+        ? Http::response(['message' => ORG_TOKEN_POLICY], 403)
+        : Http::response(str_ends_with($request->toPsrRequest()->getUri()->getPath(), '/branches') ? [['name' => 'main']] : REPO_BODY));
+
+    $this->actingAs(publicUser(), 'web');
+
     validateRepository($this)->assertOk();
+    $this->getJson(route('api.v1.app.github.repositories.branches', ['repository_url' => PUBLIC_REPO_URL]))->assertOk();
+
+    Log::shouldHaveReceived('warning')->once();
+
+    $this->travel(301)->seconds();
+    $this->getJson(route('api.v1.app.github.repositories.branches', ['repository_url' => PUBLIC_REPO_URL.'-other']))->assertOk();
+
+    Log::shouldHaveReceived('warning')->twice();
+});
+
+test('a rate limited token is not retried anonymously', function (mixed $limited): void {
+    config()->set('services.github.public_api_token', 'ghp_servertokenvalue');
+    Http::fake(['api.github.com/*' => $limited]);
+
+    $this->actingAs(publicUser(), 'web');
+
+    validateRepository($this)
+        ->assertStatus(503)
+        ->assertJsonPath('code', 'GITHUB_RATE_LIMITED');
+
+    Http::assertSentCount(1);
+    Http::assertNotSent(fn (Request $request): bool => ! sentWithToken($request));
+})->with([
+    'primary limit' => [fn () => rateLimited()],
+    'secondary limit' => [fn () => rateLimited(403, ['Retry-After' => '30'])],
+    '429' => [fn () => rateLimited(429, ['Retry-After' => '45'])],
+]);
+
+test('a limit on the anonymous retry is still GITHUB_RATE_LIMITED', function (): void {
+    config()->set('services.github.public_api_token', 'ghp_refused');
+    Http::fakeSequence('api.github.com/*')
+        ->push(['message' => ORG_TOKEN_POLICY], 403)
+        ->pushResponse(rateLimited());
+
+    $this->actingAs(publicUser(), 'web');
+
+    validateRepository($this)
+        ->assertStatus(503)
+        ->assertJsonPath('code', 'GITHUB_RATE_LIMITED');
+});
+
+test('the anonymous fallback keeps ETag revalidation', function (): void {
+    config()->set('services.github.public_api_token', 'ghp_refused');
+    Http::fakeSequence('api.github.com/*')
+        ->push(['message' => ORG_TOKEN_POLICY], 403)
+        ->push(REPO_BODY, 200, ['ETag' => '"anon"'])
+        ->push(['message' => ORG_TOKEN_POLICY], 403)
+        ->push(null, 304);
+
+    $this->actingAs(publicUser(), 'web');
+
+    validateRepository($this)->assertOk();
+
+    $this->travel(301)->seconds();
+
+    validateRepository($this)->assertOk()->assertJsonPath('data.full_name', 'example/app');
+
+    Http::assertSentCount(4);
+    $revalidations = Http::recorded()->slice(2)->map(fn (array $pair): array => $pair[0]->header('If-None-Match'))->values()->all();
+    expect($revalidations)->toBe([['"anon"'], ['"anon"']]);
+
+    // The 304 renewed the shared entry.
+    validateRepository($this)->assertOk();
+    Http::assertSentCount(4);
 });
 
 test('with a token, a private repository stays hidden in the public flow', function (): void {
