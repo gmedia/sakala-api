@@ -80,7 +80,9 @@ test('a chosen slug is validated and must be free', function (): void {
     $this->actingAs($user, 'web')->postJson('/api/v1/app/workspaces', ['name' => 'X', 'slug' => 'taken'])
         ->assertUnprocessable()->assertJsonValidationErrors('slug');
     $this->actingAs($user, 'web')->postJson('/api/v1/app/workspaces', ['name' => 'X', 'slug' => 'Bad Slug'])
-        ->assertUnprocessable()->assertJsonValidationErrors('slug');
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('slug')
+        ->assertJsonPath('errors.slug.0', 'Slug hanya boleh berisi huruf kecil, angka, dan tanda hubung di antaranya, misalnya tim-gmedia.');
     $this->actingAs($user, 'web')->postJson('/api/v1/app/workspaces', ['name' => 'X', 'slug' => 'kelas-a'])
         ->assertCreated()->assertJsonPath('data.slug', 'kelas-a');
 });
