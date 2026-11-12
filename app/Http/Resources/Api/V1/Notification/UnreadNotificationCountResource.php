@@ -15,6 +15,9 @@ final class UnreadNotificationCountResource extends JsonResource
     /** @return array{count: int} */
     public function toArray(Request $request): array
     {
-        return ['count' => $this->resource];
+        return [
+            /** @var int */
+            'count' => $this->resource,
+        ];
     }
 }

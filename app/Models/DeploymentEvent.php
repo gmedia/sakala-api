@@ -14,7 +14,7 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property DeploymentEventLevel $level
- * @property Carbon|null $occurred_at
+ * @property Carbon $occurred_at
  */
 #[Fillable([
     'deployment_id',

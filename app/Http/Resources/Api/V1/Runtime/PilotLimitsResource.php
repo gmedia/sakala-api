@@ -44,7 +44,9 @@ final class PilotLimitsResource extends JsonResource
                 'current_active_containers_count' => $this->resource->current_active_containers_count,
             ],
             'runtime_defaults' => [
+                /** @var int */
                 'memory_mb' => min((int) config('sakala.pilot_limits.resources.default_memory_mb', 256), $limits->max_memory_mb),
+                /** @var int */
                 'cpu_millis' => min((int) config('sakala.pilot_limits.resources.default_cpu_millis', 500), $limits->max_cpu_millis),
                 'pids_limit' => (int) config('sakala.pilot_limits.resources.default_pids_limit', 128),
             ],

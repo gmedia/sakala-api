@@ -14,7 +14,6 @@ use Illuminate\Http\JsonResponse;
 
 final class EmailChangeController extends Controller
 {
-    /** @scramble-return 202 UserResource */
     public function __invoke(
         RequestEmailChangeRequest $request,
         RequestEmailChangeAction $action,

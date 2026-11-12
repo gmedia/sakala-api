@@ -21,7 +21,7 @@ final class DeploymentEventResource extends JsonResource
      *     type: string|null,
      *     message: string,
      *     metadata: object|null,
-     *     occurred_at: string|null,
+     *     occurred_at: string,
      * }
      */
     public function toArray(Request $request): array
@@ -37,7 +37,9 @@ final class DeploymentEventResource extends JsonResource
             // An empty PHP array would serialise as `[]`; this is always a JSON
             // object or null, matching the OpenAPI document.
             'metadata' => $metadata === null ? null : (object) $metadata,
-            'occurred_at' => $this->occurred_at?->toISOString(),
+            // The column is NOT NULL; Carbon only declares toISOString() as nullable.
+            /** @var string */
+            'occurred_at' => $this->occurred_at->toISOString(),
         ];
     }
 }

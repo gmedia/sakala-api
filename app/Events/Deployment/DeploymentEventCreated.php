@@ -43,7 +43,7 @@ final class DeploymentEventCreated implements ShouldBroadcast
             'level' => $this->deploymentEvent->level->value,
             'type' => $this->deploymentEvent->type,
             'message' => $this->deploymentEvent->message,
-            'occurred_at' => $this->deploymentEvent->occurred_at?->toISOString(),
+            'occurred_at' => $this->deploymentEvent->occurred_at->toISOString(),
         ];
     }
 }

@@ -40,6 +40,7 @@ use App\Http\Resources\Api\V1\Agent\RepositoryCredentialResource;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use Dedoc\Scramble\Attributes\HeaderParameter;
+use Dedoc\Scramble\Attributes\Response as OpenApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
@@ -156,8 +157,10 @@ final class AgentController extends Controller
     /**
      * Poll eligible pending commands for the authenticated agent node.
      *
-     * @scramble-return AgentCommandResource[]
+     * `cancel_requested` is absent while no command of this node has to stop
+     * (docs/AGENT_API.md), so an agent that predates cancellation sees no change.
      */
+    #[OpenApiResponse(200, 'Pending commands, and the claimed or running ones asked to cancel.', type: 'array{data: list<AgentCommandResource>, cancel_requested?: list<string>}')]
     public function pollCommands(
         PollAgentCommandsAction $pollAgentCommands,
         GetCancelRequestedCommandsAction $getCancelRequested,

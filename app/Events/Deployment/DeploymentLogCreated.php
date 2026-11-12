@@ -46,7 +46,7 @@ final class DeploymentLogCreated implements ShouldBroadcast
             'log_sequence' => $this->deploymentLog->sequence,
             'stream' => $this->deploymentLog->stream->value,
             'message' => $this->deploymentLog->message,
-            'recorded_at' => $this->deploymentLog->recorded_at?->toISOString(),
+            'recorded_at' => $this->deploymentLog->recorded_at->toISOString(),
         ];
     }
 }

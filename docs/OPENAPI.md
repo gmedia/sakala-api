@@ -29,3 +29,12 @@ composer docs:export
 7. Jalankan `composer check` dan periksa `/docs/api`.
 
 Jangan menambahkan annotation untuk field yang sudah dapat diinfer dari validation rule atau Resource. Annotation manual hanya dipakai untuk semantik yang memang tidak tersedia di source code.
+
+## Tipe dan Status
+
+Console men-generate tipe TypeScript dari dokumen ini, jadi field tanpa tipe menjadi `unknown` di sana.
+
+- Status selain 200 cukup ditulis di `->response()->setStatusCode(201)`; Scramble membacanya. Jangan menulis `@scramble-return 202 ProjectResource`: Scramble membaca `202` sebagai tipe literal dan body-nya terdokumentasi sebagai angka. `@scramble-return` hanya untuk tipe body. Status yang dihitung saat runtime, seperti cancel deployment (200 atau 202), dideklarasikan dengan satu `#[Response]` per status.
+- Nilai yang tidak bisa diinfer, misalnya hasil `min()`, method yang mengembalikan `mixed`, atau `toISOString()` yang dideklarasikan nullable oleh Carbon walaupun kolomnya `NOT NULL`, diberi `/** @var ... */` di atas key-nya. Lebih baik lagi kalau sumbernya yang diberi tipe, misalnya `@property` model yang sesuai dengan migration.
+- Exception dengan `code` stabil terdokumentasi kalau punya `ExceptionToResponseExtension` di `app/Support/Scramble` (terdaftar di `config/scramble.php`) dan controller-nya mencantumkan `@throws`. Contohnya `GITHUB_UNAVAILABLE` dan `GITHUB_RATE_LIMITED` (503) pada validasi repository, daftar branch publik, dan pembuatan deployment.
+- `tests/Feature/OpenApiDocumentTypesTest.php` gagal kalau ada property tanpa tipe, dan memeriksa tipe beberapa field terhadap response nyata.

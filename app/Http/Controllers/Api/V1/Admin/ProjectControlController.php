@@ -29,8 +29,6 @@ final class ProjectControlController extends Controller
     )]
     /**
      * Stop a project.
-     *
-     * @scramble-return \Illuminate\Http\Response
      */
     public function stop(
         StopProjectRequest $request,
@@ -56,8 +54,6 @@ final class ProjectControlController extends Controller
     )]
     /**
      * Suspend a project.
-     *
-     * @scramble-return \Illuminate\Http\Response
      */
     public function suspend(
         SuspendProjectRequest $request,
@@ -83,8 +79,6 @@ final class ProjectControlController extends Controller
     )]
     /**
      * Lift a suspension. The workload does not restart: the owner deploys again.
-     *
-     * @scramble-return \Illuminate\Http\Response
      */
     public function unsuspend(
         UnsuspendProjectRequest $request,
@@ -110,8 +104,6 @@ final class ProjectControlController extends Controller
     )]
     /**
      * Ask the serving node to reconcile the project's workload.
-     *
-     * @scramble-return \Illuminate\Http\Response
      */
     public function reconcile(
         ReconcileProjectRequest $request,

@@ -19,8 +19,6 @@ final class AgentNodeControlController extends Controller
 {
     /**
      * Stop offering workload to a node and ask it to drain.
-     *
-     * @scramble-return AgentNodeControlResource
      */
     #[HeaderParameter(
         'Idempotency-Key',
@@ -42,8 +40,6 @@ final class AgentNodeControlController extends Controller
 
     /**
      * Return a drained node to active duty.
-     *
-     * @scramble-return AgentNodeControlResource
      */
     #[HeaderParameter(
         'Idempotency-Key',
@@ -65,8 +61,6 @@ final class AgentNodeControlController extends Controller
 
     /**
      * Ask a node to reclaim stale workspaces, images, or routes.
-     *
-     * @scramble-return AgentNodeControlResource
      */
     #[HeaderParameter(
         'Idempotency-Key',
