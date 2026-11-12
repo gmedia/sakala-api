@@ -67,6 +67,7 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `PROJECT_SUSPENDED` | `409` | Deploy atau inspeksi ulang pada project yang ditangguhkan admin. | - |
 | `DEPLOYMENT_ALREADY_FINISHED` | `409` | Membatalkan deployment yang sudah `succeeded` atau `failed`. | `status` |
 | `GITHUB_RATE_LIMITED` | `503` | GitHub membatasi permintaan Sakala dan tidak ada jawaban tersimpan. Header `Retry-After` berisi detik tunggu. | `retry_after` |
+| `GITHUB_UNAVAILABLE` | `503` | GitHub menjawab error (misalnya `5xx`), jawabannya tidak bisa dibaca, atau tidak bisa dihubungi saat membaca repository, branch, atau commit. Masalahnya bukan di repository kamu; aman diulang. Lihat [Pembacaan GitHub Publik](#pembacaan-github-publik). | - |
 | `AVATAR_STORAGE_UNAVAILABLE` | `503` | Foto profil tidak bisa disimpan karena penyimpanan tidak tersedia. | - |
 | `EMAIL_DELIVERY_UNAVAILABLE` | `503` | Endpoint yang tugasnya mengirim email dipanggil saat pengiriman email mati. Lihat [Autentikasi](AUTHENTICATION.md#pengiriman-email). | - |
 | `REPOSITORY_ACCESS_REVOKED` | `409` | Deploy project GitHub App saat orang yang menjadi sandaran aksesnya tidak lagi punya akses ke repository atau sudah keluar dari tim. Lihat [Akses GitHub untuk project tim](#akses-github-untuk-project-tim). | - |
@@ -152,6 +153,8 @@ Alur URL publik memakai satu kuota GitHub untuk semua user, jadi jawabannya disi
 Saat GitHub membatasi, API memakai jawaban terakhir (disimpan sampai 24 jam). Deployment yang tidak punya jawaban tersimpan memakai commit deployment terakhir di branch yang sama, dan `commit_sha` menunjukkan commit yang dijalankan. Bila itu pun tidak ada, API menjawab `503 GITHUB_RATE_LIMITED`. Inspeksi tidak pernah menggagalkan pembuatan project: `preview_status` menjadi `unavailable` dengan `inspection_error_code = github_rate_limited`.
 
 `GITHUB_PUBLIC_API_TOKEN` menaikkan kuota. Token installation GitHub App sengaja tidak dipakai di sini, karena token itu juga bisa membaca repository private milik pemasang App, dan alur ini menerima URL dari user mana pun.
+
+Bila GitHub menolak token itu sendiri, API mengulang permintaan yang sama sekali tanpa token dan memakai jawabannya. Penolakan itu berupa `401` (token dicabut atau kedaluwarsa) atau `403` yang bukan rate limit, misalnya organisasi melarang fine-grained token yang masa berlakunya lebih dari 366 hari, atau mewajibkan SAML SSO. `403` atau `429` karena rate limit (header `X-RateLimit-Remaining: 0`, `Retry-After`, atau pesan rate limit) tidak diulang tanpa token, karena kuota anonim lebih kecil; jawabannya tetap `GITHUB_RATE_LIMITED`. Penolakan token dicatat sebagai warning paling sering sekali per 5 menit untuk setiap pesan GitHub, tanpa token. Error lain dari GitHub dijawab `503 GITHUB_UNAVAILABLE`, bukan `500`.
 
 ## Log Deployment
 

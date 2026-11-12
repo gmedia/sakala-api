@@ -7,6 +7,7 @@ namespace App\Services\GitHub;
 use App\Data\GitHub\GetGithubRepositoryData;
 use App\Data\GitHub\GithubRepoCollectionResponseData;
 use App\Data\GitHub\GithubRepositoryData;
+use App\Exceptions\GitHub\GithubUnavailableException;
 use App\Models\User;
 use App\Support\GitHub\RepositoryParser;
 use Illuminate\Http\Client\Response;
@@ -218,9 +219,11 @@ final class GithubRepositoryService
         return $this->getPublicRepositoryByUrl($url);
     }
 
+    /**
+     * @throws GithubUnavailableException when GitHub fails or answers something unreadable
+     */
     public function getPublicRepositoryByUrl(string $url): GithubRepositoryData
     {
-
         $repositoryFullName = $this->parseRepository($url);
 
         $response = $this->publicReader->get(
@@ -238,7 +241,7 @@ final class GithubRepositoryService
         }
 
         if ($response->failed()) {
-            throw new RuntimeException(
+            throw new GithubUnavailableException(
                 'Sakala belum bisa mengambil data repository dari GitHub. Coba lagi beberapa saat lagi.',
             );
         }
@@ -246,7 +249,7 @@ final class GithubRepositoryService
         $repository = $response->json;
 
         if (! is_array($repository)) {
-            throw new RuntimeException(
+            throw new GithubUnavailableException(
                 'Jawaban GitHub soal repository ini tidak bisa dibaca. Coba lagi beberapa saat lagi.',
             );
         }

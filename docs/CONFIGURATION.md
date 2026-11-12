@@ -39,7 +39,7 @@ dalam menit (default `60`).
 - `SAKALA_PROJECT_DEFAULT_DOMAIN`: domain induk project, misalnya `run.sakala.dev`.
 - `SAKALA_PROJECT_URL_SCHEME`, `SAKALA_PROJECT_URL_PORT`: membentuk `public_url` project. Default `https` tanpa port; lingkungan lokal biasanya `http`, dan port diisi bila runtime tidak di 80 atau 443.
 - `SAKALA_AVATAR_STORAGE`: `local` menyimpan foto profil di `storage/app/public` (perlu `php artisan storage:link`, sudah dijalankan `composer setup`). Default `s3` memakai bucket `AWS_*`. Bila penyimpanan tidak bisa dipakai, API menjawab `503 AVATAR_STORAGE_UNAVAILABLE`.
-- `GITHUB_PUBLIC_API_TOKEN`: opsional, disarankan untuk produksi. Token GitHub baca-saja untuk repository publik. Tanpa token, GitHub membatasi 60 request per jam per IP server untuk semua user. Token ini hanya dikirim ke GitHub, tidak pernah ke agent, browser, atau log. Beri akses publik saja; API tetap menolak membaca repository private lewat alur URL publik.
+- `GITHUB_PUBLIC_API_TOKEN`: opsional, disarankan untuk produksi. Token GitHub baca-saja untuk repository publik. Tanpa token, GitHub membatasi 60 request per jam per IP server untuk semua user. Token ini hanya dikirim ke GitHub, tidak pernah ke agent, browser, atau log. Beri akses publik saja; API tetap menolak membaca repository private lewat alur URL publik. Bila GitHub menolak token ini (`401`, atau `403` karena kebijakan organisasi seperti batas umur fine-grained token 366 hari atau SAML SSO), pembacaan jatuh ke request anonim dan log mendapat warning berisi pesan GitHub. Pakai fine-grained token dengan masa berlaku paling lama 366 hari supaya organisasi seperti itu tetap mendapat kuota token.
 
 `APP_LOCALE` menentukan bahasa pesan validasi, default `id`.
 

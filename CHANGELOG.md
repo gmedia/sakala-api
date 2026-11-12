@@ -11,6 +11,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Fixed
 
+- Validating a public repository no longer fails when GitHub refuses `GITHUB_PUBLIC_API_TOKEN`. A `401`, or a `403` that is not a rate limit (for example an organization that forbids fine-grained tokens living longer than 366 days, or requires SAML SSO), is retried once without the token and that answer is used. Rate-limit `403`/`429` answers are not retried and stay `503 GITHUB_RATE_LIMITED`. The refusal is logged as a warning at most once per 5 minutes per GitHub message, without the token.
+- GitHub errors, unreadable answers, and connection failures while reading a repository, its branches, or a branch head now answer `503 GITHUB_UNAVAILABLE` with the existing Indonesian message instead of a `500`.
 - `php artisan user:admin` now writes an audit event, as role changes through the admin API already did. Promoting and demoting record `user.role_changed` and creating an account records `user.admin_created`, with actor `system`/`cli`, the subject user, `from` and `to` roles, the reason, and `os_user` (the operating system user that ran the command). No email, password, IP address, or user agent is stored. Earlier CLI promotions have no audit event.
 
 ## [0.4.1] - 2026-11-12
