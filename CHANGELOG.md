@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-12
+
 ### Changed
 
 - The `web` image's nginx re-resolves `api` every second instead of every 10 (`resolver 127.0.0.11 valid=1s`) and uses every running api container. It gives up on a container that does not accept a connection within 1 second instead of 60, and retries the other one. A POST that a stopping container reset before reading it is retried too, but only within the first 2 seconds of the request, so a slow POST is never replayed. Together with the deployment's new api rollout this removes the `502` responses and the long-held request seen while the api container was replaced. Nothing changes while only one api container runs.
@@ -171,7 +173,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/gmedia/sakala-api/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/gmedia/sakala-api/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/gmedia/sakala-api/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gmedia/sakala-api/compare/v0.2.1...v0.3.0
