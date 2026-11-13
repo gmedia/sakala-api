@@ -20,7 +20,7 @@ final class ActiveContainerLimitExceededException extends RuntimeException
         public readonly int $current,
     ) {
         parent::__construct(sprintf(
-            'Workspace ini sudah menjalankan %d proyek, dan itu batasnya. Hentikan atau hapus proyek lain, lalu deploy lagi.',
+            'Workspace ini sudah menjalankan %d proyek, dan itu batasnya. Hapus proyek yang tidak dipakai atau tunggu sampai ada proyek yang tidur, lalu deploy lagi.',
             $limit,
         ));
     }

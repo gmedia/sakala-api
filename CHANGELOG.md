@@ -17,6 +17,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Fixed
 
+- The active-container limit messages for deploy and wake no longer tell users to stop another project, an action only admins have. They now suggest deleting an unused project or waiting until another one sleeps.
 - Deleting a project whose container a node still keeps after a sleep (a sleeping project, or a suspended one whose suspension sleep finished) now sends `StopProject` with `remove_images: true`, and the daily purge asks again when it failed. Before, the container and its network stayed on the node.
 - A pending idle sleep no longer blocks suspending or unsuspending a project; only suspension sleeps do. `project.suspend_completed` and `project.suspend_failed` are only written for suspension sleeps.
 
