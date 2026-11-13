@@ -33,7 +33,7 @@ final class RepositoryParser
             throw new \InvalidArgumentException('URL repository tidak boleh berisi query atau fragment. Contoh yang benar: https://github.com/pemilik/nama-repo.');
         }
 
-        $host = strtolower(str_replace('www.', '', $parts['host'] ?? ''));
+        $host = strtolower(preg_replace('/^www\./', '', $parts['host'] ?? '') ?? '');
 
         // Handle jika host bukan github
         if ($host !== 'github.com') {
@@ -43,7 +43,7 @@ final class RepositoryParser
         $repositoryFullName = trim($parts['path'] ?? '', '/');
         $repositoryFullName = preg_replace('/\.git$/', '', $repositoryFullName);
 
-        if ($repositoryFullName === null || substr_count($repositoryFullName, '/') !== 1) {
+        if ($repositoryFullName === null || substr_count($repositoryFullName, '/') !== 1 || in_array('', explode('/', $repositoryFullName), true)) {
             throw new \InvalidArgumentException('URL repository GitHub harus berbentuk https://github.com/pemilik/nama-repo.');
         }
 
