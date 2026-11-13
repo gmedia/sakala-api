@@ -70,3 +70,40 @@ test('always generates a valid username', function () {
         ->toMatch('/^[a-z0-9]+(?:-[a-z0-9]+)*$/')
         ->toHaveLength(49);
 });
+
+test('generateAfterCollision appends the next numeric suffix', function () {
+    $username = app(UsernameGenerator::class)->generateAfterCollision('john-teddy', 1);
+
+    expect($username)->toBe('john-teddy-2');
+});
+
+test('generateAfterCollision switches to a random tail after 1000 attempts', function () {
+    $atLimit = app(UsernameGenerator::class)->generateAfterCollision('john-teddy', 1000);
+
+    expect($atLimit)->toBe('john-teddy-1001');
+
+    $pastLimit = app(UsernameGenerator::class)->generateAfterCollision('john-teddy', 1001);
+
+    expect($pastLimit)->toMatch('/^john-teddy-[a-z0-9]{6}$/');
+});
+
+test('generateAfterCollision falls back to user when the value is empty', function () {
+    $username = app(UsernameGenerator::class)->generateAfterCollision('', 1);
+
+    expect($username)->toBe('user-2');
+});
+
+test('generateAfterCollision truncates a long base to at most 50 characters without a double hyphen', function () {
+    $username = app(UsernameGenerator::class)->generateAfterCollision(str_repeat('a', 50), 1);
+
+    expect($username)
+        ->toBe(str_repeat('a', 48).'-2')
+        ->toHaveLength(50)
+        ->not->toContain('--');
+
+    $cutAtHyphen = app(UsernameGenerator::class)->generateAfterCollision(str_repeat('a', 47).'-'.str_repeat('b', 5), 1);
+
+    expect($cutAtHyphen)
+        ->toBe(str_repeat('a', 47).'-2')
+        ->not->toContain('--');
+});
