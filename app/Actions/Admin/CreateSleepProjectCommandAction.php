@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Actions\Admin;
 
+use App\Actions\Project\SleepIdleProjectsAction;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\SleepPage;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
@@ -21,6 +23,9 @@ final class CreateSleepProjectCommandAction
      * idempotency key is given the call is safe to repeat: an existing command
      * with that key is returned untouched.
      *
+     * `$page` asks the node for a sleeping page other than its default (see
+     * payload()); without it the payload stays empty.
+     *
      * @param  array<string, mixed>  $responseContext
      */
     public function handle(
@@ -30,6 +35,7 @@ final class CreateSleepProjectCommandAction
         ?string $idempotencyKey = null,
         ?array $responseContext = null,
         ?string $systemActorId = null,
+        ?SleepPage $page = null,
     ): AgentCommand {
         if ($deployment->agent_node_id === null) {
             throw new \RuntimeException(
@@ -53,7 +59,7 @@ final class CreateSleepProjectCommandAction
             'agent_node_id' => $deployment->agent_node_id,
             'type' => AgentCommandType::SleepProject,
             'status' => AgentCommandStatus::Pending,
-            'payload' => [],
+            'payload' => $this->payload($deployment, $page),
 
             'request_context' => [
                 'reason' => $reason,
@@ -74,5 +80,22 @@ final class CreateSleepProjectCommandAction
 
             'available_at' => now(),
         ]);
+    }
+
+    /**
+     * `page` goes only to a node that advertises `idle-sleep`, that is agent
+     * v0.7.0 or later. v0.7.0 does not read the SleepProject payload and
+     * serves its waking page; v0.7.1 reads `page`. Agents before v0.7.0 never
+     * receive a payload they do not know.
+     *
+     * @return array<string, string>
+     */
+    private function payload(Deployment $deployment, ?SleepPage $page): array
+    {
+        if ($page === null || $deployment->agentNode?->hasCapability(SleepIdleProjectsAction::CAPABILITY) !== true) {
+            return [];
+        }
+
+        return [SleepPage::PAYLOAD_KEY => $page->value];
     }
 }

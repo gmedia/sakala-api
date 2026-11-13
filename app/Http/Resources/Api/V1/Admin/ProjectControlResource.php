@@ -7,6 +7,7 @@ namespace App\Http\Resources\Api\V1\Admin;
 use App\Data\Admin\ProjectControlResultData;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Enums\UnsuspendWakeOutcome;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -40,6 +41,13 @@ final class ProjectControlResource extends JsonResource
                     'type' => $this->command->type->value,
                     'status' => $this->command->status->value,
                 ],
+            /**
+             * Unsuspend only: whether the kept container was started again
+             * (`command` is then the WakeProject). Null for the other actions.
+             *
+             * @var UnsuspendWakeOutcome|null
+             */
+            'wake' => $this->responseContext['wake'] ?? null,
         ];
     }
 }

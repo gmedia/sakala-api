@@ -91,6 +91,9 @@ class Project extends Model
     /** The `PORT` a workload gets while no port was detected for the project. */
     public const DEFAULT_CONTAINER_PORT = 3000;
 
+    /** Attribute that withIdleSleepBlocked() adds. */
+    public const IDLE_SLEEP_BLOCKED_ATTRIBUTE = 'idle_sleep_blocked';
+
     /**
      * The port the agent routes to and hands to the workload as `PORT`.
      */
@@ -273,6 +276,61 @@ class Project extends Model
         return $query
             ->whereNotNull('active_deployment_id')
             ->where('runtime_status', '!=', RuntimeStatus::Sleeping);
+    }
+
+    /**
+     * Scope a query to projects the idle sweep gave up on (`$blocked`), or to
+     * the others: a node reported that the active deployment's container is
+     * missing, and no lifecycle command succeeded on it since. A new
+     * deployment, or a wake or restart that succeeds, lifts it.
+     *
+     * @param  Builder<Project>  $query
+     * @return Builder<Project>
+     */
+    public function scopeIdleSleepBlocked(Builder $query, bool $blocked = true): Builder
+    {
+        return $blocked
+            ? $query->whereHas('agentCommands', self::blockingIdleSleepOf(...))
+            : $query->whereDoesntHave('agentCommands', self::blockingIdleSleepOf(...));
+    }
+
+    /**
+     * Add the `idle_sleep_blocked` attribute that isIdleSleepBlocked() reads,
+     * so a list costs one subquery instead of one query per project.
+     *
+     * @param  Builder<Project>  $query
+     * @return Builder<Project>
+     */
+    public function scopeWithIdleSleepBlocked(Builder $query): Builder
+    {
+        return $query->withExists([
+            'agentCommands as '.self::IDLE_SLEEP_BLOCKED_ATTRIBUTE => self::blockingIdleSleepOf(...),
+        ]);
+    }
+
+    /**
+     * Whether the idle sweep gave up on this project (see
+     * scopeIdleSleepBlocked()). Asks the database unless the query used
+     * withIdleSleepBlocked().
+     */
+    public function isIdleSleepBlocked(): bool
+    {
+        if (array_key_exists(self::IDLE_SLEEP_BLOCKED_ATTRIBUTE, $this->getAttributes())) {
+            return (bool) $this->getAttribute(self::IDLE_SLEEP_BLOCKED_ATTRIBUTE);
+        }
+
+        return self::query()->whereKey($this->getKey())->idleSleepBlocked()->exists();
+    }
+
+    /**
+     * The commands that block idle sleep, for the subqueries of the scopes above.
+     *
+     * @param  Builder<AgentCommand>  $commands
+     * @return Builder<AgentCommand>
+     */
+    private static function blockingIdleSleepOf(Builder $commands): Builder
+    {
+        return $commands->blockingIdleSleep();
     }
 
     /**

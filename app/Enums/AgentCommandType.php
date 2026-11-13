@@ -141,7 +141,8 @@ enum AgentCommandType: string
      * Commands whose stored payload is sent to the agent. Other lifecycle
      * commands carry identity only; the API must not leak Docker names, shell
      * commands, or credentials for them. StopProject carries at most the
-     * optional `remove_images` flag that a project delete sets.
+     * optional `remove_images` flag that a project delete sets, and
+     * SleepProject at most the optional `page` a suspension sets (SleepPage).
      */
     public function carriesPayload(): bool
     {
@@ -149,6 +150,7 @@ enum AgentCommandType: string
             self::InspectProject,
             self::DeployProject,
             self::StopProject,
+            self::SleepProject,
             self::ReconcileWorkload,
             self::CleanupRuntime => true,
             default => false,

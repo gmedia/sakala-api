@@ -141,6 +141,10 @@ heartbeat terakhirnya (`agent_nodes.metadata`) membawa `workloads.traffic`, supa
 node yang belum bisa membaca trafik tidak membuat project tampak sepi. Sleep karena
 sepi dikirim sebagai `SleepProject` biasa dengan payload kosong; perbedaannya hanya
 di `request_context` (`reason: idle`, actor `system`) yang tidak dikirim ke agent.
+Sleep karena sepi yang gagal diminta lagi dengan jeda yang makin panjang, dan bila
+node menjawab `fail` dengan `error_code` `runtime_workload_not_found`, API berhenti
+memintanya untuk deployment itu sampai ada deployment baru atau wake/restart yang
+sukses (lihat [Tidur Otomatis](API_CONVENTIONS.md#tidur-otomatis)).
 Bangunnya lewat `WakeProject` ke node dan deployment yang sama. Container yang tidur
 tetap muncul di `startup_reconciliation.orphans` sebagai container deployment yang
 berhenti; API tidak menganggapnya sampah. Laporan crash untuk deployment yang
@@ -220,10 +224,11 @@ Polling **tidak** memberi kepemilikan. Field `cancel_requested` dijelaskan di
   `restore_route`.
 
 Command tanpa payload selalu diserialisasi sebagai `{}`. Hanya
-`InspectProject`, `DeployProject`, `StopProject`, `ReconcileWorkload`, dan
-`CleanupRuntime` yang membawa payload. `StopProject` paling banyak membawa
-`remove_images` (lihat [StopProject](#stopproject)); lifecycle command lain hanya
-membawa identitas.
+`InspectProject`, `DeployProject`, `StopProject`, `SleepProject`,
+`ReconcileWorkload`, dan `CleanupRuntime` yang membawa payload. `StopProject`
+paling banyak membawa `remove_images` (lihat [StopProject](#stopproject)) dan
+`SleepProject` paling banyak membawa `page` (lihat [SleepProject](#sleepproject));
+lifecycle command lain hanya membawa identitas.
 
 | Command type | Capability yang dibutuhkan (salah satu) |
 | --- | --- |
@@ -446,6 +451,28 @@ Agent sampai v0.3.0 tidak membaca payload `StopProject` sama sekali (payload
 di-deserialisasi sebagai JSON bebas dan tidak dipakai untuk stop), jadi field ini
 diabaikan tanpa error dan image project yang dihapus tetap tertinggal seperti
 sebelumnya. Karena itu protocol revision tidak dinaikkan.
+
+### SleepProject
+
+Lifecycle command yang membawa identitas (`project_id`, `deployment_id`) dan
+payload opsional berikut. Field ini tambahan di dalam protocol revision 4:
+
+| Field | Tipe | Arti |
+| --- | --- | --- |
+| `page` | string, opsional, `waking` atau `unavailable`, default `waking` | Halaman yang dilayani node di domain project selama tidur. `waking` adalah halaman 503 yang memanggil endpoint bangun publik lalu memuat ulang. `unavailable` adalah halaman statis bahwa project tidak tersedia, yang tidak pernah meminta bangun. |
+
+API hanya mengirim `{ "page": "unavailable" }` untuk sleep karena suspend
+(`POST /api/v1/admin/projects/{project}/suspend` dan sleep untuk deployment yang
+selesai setelah suspend), dan hanya ke node yang punya capability `idle-sleep`.
+Node tanpa capability itu, dan sleep karena sepi, menerima `{}`. API tidak pernah
+mengirim `waking`.
+
+Agent v0.7.0 adalah agent pertama yang mengiklankan `idle-sleep`. Ia
+men-deserialisasi payload command sebagai JSON bebas (`serde_json::Value`) dan
+tidak membaca payload `SleepProject` sama sekali, jadi `page` diabaikan tanpa error
+dan suspend tetap menampilkan halaman bangun miliknya. Agent v0.7.1 membaca
+`page`. Agent sebelum v0.7.0 tidak pernah menerima field ini. Karena itu protocol
+revision tidak dinaikkan dan tidak ada capability baru.
 
 ### Repository credential
 
