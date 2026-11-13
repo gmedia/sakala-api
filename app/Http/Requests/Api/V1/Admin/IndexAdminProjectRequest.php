@@ -27,6 +27,8 @@ final class IndexAdminProjectRequest extends FormRequest
             'workspace_id' => ['sometimes', 'uuid'],
             /** `true` for suspended projects only, `false` to leave them out. */
             'suspended' => ['sometimes', 'boolean'],
+            /** `true` for projects the idle sweep gave up on (`idle_sleep_blocked`), `false` to leave them out. */
+            'idle_sleep_blocked' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -40,6 +42,7 @@ final class IndexAdminProjectRequest extends FormRequest
             runtimeStatus: $this->filled('runtime_status') ? RuntimeStatus::from($this->string('runtime_status')->toString()) : null,
             workspaceId: $this->filled('workspace_id') ? $this->string('workspace_id')->toString() : null,
             suspended: $this->has('suspended') ? $this->boolean('suspended') : null,
+            idleSleepBlocked: $this->has('idle_sleep_blocked') ? $this->boolean('idle_sleep_blocked') : null,
         );
     }
 }

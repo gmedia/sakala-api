@@ -164,7 +164,9 @@ final class FailAgentCommandAction
                 AgentCommandType::SleepProject,
             ], true)) {
                 // The project keeps its runtime state: a failed idle sleep
-                // leaves it running and the next sweep asks again.
+                // leaves it running. The sweep asks again later each time,
+                // and never again for this deployment when the node said the
+                // container is missing (IdleSleepBackoffService).
                 $action = match (true) {
                     $command->type === AgentCommandType::StopProject => 'project.stop_failed',
                     $command->isIdleSleep() => 'project.idle_sleep_failed',

@@ -13,6 +13,7 @@ use App\Enums\LogStream;
 use App\Enums\NotificationCategory;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Enums\SleepPage;
 use App\Events\Deployment\DeploymentUpdated;
 use App\Models\Deployment;
 use App\Models\Project;
@@ -130,6 +131,7 @@ final class TransitionDeploymentAction
                 $this->createSleepProjectCommandAction->handle(
                     deployment: $deployment,
                     reason: 'deployment_completed_after_suspend',
+                    page: SleepPage::Unavailable,
                 );
 
                 return;

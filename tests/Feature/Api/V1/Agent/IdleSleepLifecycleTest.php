@@ -202,6 +202,26 @@ test('a failed idle sleep keeps the project running and is audited as such', fun
         ->and($audit->metadata['error_code'])->toBe('runtime_unavailable');
 });
 
+test('a missing container is audited once, even when the node reports the failure twice', function (): void {
+    $node = idleSleepNode();
+    [$project, $deployment] = idleSleepProject($node);
+    $command = idleSleepCommand($project, $deployment);
+
+    failIdleCommand($command, AgentCommand::WORKLOAD_NOT_FOUND_ERROR);
+    failIdleCommand($command, AgentCommand::WORKLOAD_NOT_FOUND_ERROR);
+
+    $audit = AuditEvent::query()->where('subject_id', $project->id)->sole();
+
+    expect($audit->action)->toBe('project.idle_sleep_failed')
+        ->and($audit->metadata)->toMatchArray([
+            'command_id' => $command->id,
+            'deployment_id' => $deployment->id,
+            'error_code' => 'runtime_workload_not_found',
+        ])
+        ->and($project->fresh()->runtime_status)->toBe(RuntimeStatus::Running)
+        ->and($project->fresh()->isIdleSleepBlocked())->toBeTrue();
+});
+
 test('a failed suspension sleep is still audited as a suspension', function (): void {
     $node = idleSleepNode();
     [$project, $deployment] = idleSleepProject($node, ['status' => ProjectStatus::Suspended]);

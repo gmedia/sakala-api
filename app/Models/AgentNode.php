@@ -61,6 +61,12 @@ class AgentNode extends Model
         });
     }
 
+    /** Whether the node's last heartbeat advertised `$capability`. */
+    public function hasCapability(string $capability): bool
+    {
+        return in_array($capability, $this->capabilities ?? [], true);
+    }
+
     /** @return HasMany<Deployment, $this> */
     public function deployments(): HasMany
     {

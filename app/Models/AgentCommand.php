@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 
 /**
  * @property AgentCommandType $type
@@ -70,6 +71,12 @@ class AgentCommand extends Model
     public const IDLE_SLEEP_REASON = 'idle';
 
     /**
+     * `error_code` of a lifecycle command whose deployment has no container on
+     * the node. Retrying the same command cannot succeed.
+     */
+    public const WORKLOAD_NOT_FOUND_ERROR = 'runtime_workload_not_found';
+
+    /**
      * Whether this SleepProject puts an idle project to sleep, as opposed to
      * suspending it. Suspension sleeps always carry the admin as actor or no
      * actor at all, so an admin who writes "idle" as a reason still suspends.
@@ -90,6 +97,64 @@ class AgentCommand extends Model
     public function scopeOpen(Builder $query): Builder
     {
         return $query->whereIn('status', AgentCommandStatus::openCases());
+    }
+
+    /**
+     * Scope a query to the SleepProject commands of the idle sweep: the same
+     * test as isIdleSleep(), in SQL.
+     *
+     * @param  Builder<AgentCommand>  $query
+     * @return Builder<AgentCommand>
+     */
+    public function scopeIdleSleep(Builder $query): Builder
+    {
+        return $query
+            ->where('type', AgentCommandType::SleepProject)
+            ->where('request_context->reason', self::IDLE_SLEEP_REASON)
+            ->where('request_context->actor_type', AuditEvent::SYSTEM_ACTOR_TYPE);
+    }
+
+    /**
+     * Scope a query to failed commands that no lifecycle command on the same
+     * deployment succeeded after: the failures in a row since the node last
+     * proved it holds that deployment's container. A new deployment starts
+     * with none, because commands belong to one deployment.
+     *
+     * @param  Builder<AgentCommand>  $query
+     * @return Builder<AgentCommand>
+     */
+    public function scopeFailedSinceLastLifecycleSuccess(Builder $query): Builder
+    {
+        $table = $this->getTable();
+
+        return $query
+            ->where("{$table}.status", AgentCommandStatus::Failed)
+            ->whereNotExists(fn (QueryBuilder $succeeded) => $succeeded
+                ->selectRaw('1')
+                ->from("{$table} as succeeded")
+                ->whereColumn('succeeded.deployment_id', "{$table}.deployment_id")
+                ->whereIn('succeeded.type', AgentCommandType::projectLifecycleCases())
+                ->where('succeeded.status', AgentCommandStatus::Succeeded)
+                ->whereColumn('succeeded.completed_at', '>', "{$table}.failed_at"));
+    }
+
+    /**
+     * Scope a query to the failed idle sleep that makes the sweep give up on a
+     * project: the node said the active deployment's container is not there,
+     * and nothing has succeeded on that deployment since. Only meaningful
+     * inside a subquery of Project::agentCommands(), because it compares with
+     * `projects.active_deployment_id`.
+     *
+     * @param  Builder<AgentCommand>  $query
+     * @return Builder<AgentCommand>
+     */
+    public function scopeBlockingIdleSleep(Builder $query): Builder
+    {
+        return $query
+            ->idleSleep()
+            ->failedSinceLastLifecycleSuccess()
+            ->where("{$this->getTable()}.error_code", self::WORKLOAD_NOT_FOUND_ERROR)
+            ->whereColumn("{$this->getTable()}.deployment_id", 'projects.active_deployment_id');
     }
 
     /** @return BelongsTo<Project, $this> */

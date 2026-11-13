@@ -19,9 +19,11 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\LimitProfile;
 use App\Models\Project;
+use App\Services\Runtime\IdleSleepBackoffService;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -37,6 +39,11 @@ use Throwable;
  * idle, and a project must never look idle for lack of data. A project is idle
  * when its last request, its active deployment's completion, and its last wake
  * or restart are all older than the window.
+ *
+ * A failed idle sleep is asked again later, and later each time, up to once a
+ * day (IdleSleepBackoffService). When the node reported the container missing,
+ * the sweep stops asking until the deployment changes or a wake or restart of
+ * it succeeds.
  */
 final class SleepIdleProjectsAction
 {
@@ -51,6 +58,7 @@ final class SleepIdleProjectsAction
     public function __construct(
         private readonly CreateSleepProjectCommandAction $createSleepCommand,
         private readonly PilotRuntimeLimitService $limits,
+        private readonly IdleSleepBackoffService $backoff,
     ) {}
 
     /** Whether any workspace has a positive idle window. */
@@ -64,7 +72,8 @@ final class SleepIdleProjectsAction
      */
     public function handle(): int
     {
-        $windows = $this->windows(CarbonImmutable::now());
+        $now = CarbonImmutable::now();
+        $windows = $this->windows($now);
 
         if ($windows === []) {
             return 0;
@@ -80,16 +89,40 @@ final class SleepIdleProjectsAction
 
         foreach ($windows as $window) {
             $this->idleProjects(Project::query(), $nodeIds, $window)
-                ->select('projects.id')
-                ->lazyById(self::BATCH_SIZE, 'projects.id', 'id')
-                ->each(function (Project $project) use ($nodeIds, $window, &$created): void {
-                    try {
-                        $created += $this->sleep($project->id, $nodeIds, $window) ? 1 : 0;
-                    } catch (Throwable $exception) {
-                        // One project must not keep the others awake.
-                        report($exception);
-                    }
-                });
+                ->select(['projects.id', 'projects.active_deployment_id'])
+                ->chunkById(self::BATCH_SIZE, function (Collection $projects) use ($nodeIds, $window, $now, &$created): void {
+                    $created += $this->sleepBatch($projects, $nodeIds, $window, $now);
+                }, 'projects.id', 'id');
+        }
+
+        return $created;
+    }
+
+    /**
+     * Ask each project of one batch to sleep, except those still waiting after
+     * failed idle sleeps, which one query finds for the whole batch.
+     *
+     * @param  Collection<int, Project>  $projects
+     * @param  list<string>  $nodeIds
+     */
+    private function sleepBatch(Collection $projects, array $nodeIds, IdleWindowData $window, CarbonImmutable $now): int
+    {
+        /** @var list<string> $deploymentIds */
+        $deploymentIds = $projects->pluck('active_deployment_id')->filter()->values()->all();
+        $waiting = array_flip($this->backoff->waitingDeploymentIds($deploymentIds, $window->minutes, $now));
+        $created = 0;
+
+        foreach ($projects as $project) {
+            if (isset($waiting[$project->active_deployment_id])) {
+                continue;
+            }
+
+            try {
+                $created += $this->sleep($project->id, $nodeIds, $window) ? 1 : 0;
+            } catch (Throwable $exception) {
+                // One project must not keep the others awake.
+                report($exception);
+            }
         }
 
         return $created;
@@ -212,6 +245,9 @@ final class SleepIdleProjectsAction
                 ->whereNotNull('finished_at')
                 ->where('finished_at', '<', $cutoff))
             ->whereDoesntHave('deployments', fn (Builder $deployments) => $deployments->active())
+            // The node said the container is not there: asking again every
+            // window would only fail again (IdleSleepBackoffService).
+            ->idleSleepBlocked(false)
             // A project with a lifecycle command open is already changing.
             ->whereDoesntHave('agentCommands', fn (Builder $commands) => $commands
                 ->open()
@@ -236,7 +272,7 @@ final class SleepIdleProjectsAction
             ->where('auth_status', AgentAuthStatus::Active)
             ->where('status', '!=', AgentNodeStatus::Offline)
             ->get(['id', 'capabilities', 'metadata'])
-            ->filter(static fn (AgentNode $node): bool => in_array(self::CAPABILITY, $node->capabilities ?? [], true)
+            ->filter(static fn (AgentNode $node): bool => $node->hasCapability(self::CAPABILITY)
                 && is_array(data_get($node->metadata, 'workloads.traffic')))
             ->map(static fn (AgentNode $node): string => $node->id)
             ->all());

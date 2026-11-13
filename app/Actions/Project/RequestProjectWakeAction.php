@@ -4,21 +4,17 @@ declare(strict_types=1);
 
 namespace App\Actions\Project;
 
-use App\Enums\AgentCommandStatus;
-use App\Enums\AgentCommandType;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Exceptions\Runtime\ProjectNotSleepingException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Models\AgentCommand;
-use App\Models\AuditEvent;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Services\Runtime\ProjectWorkloadService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * Ask the node that keeps a sleeping project's container to start it again.
@@ -28,7 +24,7 @@ use Illuminate\Support\Str;
  */
 final class RequestProjectWakeAction
 {
-    /** `request_context.reason` of every WakeProject. */
+    /** `request_context.reason` of a WakeProject a visitor or member asked for. */
     public const REASON = 'wake';
 
     public const SOURCE_PUBLIC = 'public';
@@ -41,6 +37,7 @@ final class RequestProjectWakeAction
     public function __construct(
         private readonly PilotRuntimeLimitService $limits,
         private readonly ProjectWorkloadService $workloads,
+        private readonly CreateWakeProjectCommandAction $createWakeCommand,
     ) {}
 
     /**
@@ -69,12 +66,7 @@ final class RequestProjectWakeAction
                 throw new ProjectNotSleepingException($locked->runtime_status->value);
             }
 
-            $open = AgentCommand::query()
-                ->where('project_id', $locked->id)
-                ->where('type', AgentCommandType::WakeProject)
-                ->open()
-                ->latest('created_at')
-                ->first();
+            $open = $this->createWakeCommand->open($locked);
 
             if ($open !== null) {
                 return $open;
@@ -83,42 +75,13 @@ final class RequestProjectWakeAction
             $this->limits->checkWakeLimit($locked, exposeUsage: $user !== null);
 
             // A visitor is not identified: no address or user agent is kept.
-            $source = $user === null ? self::SOURCE_PUBLIC : self::SOURCE_CONSOLE;
-            $actor = [
-                'actor_type' => $user !== null ? User::class : AuditEvent::SYSTEM_ACTOR_TYPE,
-                'actor_id' => $user !== null ? (string) $user->id : self::PUBLIC_ACTOR_ID,
-            ];
-
-            $command = AgentCommand::create([
-                'project_id' => $locked->id,
-                'deployment_id' => $deployment->id,
-                'agent_node_id' => $deployment->agent_node_id,
-                'type' => AgentCommandType::WakeProject,
-                'status' => AgentCommandStatus::Pending,
-                'payload' => [],
-                'request_context' => [
-                    'reason' => self::REASON,
-                    'source' => $source,
-                    ...$actor,
-                ],
-                'idempotency_key' => "project-wake:{$locked->id}:".Str::uuid()->toString(),
-                'available_at' => now(),
-            ]);
-
-            AuditEvent::create([
-                ...$actor,
-                'action' => 'project.wake_requested',
-                'subject_type' => Project::class,
-                'subject_id' => $locked->id,
-                'metadata' => [
-                    'source' => $source,
-                    'command_id' => $command->id,
-                    'deployment_id' => $deployment->id,
-                    'agent_node_id' => $deployment->agent_node_id,
-                ],
-            ]);
-
-            return $command;
+            return $this->createWakeCommand->handle(
+                deployment: $deployment,
+                reason: self::REASON,
+                source: $user === null ? self::SOURCE_PUBLIC : self::SOURCE_CONSOLE,
+                user: $user,
+                systemActorId: self::PUBLIC_ACTOR_ID,
+            );
         });
     }
 }

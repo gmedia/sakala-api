@@ -11,6 +11,7 @@ use App\Enums\DeploymentStatus;
 use App\Enums\NotificationCategory;
 use App\Enums\ProjectControlAction;
 use App\Enums\ProjectStatus;
+use App\Enums\SleepPage;
 use App\Enums\UsageSignalType;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
@@ -184,6 +185,7 @@ final class SuspendProjectAction
                     reason: $data->reason,
                     idempotencyKey: $idempotencyKey,
                     responseContext: $responseContext,
+                    page: SleepPage::Unavailable,
                 );
 
                 $controlRequest->update([
