@@ -22,7 +22,6 @@ use App\Models\Project;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -41,21 +40,13 @@ use Throwable;
  */
 final class SleepIdleProjectsAction
 {
+    /** Node capability of agents that report `metadata.workloads.traffic` and can sleep a project. */
     public const CAPABILITY = 'idle-sleep';
 
-    private const OPEN = [
-        AgentCommandStatus::Pending,
-        AgentCommandStatus::Claimed,
-        AgentCommandStatus::Running,
-    ];
+    /** `actor_id` of the SleepProject commands and audit events of this sweep. */
+    public const ACTOR_ID = 'scheduler:sleep-idle';
 
-    /** A project with one of these open is already changing; leave it alone. */
-    private const LIFECYCLE_TYPES = [
-        AgentCommandType::SleepProject,
-        AgentCommandType::WakeProject,
-        AgentCommandType::StopProject,
-        AgentCommandType::RestartProject,
-    ];
+    private const BATCH_SIZE = 100;
 
     public function __construct(
         private readonly CreateSleepProjectCommandAction $createSleepCommand,
@@ -65,7 +56,7 @@ final class SleepIdleProjectsAction
     /** Whether any workspace has a positive idle window. */
     public function enabled(): bool
     {
-        return $this->windows() !== [];
+        return $this->windows(CarbonImmutable::now()) !== [];
     }
 
     /**
@@ -73,7 +64,7 @@ final class SleepIdleProjectsAction
      */
     public function handle(): int
     {
-        $windows = $this->windows();
+        $windows = $this->windows(CarbonImmutable::now());
 
         if ($windows === []) {
             return 0;
@@ -85,15 +76,12 @@ final class SleepIdleProjectsAction
             return 0;
         }
 
-        $now = CarbonImmutable::now();
         $created = 0;
 
-        foreach ($windows as $minutes => $workspaces) {
-            $window = new IdleWindowData($minutes, $now->subMinutes($minutes), $workspaces['profile_ids'], $workspaces['unprofiled']);
-
-            $this->idle(Project::query(), $nodeIds, $window)
+        foreach ($windows as $window) {
+            $this->idleProjects(Project::query(), $nodeIds, $window)
                 ->select('projects.id')
-                ->lazyById(100, 'projects.id', 'id')
+                ->lazyById(self::BATCH_SIZE, 'projects.id', 'id')
                 ->each(function (Project $project) use ($nodeIds, $window, &$created): void {
                     try {
                         $created += $this->sleep($project->id, $nodeIds, $window) ? 1 : 0;
@@ -112,15 +100,16 @@ final class SleepIdleProjectsAction
      * profiles that resolve to it, and workspaces without a profile when the
      * global setting does.
      *
-     * @return array<int, array{profile_ids: list<string>, unprofiled: bool}>
+     * @return list<IdleWindowData>
      */
-    private function windows(): array
+    private function windows(CarbonImmutable $now): array
     {
-        $windows = [];
+        /** @var array<int, array{profile_ids: list<string>, unprofiled: bool}> $byMinutes */
+        $byMinutes = [];
         $global = $this->limits->idleSleepMinutesFor(null);
 
         if ($global > 0) {
-            $windows[$global] = ['profile_ids' => [], 'unprofiled' => true];
+            $byMinutes[$global] = ['profile_ids' => [], 'unprofiled' => true];
         }
 
         foreach (LimitProfile::query()->get(['id', 'idle_sleep_minutes']) as $profile) {
@@ -130,8 +119,19 @@ final class SleepIdleProjectsAction
                 continue;
             }
 
-            $windows[$minutes] ??= ['profile_ids' => [], 'unprofiled' => false];
-            $windows[$minutes]['profile_ids'][] = $profile->id;
+            $byMinutes[$minutes] ??= ['profile_ids' => [], 'unprofiled' => false];
+            $byMinutes[$minutes]['profile_ids'][] = $profile->id;
+        }
+
+        $windows = [];
+
+        foreach ($byMinutes as $minutes => $workspaces) {
+            $windows[] = new IdleWindowData(
+                minutes: $minutes,
+                cutoff: $now->subMinutes($minutes),
+                profileIds: $workspaces['profile_ids'],
+                unprofiled: $workspaces['unprofiled'],
+            );
         }
 
         return $windows;
@@ -146,7 +146,7 @@ final class SleepIdleProjectsAction
             // Asked again under the lock: a request, a deploy, or a command may
             // have arrived since the list was read.
             /** @var Project|null $project */
-            $project = $this->idle(Project::query()->whereKey($projectId), $nodeIds, $window)
+            $project = $this->idleProjects(Project::query()->whereKey($projectId), $nodeIds, $window)
                 ->lockForUpdate()
                 ->first();
 
@@ -161,7 +161,7 @@ final class SleepIdleProjectsAction
                 deployment: $deployment,
                 reason: AgentCommand::IDLE_SLEEP_REASON,
                 idempotencyKey: "idle-sleep:{$project->id}:{$deployment->id}:".$window->cutoff->format('YmdHi'),
-                systemActorId: AgentCommand::IDLE_SLEEP_ACTOR_ID,
+                systemActorId: self::ACTOR_ID,
             );
 
             if (! $command->wasRecentlyCreated) {
@@ -169,8 +169,8 @@ final class SleepIdleProjectsAction
             }
 
             AuditEvent::create([
-                'actor_type' => AgentCommand::SYSTEM_ACTOR_TYPE,
-                'actor_id' => AgentCommand::IDLE_SLEEP_ACTOR_ID,
+                'actor_type' => AuditEvent::SYSTEM_ACTOR_TYPE,
+                'actor_id' => self::ACTOR_ID,
                 'action' => 'project.idle_sleep_requested',
                 'subject_type' => Project::class,
                 'subject_id' => $project->id,
@@ -192,12 +192,9 @@ final class SleepIdleProjectsAction
      * @param  list<string>  $nodeIds
      * @return Builder<Project>
      */
-    private function idle(Builder $query, array $nodeIds, IdleWindowData $window): Builder
+    private function idleProjects(Builder $query, array $nodeIds, IdleWindowData $window): Builder
     {
         $cutoff = $window->cutoff;
-
-        $lifecycleTypes = array_map(static fn (AgentCommandType $type): string => $type->value, self::LIFECYCLE_TYPES);
-        $open = array_map(static fn (AgentCommandStatus $status): string => $status->value, self::OPEN);
 
         return $query
             ->where('runtime_status', RuntimeStatus::Running)
@@ -215,21 +212,16 @@ final class SleepIdleProjectsAction
                 ->whereNotNull('finished_at')
                 ->where('finished_at', '<', $cutoff))
             ->whereDoesntHave('deployments', fn (Builder $deployments) => $deployments->active())
-            ->whereNotExists(fn (QueryBuilder $commands) => $commands
-                ->selectRaw('1')
-                ->from('agent_commands')
-                ->whereColumn('agent_commands.project_id', 'projects.id')
-                ->whereIn('agent_commands.type', $lifecycleTypes)
-                ->whereIn('agent_commands.status', $open))
+            // A project with a lifecycle command open is already changing.
+            ->whereDoesntHave('agentCommands', fn (Builder $commands) => $commands
+                ->open()
+                ->whereIn('type', AgentCommandType::projectLifecycleCases()))
             // A wake or restart counts as activity, or a project woken by its
             // console button would fall asleep again on the next sweep.
-            ->whereNotExists(fn (QueryBuilder $commands) => $commands
-                ->selectRaw('1')
-                ->from('agent_commands')
-                ->whereColumn('agent_commands.project_id', 'projects.id')
-                ->whereIn('agent_commands.type', [AgentCommandType::WakeProject->value, AgentCommandType::RestartProject->value])
-                ->where('agent_commands.status', AgentCommandStatus::Succeeded->value)
-                ->where('agent_commands.completed_at', '>=', $cutoff));
+            ->whereDoesntHave('agentCommands', fn (Builder $commands) => $commands
+                ->whereIn('type', [AgentCommandType::WakeProject, AgentCommandType::RestartProject])
+                ->where('status', AgentCommandStatus::Succeeded)
+                ->where('completed_at', '>=', $cutoff));
     }
 
     /**

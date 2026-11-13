@@ -6,7 +6,6 @@ namespace App\Actions\Admin;
 
 use App\Data\Admin\ProjectControlData;
 use App\Data\Admin\ProjectControlResultData;
-use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\NotificationCategory;
@@ -64,7 +63,7 @@ final class UnsuspendProjectAction
             $sleeping = AgentCommand::query()
                 ->where('project_id', $locked->id)
                 ->where('type', AgentCommandType::SleepProject)
-                ->whereIn('status', [AgentCommandStatus::Pending, AgentCommandStatus::Claimed, AgentCommandStatus::Running])
+                ->open()
                 ->get()
                 ->contains(static fn (AgentCommand $command): bool => ! $command->isIdleSleep());
 

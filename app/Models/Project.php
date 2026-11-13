@@ -261,6 +261,21 @@ class Project extends Model
     }
 
     /**
+     * Scope a query to projects whose active deployment holds a running
+     * container slot. A sleeping project keeps its active deployment but runs
+     * nothing.
+     *
+     * @param  Builder<Project>  $query
+     * @return Builder<Project>
+     */
+    public function scopeServing(Builder $query): Builder
+    {
+        return $query
+            ->whereNotNull('active_deployment_id')
+            ->where('runtime_status', '!=', RuntimeStatus::Sleeping);
+    }
+
+    /**
      * Scope a query to only include projects accessible by the given user.
      *
      * @param  Builder<Project>  $query

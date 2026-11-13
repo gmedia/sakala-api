@@ -18,6 +18,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Project\IndexProjectRequest;
 use App\Http\Requests\Api\V1\Project\StoreProjectRequest;
 use App\Http\Requests\Api\V1\Project\UpdateProjectRequest;
+use App\Http\Requests\Api\V1\Project\WakeProjectRequest;
 use App\Http\Resources\Api\V1\Project\CreateProjectResource;
 use App\Http\Resources\Api\V1\Project\GetCollectionProjectResource;
 use App\Http\Resources\Api\V1\Project\ProjectResource;
@@ -122,17 +123,8 @@ final class ProjectController extends Controller
      * @throws ProjectNotSleepingException
      * @throws ProjectWakeLimitExceededException
      */
-    public function wake(Request $request, Project $project, RequestProjectWakeAction $action): JsonResponse
+    public function wake(WakeProjectRequest $request, Project $project, RequestProjectWakeAction $action): JsonResponse
     {
-        if (Gate::denies('deploy', $project)) {
-            // Members learn why; anyone else keeps the generic 403.
-            if ($project->status === ProjectStatus::Suspended && Gate::allows('view', $project)) {
-                throw new ProjectSuspendedException;
-            }
-
-            Gate::authorize('deploy', $project);
-        }
-
         $action->handle($project, $request->user());
 
         return ProjectResource::make($project->refresh())

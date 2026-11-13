@@ -40,6 +40,9 @@ class AuditEvent extends Model
 
     public const UPDATED_AT = null;
 
+    /** `actor_type` of something the control plane did by itself; `actor_id` then names which part. */
+    public const SYSTEM_ACTOR_TYPE = 'system';
+
     /** @return array<string, string> */
     protected function casts(): array
     {

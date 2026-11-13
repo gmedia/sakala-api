@@ -43,6 +43,9 @@ class LimitProfile extends Model
     /** @use HasFactory<LimitProfileFactory> */
     use HasFactory, HasUuids;
 
+    /** Longest idle window a profile may set: one week. */
+    public const MAX_IDLE_SLEEP_MINUTES = 7 * 24 * 60;
+
     /** @return HasMany<Workspace, $this> */
     public function workspaces(): HasMany
     {

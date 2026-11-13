@@ -314,9 +314,7 @@ class PilotRuntimeLimitService
             ->where('workspace_id', $workspace->id)
             ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except?->id))
             ->where(fn (Builder $query) => $query
-                ->where(fn (Builder $serving) => $serving
-                    ->whereNotNull('active_deployment_id')
-                    ->where('runtime_status', '!=', RuntimeStatus::Sleeping))
+                ->where(fn (Builder $serving) => $serving->serving())
                 ->orWhereHas('deployments', fn (Builder $deployments) => $deployments->active()))
             ->count();
     }

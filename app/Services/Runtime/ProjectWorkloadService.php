@@ -18,12 +18,34 @@ use App\Models\Project;
  */
 final class ProjectWorkloadService
 {
-    private const LIFECYCLE_TYPES = [
-        AgentCommandType::StopProject,
-        AgentCommandType::SleepProject,
-        AgentCommandType::WakeProject,
-        AgentCommandType::RestartProject,
-    ];
+    /**
+     * The project's active deployment, when a node runs it. Null without an
+     * active deployment or when no node ever took it.
+     */
+    public function activeWorkload(Project $project): ?Deployment
+    {
+        if ($project->active_deployment_id === null) {
+            return null;
+        }
+
+        $deployment = Deployment::query()->find($project->active_deployment_id);
+
+        return $deployment?->agent_node_id !== null ? $deployment : null;
+    }
+
+    /**
+     * The newest deployment that succeeded on a node: the workload lifecycle
+     * commands act on. A command for an older one is stale.
+     */
+    public function currentWorkload(Project $project): ?Deployment
+    {
+        return Deployment::query()
+            ->where('project_id', $project->id)
+            ->where('status', DeploymentStatus::Succeeded)
+            ->whereNotNull('agent_node_id')
+            ->orderByDesc('sequence')
+            ->first();
+    }
 
     /**
      * The deployment whose container is still on a node: the one that serves,
@@ -35,17 +57,10 @@ final class ProjectWorkloadService
     public function retainedWorkload(Project $project): ?Deployment
     {
         if ($project->active_deployment_id !== null && $project->runtime_status !== RuntimeStatus::Stopped) {
-            $deployment = Deployment::query()->find($project->active_deployment_id);
-
-            return $deployment?->agent_node_id !== null ? $deployment : null;
+            return $this->activeWorkload($project);
         }
 
-        $deployment = Deployment::query()
-            ->where('project_id', $project->id)
-            ->where('status', DeploymentStatus::Succeeded)
-            ->whereNotNull('agent_node_id')
-            ->orderByDesc('sequence')
-            ->first();
+        $deployment = $this->currentWorkload($project);
 
         if ($deployment === null) {
             return null;
@@ -74,7 +89,7 @@ final class ProjectWorkloadService
     {
         return AgentCommand::query()
             ->where('deployment_id', $deploymentId)
-            ->whereIn('type', self::LIFECYCLE_TYPES)
+            ->whereIn('type', AgentCommandType::projectLifecycleCases())
             ->where('status', AgentCommandStatus::Succeeded)
             ->orderByDesc('completed_at')
             ->orderByDesc('id')

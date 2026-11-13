@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Project\SleepIdleProjectsAction;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
@@ -11,6 +12,7 @@ use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
+use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
@@ -25,7 +27,7 @@ function idleSleepNode(array $overrides = []): AgentNode
         'status' => AgentNodeStatus::Ready,
         'protocol_version' => 4,
         'last_seen_at' => now(),
-        'capabilities' => ['docker-runtime', 'caddy-file-routing', 'idle-sleep'],
+        'capabilities' => ['docker-runtime', 'caddy-file-routing', SleepIdleProjectsAction::CAPABILITY],
         'metadata' => ['workloads' => ['traffic' => []]],
         'token_hash' => hash_hmac('sha256', IDLE_SLEEP_TOKEN, (string) config('app.key')),
         ...$overrides,
@@ -77,8 +79,8 @@ function idleSleepCommand(Project $project, Deployment $deployment, AgentCommand
         'status' => $status,
         'request_context' => [
             'reason' => AgentCommand::IDLE_SLEEP_REASON,
-            'actor_type' => AgentCommand::SYSTEM_ACTOR_TYPE,
-            'actor_id' => AgentCommand::IDLE_SLEEP_ACTOR_ID,
+            'actor_type' => AuditEvent::SYSTEM_ACTOR_TYPE,
+            'actor_id' => SleepIdleProjectsAction::ACTOR_ID,
         ],
         'expires_at' => null,
         ...$overrides,

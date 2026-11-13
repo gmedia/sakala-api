@@ -7,6 +7,7 @@ namespace App\Actions\Admin;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Models\AgentCommand;
+use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\User;
 use Illuminate\Support\Str;
@@ -58,7 +59,7 @@ final class CreateSleepProjectCommandAction
                 'reason' => $reason,
                 'actor_type' => match (true) {
                     $user !== null => User::class,
-                    $systemActorId !== null => AgentCommand::SYSTEM_ACTOR_TYPE,
+                    $systemActorId !== null => AuditEvent::SYSTEM_ACTOR_TYPE,
                     default => null,
                 },
                 'actor_id' => $user?->id !== null

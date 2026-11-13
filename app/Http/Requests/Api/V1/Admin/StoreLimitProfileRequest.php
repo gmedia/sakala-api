@@ -36,7 +36,7 @@ class StoreLimitProfileRequest extends FormRequest
              * Minutes without a request before a project sleeps, up to a week. `0` never puts the workspace's
              * projects to sleep; `null` (the default) follows `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`.
              */
-            'idle_sleep_minutes' => ['sometimes', 'nullable', 'integer', 'between:0,10080'],
+            'idle_sleep_minutes' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_IDLE_SLEEP_MINUTES],
         ];
     }
 

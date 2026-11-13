@@ -165,7 +165,7 @@ final class PurgeDeletedProjectsAction
     {
         $deployment = $this->workloads->retainedWorkload($project);
 
-        if ($deployment === null || $deployment->agent_node_id === null) {
+        if ($deployment === null) {
             return null;
         }
 

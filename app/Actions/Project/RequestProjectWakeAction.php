@@ -13,10 +13,10 @@ use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
-use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\Runtime\PilotRuntimeLimitService;
+use App\Services\Runtime\ProjectWorkloadService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -28,6 +28,9 @@ use Illuminate\Support\Str;
  */
 final class RequestProjectWakeAction
 {
+    /** `request_context.reason` of every WakeProject. */
+    public const REASON = 'wake';
+
     public const SOURCE_PUBLIC = 'public';
 
     public const SOURCE_CONSOLE = 'console';
@@ -35,14 +38,9 @@ final class RequestProjectWakeAction
     /** `actor_id` of a wake requested by a visitor of the sleeping page. */
     public const PUBLIC_ACTOR_ID = 'public-wake';
 
-    private const OPEN = [
-        AgentCommandStatus::Pending,
-        AgentCommandStatus::Claimed,
-        AgentCommandStatus::Running,
-    ];
-
     public function __construct(
         private readonly PilotRuntimeLimitService $limits,
+        private readonly ProjectWorkloadService $workloads,
     ) {}
 
     /**
@@ -52,9 +50,7 @@ final class RequestProjectWakeAction
      */
     public function handle(Project $project, ?User $user = null): AgentCommand
     {
-        $source = $user === null ? self::SOURCE_PUBLIC : self::SOURCE_CONSOLE;
-
-        return DB::transaction(function () use ($project, $user, $source): AgentCommand {
+        return DB::transaction(function () use ($project, $user): AgentCommand {
             /** @var Project $locked */
             $locked = Project::query()->lockForUpdate()->findOrFail($project->id);
 
@@ -67,18 +63,16 @@ final class RequestProjectWakeAction
                 throw new ProjectNotSleepingException($locked->runtime_status->value);
             }
 
-            $deployment = $locked->active_deployment_id === null
-                ? null
-                : Deployment::query()->find($locked->active_deployment_id);
+            $deployment = $this->workloads->activeWorkload($locked);
 
-            if ($deployment === null || $deployment->agent_node_id === null) {
+            if ($deployment === null) {
                 throw new ProjectNotSleepingException($locked->runtime_status->value);
             }
 
             $open = AgentCommand::query()
                 ->where('project_id', $locked->id)
                 ->where('type', AgentCommandType::WakeProject)
-                ->whereIn('status', self::OPEN)
+                ->open()
                 ->latest('created_at')
                 ->first();
 
@@ -88,6 +82,13 @@ final class RequestProjectWakeAction
 
             $this->limits->checkWakeLimit($locked, exposeUsage: $user !== null);
 
+            // A visitor is not identified: no address or user agent is kept.
+            $source = $user === null ? self::SOURCE_PUBLIC : self::SOURCE_CONSOLE;
+            $actor = [
+                'actor_type' => $user !== null ? User::class : AuditEvent::SYSTEM_ACTOR_TYPE,
+                'actor_id' => $user !== null ? (string) $user->id : self::PUBLIC_ACTOR_ID,
+            ];
+
             $command = AgentCommand::create([
                 'project_id' => $locked->id,
                 'deployment_id' => $deployment->id,
@@ -96,19 +97,16 @@ final class RequestProjectWakeAction
                 'status' => AgentCommandStatus::Pending,
                 'payload' => [],
                 'request_context' => [
-                    'reason' => 'wake',
+                    'reason' => self::REASON,
                     'source' => $source,
-                    'actor_type' => $user !== null ? User::class : AgentCommand::SYSTEM_ACTOR_TYPE,
-                    'actor_id' => $user !== null ? (string) $user->id : self::PUBLIC_ACTOR_ID,
+                    ...$actor,
                 ],
                 'idempotency_key' => "project-wake:{$locked->id}:".Str::uuid()->toString(),
                 'available_at' => now(),
             ]);
 
-            // A visitor is not identified: no address or user agent is kept.
             AuditEvent::create([
-                'actor_type' => $user !== null ? User::class : AgentCommand::SYSTEM_ACTOR_TYPE,
-                'actor_id' => $user !== null ? (string) $user->id : self::PUBLIC_ACTOR_ID,
+                ...$actor,
                 'action' => 'project.wake_requested',
                 'subject_type' => Project::class,
                 'subject_id' => $locked->id,

@@ -22,6 +22,7 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Project\ProjectInspectionOutcomeService;
+use App\Services\Runtime\ProjectWorkloadService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -32,6 +33,7 @@ final class CompleteAgentCommandAction
         private readonly CreateStopProjectCommandAction $createStopProjectCommand,
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateRealtimeSequence,
+        private readonly ProjectWorkloadService $workloads,
     ) {}
 
     /**
@@ -164,11 +166,7 @@ final class CompleteAgentCommandAction
         // Deployment before project, like TransitionDeploymentAction and the
         // crash reconciliation, so a heartbeat and this cannot deadlock.
         $deployment = $this->lockDeployment($command);
-
-        // A deleted project still has to record that its workload stopped.
-        $project = Project::withTrashed()
-            ->lockForUpdate()
-            ->findOrFail($command->project_id);
+        $project = $this->lockProject($command);
 
         $previous = $project->runtime_status;
         $applied = $project->status !== ProjectStatus::Suspended && $this->isCurrentWorkload($project, $command);
@@ -209,11 +207,7 @@ final class CompleteAgentCommandAction
     private function completeStopOrSleep(AgentNode $agent, AgentCommand $command): void
     {
         $deployment = $this->lockDeployment($command);
-
-        // A deleted project still has to record that its workload stopped.
-        $project = Project::withTrashed()
-            ->lockForUpdate()
-            ->findOrFail($command->project_id);
+        $project = $this->lockProject($command);
 
         $isCurrentWorkload = $this->isCurrentWorkload($project, $command);
         $previous = $project->runtime_status;
@@ -275,6 +269,14 @@ final class CompleteAgentCommandAction
             ->first();
     }
 
+    private function lockProject(AgentCommand $command): Project
+    {
+        // A deleted project still has to record what happened to its workload.
+        return Project::withTrashed()
+            ->lockForUpdate()
+            ->findOrFail($command->project_id);
+    }
+
     /**
      * Same event the crash reconciliation sends, so the console follows a
      * sleep or wake without polling. Nothing is sent when nothing changed.
@@ -307,14 +309,7 @@ final class CompleteAgentCommandAction
             return false;
         }
 
-        $currentDeploymentId = Deployment::query()
-            ->where('project_id', $project->id)
-            ->where('status', DeploymentStatus::Succeeded)
-            ->whereNotNull('agent_node_id')
-            ->orderByDesc('sequence')
-            ->value('id');
-
-        return $currentDeploymentId === $command->deployment_id;
+        return $this->workloads->currentWorkload($project)?->id === $command->deployment_id;
     }
 
     private function completeInspection(AgentNode $agent, AgentCommand $command, ProjectInspectionResultData $result): void
