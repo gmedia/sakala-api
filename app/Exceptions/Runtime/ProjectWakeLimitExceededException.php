@@ -21,7 +21,7 @@ final class ProjectWakeLimitExceededException extends RuntimeException
         public readonly bool $exposeUsage = true,
     ) {
         parent::__construct(
-            'Proyek ini belum bisa dibangunkan karena workspace-nya sudah menjalankan proyek sebanyak batasnya. Hentikan atau hapus proyek lain dulu, lalu coba lagi.',
+            'Proyek ini belum bisa dibangunkan karena workspace-nya sudah menjalankan proyek sebanyak batasnya. Hapus proyek yang tidak dipakai atau tunggu sampai ada proyek yang tidur, lalu coba lagi.',
         );
     }
 
