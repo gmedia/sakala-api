@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-13
+
 ### Added
 
 - Idle sleep and wake on request (ADR-015). `projects:sleep-idle` runs every minute on one server and puts a `running` project to sleep when its last request, its active deployment's completion, and its last wake or restart are all older than its workspace's idle window. Only nodes with the `idle-sleep` capability whose last heartbeat carried a traffic list take part, so a project never looks idle for lack of data. Off by default: `SAKALA_PROJECT_IDLE_SLEEP_MINUTES` defaults to `0`.
@@ -194,7 +196,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/gmedia/sakala-api/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/gmedia/sakala-api/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/gmedia/sakala-api/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/gmedia/sakala-api/compare/v0.3.0...v0.4.0
