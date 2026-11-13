@@ -1,0 +1,3 @@
+# Setiap pull request otomatis meminta review ke tim maintainer Sakala.
+# Maintainer baru cukup ditambahkan ke tim @gmedia/sakala-maintainers, file ini tidak perlu diubah.
+* @gmedia/sakala-maintainers
