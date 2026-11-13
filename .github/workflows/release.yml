@@ -66,3 +66,49 @@ jobs:
           labels: org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=api-web
           cache-to: type=gha,scope=api-web,mode=max
+
+  github-release:
+    name: Publish GitHub Release
+    # Runs only after the image is published, so a Release never announces a
+    # version whose image does not exist. The image job also refuses tags that
+    # are not reachable from main. Only this job may write to the repository.
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The notes are this version's CHANGELOG section: everything between
+      # "## [X.Y.Z]" and the next "## [" heading. A version tag without one is a
+      # release prep mistake, so the job fails instead of publishing a Release
+      # with only the generated list.
+      - name: Extract the changelog section
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes="$RUNNER_TEMP/release-notes.md"
+          awk -v heading="## [$version]" '
+            index($0, "## [") == 1 { if (found) exit; found = (index($0, heading) == 1); next }
+            found { print }
+          ' CHANGELOG.md > "$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "::error file=CHANGELOG.md::No non-empty \"## [$version]\" section in CHANGELOG.md for tag $GITHUB_REF_NAME."
+            exit 1
+          fi
+          cat "$notes"
+
+      # GitHub appends its generated "What's Changed" list, which mentions every
+      # contributor, below the changelog section.
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: ${{ runner.temp }}/release-notes.md
+          generate_release_notes: true
+          # A tag such as v1.0.0-rc.1 is a prerelease and never becomes Latest.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
