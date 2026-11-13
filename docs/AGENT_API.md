@@ -113,6 +113,40 @@ atau broadcast, dan biayanya satu query baca. Setiap perubahan dibroadcast
 sebagai `deployment.updated` pada channel deployment aktif, dengan tambahan
 field `project_runtime_status`.
 
+`metadata.workloads.traffic` juga tambahan opsional di dalam revision 4, dikirim
+node ber-capability `idle-sleep` untuk tidur otomatis. Isinya kapan router terakhir
+melayani request untuk setiap workload yang berjalan, paling banyak 500 item di sisi
+API (agent membatasinya ke `SAKALA_MAX_ACTIVE_CONTAINERS`), dan seperti
+`crashed_details`, seluruh heartbeat ditolak `422` bila ada item yang tidak sesuai:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `project_id` | UUID, wajib | Project pemilik workload. |
+| `deployment_id` | UUID, wajib | Deployment pemilik container. |
+| `last_request_at` | RFC 3339, wajib | Kapan agent pertama kali melihat counter request host ini berubah. |
+
+`metadata.detail_counts.traffic` (integer ≥ 0, opsional) menyimpan jumlah sebelum
+dipotong. Bila daftarnya ada, API memajukan `projects.last_request_at` hanya untuk
+project yang `active_deployment_id`-nya adalah `deployment_id` item itu, deployment
+itu berjalan di node pelapor, dan `project_id`-nya cocok. Nilainya hanya maju, tidak
+pernah mundur, dan waktu di depan jam API disimpan sebagai waktu sekarang. Item yang
+berulang untuk deployment yang sama memakai waktu terbaru. Biayanya satu query baca
+dan paling banyak satu query tulis per heartbeat, berapa pun panjang daftarnya.
+Workload yang tidak tercantum tidak berubah, karena tidak tercantum berarti belum ada
+request yang dihitung, bukan sepi.
+
+Daftar yang tidak dikirim tidak mengubah apa pun. `projects:sleep-idle` hanya
+menidurkan project di node yang punya capability `idle-sleep`, tidak `offline`, dan
+heartbeat terakhirnya (`agent_nodes.metadata`) membawa `workloads.traffic`, supaya
+node yang belum bisa membaca trafik tidak membuat project tampak sepi. Sleep karena
+sepi dikirim sebagai `SleepProject` biasa dengan payload kosong; perbedaannya hanya
+di `request_context` (`reason: idle`, actor `system`) yang tidak dikirim ke agent.
+Bangunnya lewat `WakeProject` ke node dan deployment yang sama. Container yang tidur
+tetap muncul di `startup_reconciliation.orphans` sebagai container deployment yang
+berhenti; API tidak menganggapnya sampah. Laporan crash untuk deployment yang
+`sleeping` diabaikan, sama seperti `stopped`. Lihat
+[Tidur Otomatis](API_CONVENTIONS.md#tidur-otomatis).
+
 API menyimpan `metadata.protocol_version` ke kolom `agent_nodes.protocol_version`
 dan membandingkannya dengan `sakala.agent.supported_protocol_versions`. Node
 dengan revisi tidak didukung tetap tercatat online, tetapi tidak menerima
@@ -402,6 +436,8 @@ API hanya mengirim `{ "remove_images": true }` pada stop yang dibuat karena
 project dihapus: `DELETE /api/v1/app/projects/{project}` dan penghapusan akun
 (`DeleteProjectAction`), attempt yang tetap sukses setelah project dihapus
 (`TransitionDeploymentAction`), dan stop ulang harian dari `projects:purge-deleted`.
+Project yang sedang tidur, atau yang container-nya disimpan setelah suspend, juga
+mendapat stop ini saat dihapus, karena `SleepProject` tidak menghapus container.
 Stop lain (admin stop, suspend, finalisasi deploy yang tertunda) mempertahankan
 image supaya project bisa di-rollback atau dijalankan lagi, dan dikirim sebagai `{}`.
 API tidak pernah mengirim `false` atau nilai lain.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Actions\Admin\CreateStopProjectCommandAction;
+use App\Actions\Deployment\AllocateDeploymentRealtimeSequenceAction;
 use App\Actions\Deployment\TransitionDeploymentAction;
 use App\Data\Agent\DeployProjectResultData;
 use App\Data\Agent\ProjectInspectionResultData;
@@ -13,6 +14,7 @@ use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Events\Deployment\DeploymentUpdated;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
@@ -29,6 +31,7 @@ final class CompleteAgentCommandAction
         private readonly TransitionDeploymentAction $transitionDeployment,
         private readonly CreateStopProjectCommandAction $createStopProjectCommand,
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
+        private readonly AllocateDeploymentRealtimeSequenceAction $allocateRealtimeSequence,
     ) {}
 
     /**
@@ -137,61 +140,160 @@ final class CompleteAgentCommandAction
                 AgentCommandType::RestartProject,
                 AgentCommandType::WakeProject,
             ], true)) {
-                // A deleted project still has to record that its workload stopped.
-                $project = Project::withTrashed()
-                    ->lockForUpdate()
-                    ->findOrFail($command->project_id);
-
-                if ($project->status !== ProjectStatus::Suspended && $this->isCurrentWorkload($project, $command)) {
-                    $project->update([
-                        'runtime_status' => RuntimeStatus::Running,
-                        'active_deployment_id' => $command->deployment_id,
-                    ]);
-                }
+                $this->completeStart($agent, $command);
             }
 
             if (in_array($command->type, [
                 AgentCommandType::StopProject,
                 AgentCommandType::SleepProject,
             ], true)) {
-                // A deleted project still has to record that its workload stopped.
-                $project = Project::withTrashed()
-                    ->lockForUpdate()
-                    ->findOrFail($command->project_id);
-
-                $isCurrentWorkload = $this->isCurrentWorkload($project, $command);
-
-                if ($isCurrentWorkload) {
-                    // Nothing serves anymore; a later crash report or failed
-                    // redeploy must not read as if a deployment were live.
-                    $project->update([
-                        'runtime_status' => RuntimeStatus::Stopped,
-                        'active_deployment_id' => null,
-                    ]);
-                }
-
-                $action = $command->type === AgentCommandType::StopProject
-                    ? 'project.stop_completed'
-                    : 'project.suspend_completed';
-
-                AuditEvent::create([
-                    'actor_type' => AgentNode::class,
-                    'actor_id' => $agent->id,
-                    'action' => $action,
-                    'subject_type' => Project::class,
-                    'subject_id' => $project->id,
-                    'metadata' => [
-                        'command_id' => $command->id,
-                        'deployment_id' => $command->deployment_id,
-                        'agent_node_id' => $command->agent_node_id,
-                        'outcome' => 'succeeded',
-                    ],
-                ]);
+                $this->completeStopOrSleep($agent, $command);
             }
         });
 
         // Reached here only if not already Succeeded (idempotent path returns early)
         return true;
+    }
+
+    /**
+     * Restart or wake: the workload runs again. A wake also clears `sleeping`
+     * and is announced like any other runtime change.
+     */
+    private function completeStart(AgentNode $agent, AgentCommand $command): void
+    {
+        // Deployment before project, like TransitionDeploymentAction and the
+        // crash reconciliation, so a heartbeat and this cannot deadlock.
+        $deployment = $this->lockDeployment($command);
+
+        // A deleted project still has to record that its workload stopped.
+        $project = Project::withTrashed()
+            ->lockForUpdate()
+            ->findOrFail($command->project_id);
+
+        $previous = $project->runtime_status;
+        $applied = $project->status !== ProjectStatus::Suspended && $this->isCurrentWorkload($project, $command);
+
+        if ($applied) {
+            $project->update([
+                'runtime_status' => RuntimeStatus::Running,
+                'active_deployment_id' => $command->deployment_id,
+            ]);
+
+            $this->broadcastRuntimeChange($deployment, $previous, RuntimeStatus::Running);
+        }
+
+        if ($command->type === AgentCommandType::WakeProject) {
+            AuditEvent::create([
+                'actor_type' => AgentNode::class,
+                'actor_id' => $agent->id,
+                'action' => 'project.wake_completed',
+                'subject_type' => Project::class,
+                'subject_id' => $project->id,
+                'metadata' => [
+                    'command_id' => $command->id,
+                    'deployment_id' => $command->deployment_id,
+                    'agent_node_id' => $command->agent_node_id,
+                    'outcome' => 'succeeded',
+                    // False for a superseded deployment or a suspended project.
+                    'applied' => $applied,
+                ],
+            ]);
+        }
+    }
+
+    /**
+     * Stop and suspension sleep: nothing serves anymore. An idle sleep keeps
+     * the active deployment, because a wake needs its node and a delete has to
+     * remove the container the node keeps, and the project reads `sleeping`.
+     */
+    private function completeStopOrSleep(AgentNode $agent, AgentCommand $command): void
+    {
+        $deployment = $this->lockDeployment($command);
+
+        // A deleted project still has to record that its workload stopped.
+        $project = Project::withTrashed()
+            ->lockForUpdate()
+            ->findOrFail($command->project_id);
+
+        $isCurrentWorkload = $this->isCurrentWorkload($project, $command);
+        $previous = $project->runtime_status;
+        $idleSleep = $command->isIdleSleep();
+
+        if ($idleSleep && $project->status !== ProjectStatus::Suspended) {
+            // A deployment that started since owns the status until it ends;
+            // a failed or cancelled one falls back to sleeping. A stop that
+            // already finished is not undone.
+            if ($isCurrentWorkload && in_array($previous, [RuntimeStatus::Running, RuntimeStatus::Crashed], true)) {
+                $project->update([
+                    'runtime_status' => RuntimeStatus::Sleeping,
+                    'active_deployment_id' => $command->deployment_id,
+                ]);
+
+                $this->broadcastRuntimeChange($deployment, $previous, RuntimeStatus::Sleeping);
+            }
+        } elseif ($isCurrentWorkload) {
+            // Nothing serves anymore; a later crash report or failed
+            // redeploy must not read as if a deployment were live.
+            $project->update([
+                'runtime_status' => RuntimeStatus::Stopped,
+                'active_deployment_id' => null,
+            ]);
+
+            $this->broadcastRuntimeChange($deployment, $previous, RuntimeStatus::Stopped);
+        }
+
+        $action = match (true) {
+            $command->type === AgentCommandType::StopProject => 'project.stop_completed',
+            $idleSleep => 'project.idle_sleep_completed',
+            default => 'project.suspend_completed',
+        };
+
+        AuditEvent::create([
+            'actor_type' => AgentNode::class,
+            'actor_id' => $agent->id,
+            'action' => $action,
+            'subject_type' => Project::class,
+            'subject_id' => $project->id,
+            'metadata' => [
+                'command_id' => $command->id,
+                'deployment_id' => $command->deployment_id,
+                'agent_node_id' => $command->agent_node_id,
+                'outcome' => 'succeeded',
+            ],
+        ]);
+    }
+
+    private function lockDeployment(AgentCommand $command): ?Deployment
+    {
+        if ($command->deployment_id === null) {
+            return null;
+        }
+
+        return Deployment::query()
+            ->whereKey($command->deployment_id)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    /**
+     * Same event the crash reconciliation sends, so the console follows a
+     * sleep or wake without polling. Nothing is sent when nothing changed.
+     */
+    private function broadcastRuntimeChange(?Deployment $deployment, RuntimeStatus $previous, RuntimeStatus $next): void
+    {
+        if ($deployment === null || $previous === $next) {
+            return;
+        }
+
+        $sequence = $this->allocateRealtimeSequence->handle($deployment);
+
+        DeploymentUpdated::dispatch(
+            deploymentId: $deployment->id,
+            payload: [
+                ...DeploymentUpdated::payloadFor($deployment, $sequence),
+                'project_runtime_status' => $next->value,
+            ],
+        );
     }
 
     /**

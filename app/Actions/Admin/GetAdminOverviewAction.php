@@ -10,6 +10,7 @@ use App\Data\Admin\PilotValidationMetricsRequestData;
 use App\Data\Admin\TimeRangeData;
 use App\Enums\DeploymentStatus;
 use App\Enums\OnboardingSource;
+use App\Enums\RuntimeStatus;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
@@ -54,7 +55,11 @@ final class GetAdminOverviewAction
             generatedAt: CarbonImmutable::now()->utc(),
             totalUsers: User::query()->count(),
             totalProjects: Project::query()->count(),
-            activeProjects: Project::query()->whereNotNull('active_deployment_id')->count(),
+            // A sleeping project keeps its active deployment but serves nothing.
+            activeProjects: Project::query()
+                ->whereNotNull('active_deployment_id')
+                ->where('runtime_status', '!=', RuntimeStatus::Sleeping)
+                ->count(),
             newUsers: $this->createdIn(User::query(), $range)->count(),
             newProjects: $this->createdIn(Project::query()->withTrashed(), $range)->count(),
             deployments: $this->deploymentOutcomes($range),

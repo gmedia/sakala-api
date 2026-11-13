@@ -78,6 +78,10 @@ final class SuspendProjectAction
         }
     }
 
+    /**
+     * An idle sleep that is still open does not count: it only stops what the
+     * suspension stops anyway, and must not keep an admin waiting.
+     */
     private function findPendingSuspendCommand(
         Project $project,
     ): ?AgentCommand {
@@ -90,7 +94,8 @@ final class SuspendProjectAction
                 AgentCommandStatus::Running,
             ])
             ->latest('created_at')
-            ->first();
+            ->get()
+            ->first(static fn (AgentCommand $command): bool => ! $command->isIdleSleep());
     }
 
     public function handle(

@@ -149,8 +149,11 @@ final class ReconcileCrashedWorkloadsAction
     private function nextStatus(Project $project, CrashedWorkloadsData $report): ?RuntimeStatus
     {
         if ($report->lists($project->id, (string) $project->active_deployment_id)) {
+            // A sleeping container is stopped on purpose and keeps the pointer,
+            // so a report for it must not read as a crash.
             $intentionallyDown = $project->status === ProjectStatus::Suspended
-                || $project->runtime_status === RuntimeStatus::Stopped;
+                || $project->runtime_status === RuntimeStatus::Stopped
+                || $project->runtime_status === RuntimeStatus::Sleeping;
 
             return $intentionallyDown || $project->runtime_status === RuntimeStatus::Crashed
                 ? null

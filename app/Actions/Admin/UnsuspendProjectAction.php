@@ -59,12 +59,14 @@ final class UnsuspendProjectAction
                 abort(409, 'Proyek ini tidak sedang ditangguhkan.');
             }
 
-            // The command would still stop whatever the owner deploys next.
+            // The command would still stop whatever the owner deploys next. An
+            // idle sleep would not: it targets the deployment it was made for.
             $sleeping = AgentCommand::query()
                 ->where('project_id', $locked->id)
                 ->where('type', AgentCommandType::SleepProject)
                 ->whereIn('status', [AgentCommandStatus::Pending, AgentCommandStatus::Claimed, AgentCommandStatus::Running])
-                ->exists();
+                ->get()
+                ->contains(static fn (AgentCommand $command): bool => ! $command->isIdleSleep());
 
             if ($sleeping) {
                 abort(409, 'Command penangguhan proyek ini masih berjalan. Tunggu sampai selesai.');

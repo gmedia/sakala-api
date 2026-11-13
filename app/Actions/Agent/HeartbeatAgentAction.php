@@ -13,6 +13,7 @@ final class HeartbeatAgentAction
     public function __construct(
         private readonly AssignPendingCommandsAction $assignPendingCommands,
         private readonly ReconcileCrashedWorkloadsAction $reconcileCrashedWorkloads,
+        private readonly RecordWorkloadTrafficAction $recordWorkloadTraffic,
     ) {}
 
     public function handle(
@@ -37,6 +38,10 @@ final class HeartbeatAgentAction
 
             if ($data->crashedWorkloads !== null) {
                 $this->reconcileCrashedWorkloads->handleWithinTransaction($agent, $data->crashedWorkloads);
+            }
+
+            if ($data->workloadTraffic !== null) {
+                $this->recordWorkloadTraffic->handleWithinTransaction($agent, $data->workloadTraffic);
             }
 
             return $agent->refresh();

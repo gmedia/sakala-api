@@ -38,6 +38,8 @@ final class WorkspaceQuotaResource extends JsonResource
                  * Reserved for the build rate limit; not enforced yet.
                  */
                 'max_builds_per_hour' => $limits->max_builds_per_hour,
+                /** Effective minutes without a request before a project sleeps, from the profile or the global setting. `0` never sleeps. */
+                'idle_sleep_minutes' => $limits->idle_sleep_minutes,
                 /** Global, the same for every workspace. */
                 'max_active_deployments_per_project' => $this->resource->max_active_deployments_per_project,
             ],

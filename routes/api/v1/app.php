@@ -45,6 +45,8 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
     Route::post('projects/{project}/inspection', [ProjectController::class, 'inspect'])
         ->middleware(['throttle:inspection', EnsureLegalAcceptance::class])
         ->name('api.v1.app.projects.inspection');
+    Route::post('projects/{project}/wake', [ProjectController::class, 'wake'])
+        ->name('api.v1.app.projects.wake');
 
     // Environment variable routes
     Route::scopeBindings()->group(function (): void {

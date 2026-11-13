@@ -9,13 +9,13 @@ use App\Data\Project\PurgeDeletedProjectsResultData;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
-use App\Enums\RuntimeStatus;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\RetiredProjectSlug;
+use App\Services\Runtime\ProjectWorkloadService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Notifications\DatabaseNotification;
@@ -51,6 +51,7 @@ final class PurgeDeletedProjectsAction
 
     public function __construct(
         private readonly CreateStopProjectCommandAction $createStopCommand,
+        private readonly ProjectWorkloadService $workloads,
     ) {}
 
     public function handle(?int $days = null, bool $dryRun = false, int $batchSize = 100): PurgeDeletedProjectsResultData
@@ -156,16 +157,13 @@ final class PurgeDeletedProjectsAction
     }
 
     /**
-     * The deployment that still serves although nothing is asking it to stop,
-     * which is what a failed or expired StopProject leaves behind.
+     * The deployment that a node still keeps although nothing is asking it to
+     * stop, which is what a failed or expired StopProject leaves behind. A
+     * sleeping or suspended container counts: it holds a network and an image.
      */
     private function unstoppedWorkload(Project $project): ?Deployment
     {
-        if ($project->runtime_status === RuntimeStatus::Stopped || $project->active_deployment_id === null) {
-            return null;
-        }
-
-        $deployment = Deployment::query()->find($project->active_deployment_id);
+        $deployment = $this->workloads->retainedWorkload($project);
 
         if ($deployment === null || $deployment->agent_node_id === null) {
             return null;

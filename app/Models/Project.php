@@ -49,6 +49,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $inspection_error_code
  * @property CarbonImmutable|null $inspected_at
  * @property CarbonImmutable|null $last_deployed_at
+ * @property CarbonImmutable|null $last_request_at When the router last served a request for the active deployment, from agent heartbeats.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -80,6 +81,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'inspection_error_code',
     'inspected_at',
     'last_deployed_at',
+    'last_request_at',
 ])]
 class Project extends Model
 {
@@ -115,7 +117,11 @@ class Project extends Model
      */
     public function servingPort(): ?int
     {
-        if ($this->active_deployment_id === null || $this->runtime_status === RuntimeStatus::Crashed) {
+        if (
+            $this->active_deployment_id === null
+            || $this->runtime_status === RuntimeStatus::Crashed
+            || $this->runtime_status === RuntimeStatus::Sleeping
+        ) {
             return null;
         }
 
@@ -250,6 +256,7 @@ class Project extends Model
             'inspected_at' => 'immutable_datetime',
             'github_repository_id' => 'integer',
             'last_deployed_at' => 'immutable_datetime',
+            'last_request_at' => 'immutable_datetime',
         ];
     }
 

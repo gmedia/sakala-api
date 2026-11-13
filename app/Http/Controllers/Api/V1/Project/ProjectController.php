@@ -8,9 +8,12 @@ use App\Actions\Project\CreateProjectAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\GetProjectCollectionAction;
 use App\Actions\Project\RequestProjectInspectionAction;
+use App\Actions\Project\RequestProjectWakeAction;
 use App\Actions\Project\UpdateProjectAction;
 use App\Enums\ProjectStatus;
+use App\Exceptions\Runtime\ProjectNotSleepingException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
+use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Project\IndexProjectRequest;
 use App\Http\Requests\Api\V1\Project\StoreProjectRequest;
@@ -102,6 +105,35 @@ final class ProjectController extends Controller
         }
 
         $action->handle($project);
+
+        return ProjectResource::make($project->refresh())
+            ->response()
+            ->setStatusCode(202);
+    }
+
+    /**
+     * Wake a sleeping project.
+     *
+     * Answers 202: the node starts the kept container, and `runtime_status`
+     * becomes `running` once it reports back. A wake that is already queued is
+     * returned instead of a second one. Same rights as deploying.
+     *
+     * @throws ProjectSuspendedException
+     * @throws ProjectNotSleepingException
+     * @throws ProjectWakeLimitExceededException
+     */
+    public function wake(Request $request, Project $project, RequestProjectWakeAction $action): JsonResponse
+    {
+        if (Gate::denies('deploy', $project)) {
+            // Members learn why; anyone else keeps the generic 403.
+            if ($project->status === ProjectStatus::Suspended && Gate::allows('view', $project)) {
+                throw new ProjectSuspendedException;
+            }
+
+            Gate::authorize('deploy', $project);
+        }
+
+        $action->handle($project, $request->user());
 
         return ProjectResource::make($project->refresh())
             ->response()

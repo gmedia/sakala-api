@@ -65,6 +65,27 @@ class AgentCommand extends Model
     /** @use HasFactory<AgentCommandFactory> */
     use HasFactory, HasUuids;
 
+    /** `request_context.reason` of a SleepProject the idle sweep created. */
+    public const IDLE_SLEEP_REASON = 'idle';
+
+    /** `request_context.actor_id` of a SleepProject the idle sweep created. */
+    public const IDLE_SLEEP_ACTOR_ID = 'scheduler:sleep-idle';
+
+    /** `request_context.actor_type` of commands created by the control plane itself. */
+    public const SYSTEM_ACTOR_TYPE = 'system';
+
+    /**
+     * Whether this SleepProject puts an idle project to sleep, as opposed to
+     * suspending it. Suspension sleeps always carry the admin as actor or no
+     * actor at all, so an admin who writes "idle" as a reason still suspends.
+     */
+    public function isIdleSleep(): bool
+    {
+        return $this->type === AgentCommandType::SleepProject
+            && ($this->request_context['reason'] ?? null) === self::IDLE_SLEEP_REASON
+            && ($this->request_context['actor_type'] ?? null) === self::SYSTEM_ACTOR_TYPE;
+    }
+
     /** @return BelongsTo<Project, $this> */
     public function project(): BelongsTo
     {

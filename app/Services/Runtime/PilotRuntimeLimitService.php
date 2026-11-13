@@ -10,12 +10,15 @@ use App\Data\Runtime\PilotQuotaLimitsData;
 use App\Data\Runtime\RuntimeResourceLimitsData;
 use App\Data\Runtime\RuntimeTimeoutLimitsData;
 use App\Data\Runtime\WorkspaceLimitsData;
+use App\Enums\RuntimeStatus;
 use App\Enums\WorkspaceType;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\ProjectLimitExceededException;
+use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
 use App\Models\Deployment;
+use App\Models\LimitProfile;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
@@ -41,7 +44,7 @@ class PilotRuntimeLimitService
         $profile = $workspace->limit_profile_id === null ? null : $workspace->limitProfile;
 
         if ($profile !== null) {
-            return WorkspaceLimitsData::fromProfile($profile);
+            return WorkspaceLimitsData::fromProfile($profile, $this->idleSleepMinutesFor($profile));
         }
 
         $maxProjects = (int) config('sakala.pilot_limits.max_projects_per_user', 3);
@@ -52,6 +55,7 @@ class PilotRuntimeLimitService
             max_memory_mb: (int) config('sakala.pilot_limits.resources.max_memory_mb', 512),
             max_cpu_millis: (int) config('sakala.pilot_limits.resources.max_cpu_millis', 1000),
             max_builds_per_hour: null,
+            idle_sleep_minutes: $this->idleSleepMinutesFor(null),
         );
 
         if ($workspace->type === WorkspaceType::Personal) {
@@ -67,7 +71,23 @@ class PilotRuntimeLimitService
             max_memory_mb: $team('max_memory_mb', $personal->max_memory_mb),
             max_cpu_millis: $team('max_cpu_millis', $personal->max_cpu_millis),
             max_builds_per_hour: null,
+            idle_sleep_minutes: $personal->idle_sleep_minutes,
         );
+    }
+
+    /**
+     * Minutes without a request before a project of a workspace under this
+     * profile is put to sleep; 0 means never. A profile without its own value,
+     * and a workspace without a profile (personal or team), follow
+     * `sakala.project.idle_sleep_minutes`. This is the only place that decides.
+     */
+    public function idleSleepMinutesFor(?LimitProfile $profile): int
+    {
+        if ($profile?->idle_sleep_minutes !== null) {
+            return max(0, $profile->idle_sleep_minutes);
+        }
+
+        return max(0, (int) config('sakala.project.idle_sleep_minutes', 0));
     }
 
     /**
@@ -210,8 +230,9 @@ class PilotRuntimeLimitService
             );
         }
 
-        // Redeploying a project that already serves replaces its container.
-        if ($project->active_deployment_id !== null) {
+        // Redeploying a project that already serves replaces its container. A
+        // sleeping one holds no slot, so its redeploy takes one like a wake.
+        if ($project->active_deployment_id !== null && $project->runtime_status !== RuntimeStatus::Sleeping) {
             return;
         }
 
@@ -219,6 +240,30 @@ class PilotRuntimeLimitService
 
         if ($containers >= $limits->max_active_containers) {
             throw new ActiveContainerLimitExceededException($limits->max_active_containers, $containers);
+        }
+    }
+
+    /**
+     * Whether waking this sleeping project stays within its workspace's running
+     * container limit. Applies to everyone, admins included: a wake can come
+     * from an anonymous visitor, and the limit is what keeps a node's slots
+     * shared. The caller holds the project row lock.
+     *
+     * @throws ProjectWakeLimitExceededException
+     */
+    public function checkWakeLimit(Project $project, bool $exposeUsage = true): void
+    {
+        $workspace = $project->workspace;
+
+        if ($workspace === null) {
+            return;
+        }
+
+        $limit = $this->limitsFor($workspace)->max_active_containers;
+        $containers = $this->activeContainersIn($workspace, except: $project);
+
+        if ($containers >= $limit) {
+            throw new ProjectWakeLimitExceededException($limit, $containers, $exposeUsage);
         }
     }
 
@@ -260,7 +305,8 @@ class PilotRuntimeLimitService
 
     /**
      * Projects that serve, or are being deployed and will serve, so two
-     * deployments racing for the last slot cannot both pass.
+     * deployments racing for the last slot cannot both pass. A sleeping project
+     * keeps its active deployment but runs nothing, so it does not count.
      */
     private function activeContainersIn(Workspace $workspace, ?Project $except = null): int
     {
@@ -268,7 +314,9 @@ class PilotRuntimeLimitService
             ->where('workspace_id', $workspace->id)
             ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except?->id))
             ->where(fn (Builder $query) => $query
-                ->whereNotNull('active_deployment_id')
+                ->where(fn (Builder $serving) => $serving
+                    ->whereNotNull('active_deployment_id')
+                    ->where('runtime_status', '!=', RuntimeStatus::Sleeping))
                 ->orWhereHas('deployments', fn (Builder $deployments) => $deployments->active()))
             ->count();
     }
