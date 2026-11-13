@@ -54,7 +54,7 @@ final class GetAdminOverviewAction
             generatedAt: CarbonImmutable::now()->utc(),
             totalUsers: User::query()->count(),
             totalProjects: Project::query()->count(),
-            activeProjects: Project::query()->whereNotNull('active_deployment_id')->count(),
+            activeProjects: Project::query()->serving()->count(),
             newUsers: $this->createdIn(User::query(), $range)->count(),
             newProjects: $this->createdIn(Project::query()->withTrashed(), $range)->count(),
             deployments: $this->deploymentOutcomes($range),

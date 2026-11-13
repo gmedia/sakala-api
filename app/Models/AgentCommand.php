@@ -9,6 +9,7 @@ use App\Enums\AgentCommandType;
 use Carbon\CarbonImmutable;
 use Database\Factories\AgentCommandFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -64,6 +65,32 @@ class AgentCommand extends Model
 {
     /** @use HasFactory<AgentCommandFactory> */
     use HasFactory, HasUuids;
+
+    /** `request_context.reason` of a SleepProject the idle sweep created. */
+    public const IDLE_SLEEP_REASON = 'idle';
+
+    /**
+     * Whether this SleepProject puts an idle project to sleep, as opposed to
+     * suspending it. Suspension sleeps always carry the admin as actor or no
+     * actor at all, so an admin who writes "idle" as a reason still suspends.
+     */
+    public function isIdleSleep(): bool
+    {
+        return $this->type === AgentCommandType::SleepProject
+            && ($this->request_context['reason'] ?? null) === self::IDLE_SLEEP_REASON
+            && ($this->request_context['actor_type'] ?? null) === AuditEvent::SYSTEM_ACTOR_TYPE;
+    }
+
+    /**
+     * Scope a query to commands that may still run.
+     *
+     * @param  Builder<AgentCommand>  $query
+     * @return Builder<AgentCommand>
+     */
+    public function scopeOpen(Builder $query): Builder
+    {
+        return $query->whereIn('status', AgentCommandStatus::openCases());
+    }
 
     /** @return BelongsTo<Project, $this> */
     public function project(): BelongsTo

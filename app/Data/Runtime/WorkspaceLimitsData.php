@@ -20,9 +20,11 @@ final readonly class WorkspaceLimitsData
         public int $max_cpu_millis,
         public ?int $max_builds_per_hour,
         public ?LimitProfile $profile = null,
+        /** Effective minutes without a request before a project sleeps; 0 = never. */
+        public int $idle_sleep_minutes = 0,
     ) {}
 
-    public static function fromProfile(LimitProfile $profile): self
+    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes): self
     {
         return new self(
             max_projects: $profile->max_projects,
@@ -32,6 +34,7 @@ final readonly class WorkspaceLimitsData
             max_cpu_millis: $profile->max_cpu_millis,
             max_builds_per_hour: $profile->max_builds_per_hour,
             profile: $profile,
+            idle_sleep_minutes: $idleSleepMinutes,
         );
     }
 }

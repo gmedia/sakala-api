@@ -148,6 +148,24 @@ test('the OpenAPI document gives the GitHub 503 errors of the endpoints that rea
     }
 });
 
+test('the OpenAPI document describes idle sleep: the status, both wake endpoints, and their conflicts', function (): void {
+    $document = openApiDocumentForTypes();
+    $conflict = $document['components']['responses']['ProjectWakeConflict']['content']['application/json']['schema'];
+    $console = $document['paths']['/v1/app/projects/{project}/wake']['post'];
+    $public = $document['paths']['/v1/public/projects/{slug}/wake']['post'];
+
+    expect($document['components']['schemas']['RuntimeStatus']['enum'])->toContain('sleeping')
+        ->and($console['responses'][202]['content']['application/json']['schema']['properties']['data']['$ref'])->toBe('#/components/schemas/ProjectResource')
+        ->and($console['responses'][409]['$ref'])->toBe('#/components/responses/ProjectWakeConflict')
+        ->and($public['responses'])->toHaveKey(202)
+        ->and($public['responses'][409]['$ref'])->toBe('#/components/responses/ProjectWakeConflict')
+        ->and($public['security'])->toBe([])
+        ->and($conflict['properties']['code']['enum'])->toBe(['PROJECT_WAKE_LIMIT_EXCEEDED', 'PROJECT_NOT_SLEEPING', 'PROJECT_SUSPENDED'])
+        ->and($conflict['required'])->toBe(['message', 'code'])
+        ->and($document['components']['schemas']['LimitProfileResource']['properties']['idle_sleep_minutes']['type'])->toBe(['integer', 'null'])
+        ->and($document['components']['schemas']['PilotLimitsResource']['properties']['project_idle_sleep_minutes']['type'])->toBe('integer');
+});
+
 test('responses send the types the OpenAPI document gives', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();

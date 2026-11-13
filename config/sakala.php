@@ -37,6 +37,9 @@ return [
         'account_export' => (int) env('SAKALA_ACCOUNT_EXPORT_RATE_LIMIT', 3),
         // Per hour per user: each invitation sends an email to an address the user chose.
         'workspace_invitations' => (int) env('SAKALA_WORKSPACE_INVITATION_RATE_LIMIT', 20),
+        // Per minute per visitor IP and project slug: the sleeping page of a
+        // project asks to wake it on every reload, every 3 seconds.
+        'project_wake' => (int) env('SAKALA_PROJECT_WAKE_RATE_LIMIT', 6),
     ],
 
     // Current versions of the published documents, stored per user on acceptance.
@@ -74,6 +77,10 @@ return [
         // A deleted project is kept this long, then projects:purge-deleted
         // removes it for good. GET app/pilot-limits gives the console this number.
         'deleted_retention_days' => (int) env('SAKALA_DELETED_PROJECT_RETENTION_DAYS', 30),
+        // A running project without a request for this many minutes is put to
+        // sleep by projects:sleep-idle, on nodes that advertise `idle-sleep`.
+        // 0 turns idle sleep off. GET app/pilot-limits gives the console this number.
+        'idle_sleep_minutes' => max(0, (int) env('SAKALA_PROJECT_IDLE_SLEEP_MINUTES', 0)),
         'reserved_slugs' => [
             'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',
             'support', 'help', 'status', 'mail', 'test', 'run',

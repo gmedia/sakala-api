@@ -11,6 +11,7 @@ use App\Console\Commands\PruneNotificationsCommand;
 use App\Console\Commands\PruneUsageSignalsCommand;
 use App\Console\Commands\PruneWorkspaceInvitationsCommand;
 use App\Console\Commands\PurgeDeletedProjectsCommand;
+use App\Console\Commands\SleepIdleProjectsCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -26,6 +27,11 @@ Schedule::command(ExpireAgentCommandsCommand::class)
     ->onOneServer();
 
 Schedule::command(MarkOfflineAgentNodesCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(SleepIdleProjectsCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();

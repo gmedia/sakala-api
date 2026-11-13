@@ -14,7 +14,7 @@ class StoreLimitProfileRequest extends FormRequest
 {
     use RequiresAdminReason;
 
-    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour'];
+    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes'];
 
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
@@ -32,6 +32,11 @@ class StoreLimitProfileRequest extends FormRequest
             'max_cpu_millis' => ['required', 'integer', 'between:100,64000'],
             /** Reserved for the build rate limit; stored but not enforced yet. */
             'max_builds_per_hour' => ['sometimes', 'nullable', 'integer', 'between:1,1000'],
+            /**
+             * Minutes without a request before a project sleeps, up to a week. `0` never puts the workspace's
+             * projects to sleep; `null` (the default) follows `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`.
+             */
+            'idle_sleep_minutes' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_IDLE_SLEEP_MINUTES],
         ];
     }
 

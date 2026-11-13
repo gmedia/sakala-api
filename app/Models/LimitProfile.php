@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $max_memory_mb
  * @property int $max_cpu_millis
  * @property int|null $max_builds_per_hour Reserved for the build rate limit (#124); not enforced yet.
+ * @property int|null $idle_sleep_minutes Null follows the global setting, 0 never sleeps, N sleeps after N idle minutes.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -35,11 +36,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'max_memory_mb',
     'max_cpu_millis',
     'max_builds_per_hour',
+    'idle_sleep_minutes',
 ])]
 class LimitProfile extends Model
 {
     /** @use HasFactory<LimitProfileFactory> */
     use HasFactory, HasUuids;
+
+    /** Longest idle window a profile may set: one week. */
+    public const MAX_IDLE_SLEEP_MINUTES = 7 * 24 * 60;
 
     /** @return HasMany<Workspace, $this> */
     public function workspaces(): HasMany
@@ -57,6 +62,7 @@ class LimitProfile extends Model
             'max_memory_mb' => 'integer',
             'max_cpu_millis' => 'integer',
             'max_builds_per_hour' => 'integer',
+            'idle_sleep_minutes' => 'integer',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

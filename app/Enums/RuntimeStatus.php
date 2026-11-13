@@ -12,4 +12,6 @@ enum RuntimeStatus: string
     case Stopped = 'stopped';
     case Failed = 'failed';
     case Crashed = 'crashed';
+    /** Put to sleep after being idle; the container is kept and the next request wakes it. */
+    case Sleeping = 'sleeping';
 }

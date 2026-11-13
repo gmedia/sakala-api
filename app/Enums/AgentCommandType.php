@@ -88,6 +88,32 @@ enum AgentCommandType: string
     }
 
     /**
+     * Commands that start, stop, or put to sleep a project's kept workload.
+     * While one is open the project is already changing.
+     */
+    public function isProjectLifecycle(): bool
+    {
+        return match ($this) {
+            self::RestartProject,
+            self::StopProject,
+            self::SleepProject,
+            self::WakeProject => true,
+            default => false,
+        };
+    }
+
+    /**
+     * @return list<self>
+     */
+    public static function projectLifecycleCases(): array
+    {
+        return array_values(array_filter(
+            self::cases(),
+            static fn (self $type): bool => $type->isProjectLifecycle(),
+        ));
+    }
+
+    /**
      * Commands the agent still processes while its lifecycle is not active.
      */
     public function isNodeLifecycle(): bool

@@ -163,9 +163,13 @@ final class FailAgentCommandAction
                 AgentCommandType::StopProject,
                 AgentCommandType::SleepProject,
             ], true)) {
-                $action = $command->type === AgentCommandType::StopProject
-                    ? 'project.stop_failed'
-                    : 'project.suspend_failed';
+                // The project keeps its runtime state: a failed idle sleep
+                // leaves it running and the next sweep asks again.
+                $action = match (true) {
+                    $command->type === AgentCommandType::StopProject => 'project.stop_failed',
+                    $command->isIdleSleep() => 'project.idle_sleep_failed',
+                    default => 'project.suspend_failed',
+                };
 
                 AuditEvent::create([
                     'actor_type' => AgentNode::class,
@@ -176,6 +180,26 @@ final class FailAgentCommandAction
                     'metadata' => [
                         'command_id' => $command->id,
                         'deployment_id' => $command->deployment_id,
+                        'error_code' => $errorCode,
+                        'error_message' => $errorMessage,
+                    ],
+                ]);
+            }
+
+            if ($command->type === AgentCommandType::WakeProject) {
+                // The node kept the sleeping route, so the project stays
+                // `sleeping`; the next visit or console request asks again.
+                // `runtime_capacity_exceeded` means the node itself was full.
+                AuditEvent::create([
+                    'actor_type' => AgentNode::class,
+                    'actor_id' => $agent->id,
+                    'action' => 'project.wake_failed',
+                    'subject_type' => Project::class,
+                    'subject_id' => $command->project_id,
+                    'metadata' => [
+                        'command_id' => $command->id,
+                        'deployment_id' => $command->deployment_id,
+                        'agent_node_id' => $command->agent_node_id,
                         'error_code' => $errorCode,
                         'error_message' => $errorMessage,
                     ],

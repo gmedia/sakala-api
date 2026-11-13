@@ -36,6 +36,11 @@ final class LimitProfileResource extends JsonResource
              */
             'max_builds_per_hour' => $profile->max_builds_per_hour,
             /**
+             * Minutes without a request before a project sleeps. `0` never sleeps; `null` follows the global
+             * `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`.
+             */
+            'idle_sleep_minutes' => $profile->idle_sleep_minutes,
+            /**
              * Workspaces running under this profile. A profile is deleted only at zero.
              *
              * @var int|null

@@ -6,7 +6,19 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Added
 
+- Idle sleep and wake on request (ADR-015). `projects:sleep-idle` runs every minute on one server and puts a `running` project to sleep when its last request, its active deployment's completion, and its last wake or restart are all older than its workspace's idle window. Only nodes with the `idle-sleep` capability whose last heartbeat carried a traffic list take part, so a project never looks idle for lack of data. Off by default: `SAKALA_PROJECT_IDLE_SLEEP_MINUTES` defaults to `0`.
+- Idle sleep is set per workspace through limit profiles: `limit_profiles.idle_sleep_minutes` (`null` follows `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` never sleeps, 1 to 10080 minutes otherwise), accepted by the admin limit profile create and update endpoints and audited like the other fields. The effective value is `project_idle_sleep_minutes` on `GET app/pilot-limits` and `quota.limits.idle_sleep_minutes` on the admin workspace detail. A profile can opt its workspaces in while the global value is `0`.
+- `runtime_status` `sleeping`: an idle sleep keeps the container on the node and keeps `active_deployment_id`. Sleeping projects do not count as running containers, so waking or redeploying one needs a free slot.
+- `POST api/v1/public/projects/{slug}/wake`, called by the sleeping page without credentials, session, or CSRF token. Always `202` with an empty body, including for slugs that do not exist or projects that cannot be woken, except `409 PROJECT_WAKE_LIMIT_EXCEEDED` (without counts) and `429` from `SAKALA_PROJECT_WAKE_RATE_LIMIT` (default 6 per minute per IP and slug).
+- `POST api/v1/app/projects/{project}/wake` for the console, with the same rights as deploying. `202` with the project, or `409` with `PROJECT_SUSPENDED`, `PROJECT_NOT_SLEEPING` (with `runtime_status`), or `PROJECT_WAKE_LIMIT_EXCEEDED` (with `limit` and `current`). An open wake is reused, never queued twice.
+- Heartbeat `metadata.workloads.traffic` and `metadata.detail_counts.traffic` (agent revision 4, additive): `projects.last_request_at` moves forward for projects whose active deployment the reporting node serves, in one read and at most one write per heartbeat.
+- Audit events `project.idle_sleep_requested`, `project.idle_sleep_completed`, `project.idle_sleep_failed`, `project.wake_requested`, `project.wake_completed`, and `project.wake_failed`. Idle sleep and wake completions are broadcast as `deployment.updated` with `project_runtime_status`, and so are stop and restart completions that change the status.
 - Every `vX.Y.Z` tag now also publishes a GitHub Release once the images are published. Its notes are that version's section of this file followed by GitHub's generated "What's Changed" list, which credits each contributor. The release workflow fails when the tag has no non-empty section here.
+
+### Fixed
+
+- Deleting a project whose container a node still keeps after a sleep (a sleeping project, or a suspended one whose suspension sleep finished) now sends `StopProject` with `remove_images: true`, and the daily purge asks again when it failed. Before, the container and its network stayed on the node.
+- A pending idle sleep no longer blocks suspending or unsuspending a project; only suspension sleeps do. `project.suspend_completed` and `project.suspend_failed` are only written for suspension sleeps.
 
 ## [0.4.2] - 2026-11-12
 

@@ -64,7 +64,9 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED` | `422` | Batas deployment yang sedang berjalan tercapai. | `scope` (`project`, `user` untuk workspace pribadi, atau `workspace` untuk tim), `limit`, `current` |
 | `ACTIVE_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy project yang belum melayani akan melewati batas container berjalan workspace. Redeploy project yang sudah melayani tidak pernah kena. | `limit`, `current` |
 | `RESOURCE_LIMIT_EXCEEDED` | `422` | Resource yang diminta di luar batas pilot. | `resource`, `requested`, `maximum` |
-| `PROJECT_SUSPENDED` | `409` | Deploy atau inspeksi ulang pada project yang ditangguhkan admin. | - |
+| `PROJECT_SUSPENDED` | `409` | Deploy, inspeksi ulang, atau membangunkan lewat Console project yang ditangguhkan admin. | - |
+| `PROJECT_NOT_SLEEPING` | `409` | Membangunkan lewat Console project yang `runtime_status`-nya bukan `sleeping`. | `runtime_status` |
+| `PROJECT_WAKE_LIMIT_EXCEEDED` | `409` | Membangunkan project akan melewati batas container berjalan workspace. Endpoint publik tidak menyertakan angkanya. | `limit`, `current` (hanya lewat Console) |
 | `DEPLOYMENT_ALREADY_FINISHED` | `409` | Membatalkan deployment yang sudah `succeeded` atau `failed`. | `status` |
 | `GITHUB_RATE_LIMITED` | `503` | GitHub membatasi permintaan Sakala dan tidak ada jawaban tersimpan. Header `Retry-After` berisi detik tunggu. | `retry_after` |
 | `GITHUB_UNAVAILABLE` | `503` | GitHub menjawab error (misalnya `5xx`), jawabannya tidak bisa dibaca, atau tidak bisa dihubungi saat membaca repository, branch, atau commit. Masalahnya bukan di repository kamu; aman diulang. Lihat [Pembacaan GitHub Publik](#pembacaan-github-publik). | - |
@@ -191,11 +193,11 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 
 | Field | Tipe | Keterangan |
 | --- | --- | --- |
-| `active_deployment_id` | UUID atau `null` | Deployment yang sedang melayani: terakhir `succeeded` dan belum dihentikan. Tetap terisi saat redeploy gagal dan saat `crashed`; kosong setelah stop atau sleep selesai. |
+| `active_deployment_id` | UUID atau `null` | Deployment yang sedang melayani: terakhir `succeeded` dan belum dihentikan. Tetap terisi saat redeploy gagal, saat `crashed`, dan saat `sleeping` (container-nya disimpan node dan bangun lagi dari situ); kosong setelah stop atau sleep karena suspend selesai. |
 | `detected_port` | integer atau `null` | Port dari inspeksi terakhir, diisi hanya bila Dockerfile di direktori itu mengekspos tepat satu port TCP lewat `EXPOSE`. `null` bila tidak ada, ada beberapa, agent belum melaporkannya, atau `root_directory` berubah sesudah inspeksi. |
 | `configured_port` | integer atau `null` | Port yang diisi pemilik, 1 sampai 65535. |
 | `effective_port` | integer | Nilai `PORT` untuk aplikasi: `configured_port`, lalu `detected_port`, lalu 3000. Sama dengan `container_port` deployment berikutnya. |
-| `serving_port` | integer atau `null` | Port yang sedang dipakai deployment aktif. Bisa berbeda dari `effective_port` sampai deployment berikutnya. `null` bila tidak ada yang melayani, termasuk saat `crashed`, dan untuk deployment lama yang port-nya tidak tercatat. |
+| `serving_port` | integer atau `null` | Port yang sedang dipakai deployment aktif. Bisa berbeda dari `effective_port` sampai deployment berikutnya. `null` bila tidak ada yang melayani, termasuk saat `crashed` dan `sleeping`, dan untuk deployment lama yang port-nya tidak tercatat. |
 | `build_command`, `start_command` | string atau `null` | Satu baris, paling panjang 1000 karakter. Dijalankan agent hanya di dalam build atau container. |
 | `root_directory` | string atau `null` | Path relatif di dalam repository, misalnya `apps/web`. |
 | `auto_deploy` | boolean | `true` membuat push ke branch project membuat deployment baru. Default `false`. Hanya untuk project dari GitHub App; project dari URL publik dijawab `422` karena webhook-nya tidak pernah datang. |
@@ -226,13 +228,37 @@ Nilai `runtime_status` dan yang menuliskannya:
 | `not_deployed` | Belum pernah ada deployment. | Default kolom. |
 | `deploying` | Ada deployment yang sudah melewati `queued`. Versi lama bisa tetap melayani: lihat `active_deployment_id`. | Transisi deployment. |
 | `running` | `active_deployment_id` sedang melayani. | Deployment, restart, atau wake sukses; redeploy gagal saat versi lama masih melayani; heartbeat yang tidak lagi melaporkan crash. |
-| `stopped` | Dihentikan dengan sengaja, tidak ada yang melayani. | Stop atau sleep sukses. |
+| `stopped` | Dihentikan dengan sengaja, tidak ada yang melayani. | Stop atau sleep karena suspend sukses. |
+| `sleeping` | Ditidurkan karena sepi. Container `active_deployment_id` disimpan di node, dan request berikutnya membangunkannya. Ini perilaku normal, bukan error. | Sleep karena sepi sukses; redeploy yang gagal atau dibatalkan saat versi aktifnya sedang tidur. Lihat [Tidur Otomatis](#tidur-otomatis). |
 | `failed` | Deployment terakhir gagal dan tidak ada versi yang melayani. | Deployment gagal tanpa `active_deployment_id`. |
 | `crashed` | Workload aktif berhenti sendiri. | Heartbeat (lihat [Agent API](AGENT_API.md#heartbeat)). |
 
 Mengganti port tidak mengubah workload yang sedang berjalan: `PORT` dan route baru berlaku pada deployment berikutnya, dan `redeploy_required` menandainya sampai saat itu. Aplikasi harus membaca `PORT`. Bila project sendiri punya environment variable `PORT` dengan nilai lain, deployment gagal dengan `runtime_port_conflict`.
 
 Field konfigurasi diterima pada `POST` dan `PATCH /api/v1/app/projects`. Pada `PATCH`, field yang tidak dikirim tidak berubah dan `null` mengosongkannya. `thumbnail_url` belum punya generator, jadi console memakai gambar cadangannya bila kosong.
+
+### Tidur Otomatis
+
+Project yang `running` tanpa request selama jendela sepi workspace-nya ditidurkan oleh `projects:sleep-idle`, yang berjalan setiap menit di satu server. Jendela itu datang dari `idle_sleep_minutes` profil batas workspace; profil dengan `null` dan workspace tanpa profil memakai `SAKALA_PROJECT_IDLE_SLEEP_MINUTES` (default `0`). Nilai `0` berarti tidak pernah tidur, jadi tanpa konfigurasi tidak ada project yang ditidurkan. Nilai efektifnya ada di `project_idle_sleep_minutes` pada `GET /api/v1/app/pilot-limits?workspace_id=`, dan `0` di sana berarti project workspace itu tidak pernah tidur.
+
+Sebuah project ditidurkan bila semua ini benar:
+
+* `runtime_status` bernilai `running`, project tidak `suspended` dan tidak dihapus;
+* node deployment aktifnya punya capability `idle-sleep`, sedang tidak `offline`, dan heartbeat terakhirnya membawa daftar `traffic` (lihat [Agent API](AGENT_API.md#heartbeat)). Tanpa daftar itu tidak ada yang tahu project sepi atau tidak, jadi tidak ada yang ditidurkan;
+* `last_request_at`, waktu deployment aktif selesai, dan wake atau restart terakhir yang sukses semuanya lebih lama dari jendela sepi. Project yang belum pernah menerima request diukur dari waktu deployment selesai;
+* tidak ada deployment yang sedang berjalan, dan tidak ada `SleepProject`, `WakeProject`, `StopProject`, atau `RestartProject` yang masih `Pending`, `Claimed`, atau `Running`.
+
+API lalu membuat `SleepProject` ke node itu dengan `request_context` `{ "reason": "idle", "actor_type": "system", "actor_id": "scheduler:sleep-idle" }` dan mencatat `project.idle_sleep_requested`. Begitu node melaporkan selesai, `runtime_status` menjadi `sleeping`, `active_deployment_id` tetap terisi, `project.idle_sleep_completed` dicatat, dan `deployment.updated` dikirim dengan `project_runtime_status`. Bila gagal, project tetap `running`, `project.idle_sleep_failed` dicatat, dan sapuan berikutnya mencoba lagi. Deployment yang dimulai sebelum sleep selesai tetap memegang status; bila deployment itu gagal atau dibatalkan, project kembali `sleeping`.
+
+Domain project yang tidur menampilkan halaman 503 dari node yang memanggil endpoint bangun publik lalu memuat ulang tiap 3 detik. Project yang tidur tidak dihitung sebagai container berjalan untuk kuota, sehingga membangunkannya, atau men-deploy ulang, memerlukan slot lagi.
+
+`POST /api/v1/public/projects/{slug}/wake` dipanggil tanpa login, tanpa sesi, tanpa cookie, dan tanpa token CSRF, apa pun origin-nya, sebagai POST lintas origin sederhana (`mode: 'no-cors'`) yang tidak membaca jawabannya. Body tidak diperlukan. Jawabannya selalu `202` dengan body kosong, juga untuk slug yang tidak ada, project yang tidak tidur, project yang ditangguhkan atau dihapus, dan project yang tidak punya deployment di node, supaya jawabannya tidak membuka apa pun tentang project, termasuk alasan suspend. Pengecualiannya `409 PROJECT_WAKE_LIMIT_EXCEEDED` tanpa angka kuota dan `429` dari `SAKALA_PROJECT_WAKE_RATE_LIMIT` per IP dan slug. Domain project tidak boleh dimasukkan ke `SANCTUM_STATEFUL_DOMAINS`.
+
+`POST /api/v1/app/projects/{project}/wake` dipakai tombol Bangunkan di Console, dengan hak yang sama seperti deploy: owner dan member workspace, viewer `403`, admin boleh. Jawabannya `202` dengan `ProjectResource`; `runtime_status` tetap `sleeping` sampai node melapor. Project yang ditangguhkan dijawab `409 PROJECT_SUSPENDED` (anggota dan admin), project yang tidak tidur `409 PROJECT_NOT_SLEEPING`, dan kuota penuh `409 PROJECT_WAKE_LIMIT_EXCEEDED` dengan `limit` dan `current`.
+
+Kedua endpoint membuat `WakeProject` untuk node dan deployment yang menyimpan container-nya, dan mencatat `project.wake_requested` (`source` `public` dengan actor `system`/`public-wake` tanpa IP atau user agent, atau `console` dengan user-nya). Wake yang masih `Pending`, `Claimed`, atau `Running` dipakai ulang, jadi halaman yang memuat ulang berkali-kali hanya menghasilkan satu command. Wake sukses mengubah `runtime_status` menjadi `running`, mencatat `project.wake_completed`, dan mengirim `deployment.updated`. Wake gagal, termasuk `runtime_capacity_exceeded` saat node penuh, membiarkan project `sleeping` dan mencatat `project.wake_failed` dengan `error_code`. Wake atau restart yang sukses dihitung sebagai aktivitas, jadi project yang baru dibangunkan tidak langsung ditidurkan lagi.
+
+Sleep karena sepi berbeda dari suspend. Sleep yang masih berjalan tidak menahan suspend atau unsuspend admin. Men-suspend project yang sedang tidur membuat `SleepProject` dengan alasan suspend seperti biasa; setelah selesai `runtime_status` menjadi `stopped` dan `active_deployment_id` kosong, sama seperti suspend lain, dan bangun ditolak sejak suspend diterima.
 
 ### Inspeksi
 
@@ -257,7 +283,7 @@ Filter `GET /api/v1/app/projects?filter=` menerima `7_days`, `30_days`, `90_days
 
 ### Menghapus Project
 
-`DELETE /api/v1/app/projects/{project}` menjawab `204` dan project langsung hilang dari API (soft delete, kuota kembali). Bila ada deployment aktif, API membuat `StopProject` dengan `remove_images: true` yang menghapus route, container, dan image project di node. Antrean yang belum diambil dibatalkan, dan attempt yang sedang berjalan diminta batal; bila tetap sukses, workload-nya ikut dihentikan.
+`DELETE /api/v1/app/projects/{project}` menjawab `204` dan project langsung hilang dari API (soft delete, kuota kembali). Bila node masih menyimpan container project, API membuat `StopProject` dengan `remove_images: true` yang menghapus route, container, dan image project di node. Itu berlaku untuk deployment aktif yang melayani, crash, atau tidur, dan juga untuk project yang suspend-nya sudah selesai: sleep menyimpan container walaupun `active_deployment_id` sudah kosong, jadi deployment `succeeded` terakhir yang terakhir kali di-sleep dan belum di-stop ikut dihapus. Purge memakai aturan yang sama saat mengirim ulang `StopProject`. Antrean yang belum diambil dibatalkan, dan attempt yang sedang berjalan diminta batal; bila tetap sukses, workload-nya ikut dihentikan.
 
 `StopProject` tidak punya batas waktu. Saat node offline, workload tetap melayani sampai node itu kembali dan menerima command-nya, jadi penghapusan di API bukan bukti container sudah berhenti. Slug project yang dihapus tidak pernah dipakai ulang, jadi route lama tidak bisa melayani project baru.
 
@@ -308,7 +334,7 @@ Operasi stop dan suspend mengembalikan `202 Accepted` ketika request control-pla
 
 `202 Accepted` tidak berarti operasi runtime telah selesai. Runtime state diperbarui setelah Agent melaporkan hasil eksekusi command.
 
-Jika command stop atau sleep berhasil, runtime state dari workload yang menjadi target berubah menjadi `Stopped` dan `active_deployment_id` dikosongkan.
+Jika command stop atau sleep karena suspend berhasil, runtime state dari workload yang menjadi target berubah menjadi `Stopped` dan `active_deployment_id` dikosongkan. Sleep karena sepi berbeda; lihat [Tidur Otomatis](#tidur-otomatis).
 
 Jika command gagal, control plane tidak boleh menganggap runtime telah berubah menjadi `Stopped`.
 
@@ -338,7 +364,7 @@ Runtime state project tetap `Running` sampai command sleep yang sesuai berhasil 
 
 Penyelesaian Agent command menjadi sumber kebenaran untuk perubahan runtime state.
 
-Jika command `StopProject` atau `SleepProject` untuk workload yang masih menjadi target berhasil diselesaikan, runtime state project berubah menjadi `Stopped`.
+Jika command `StopProject` atau `SleepProject` karena suspend untuk workload yang masih menjadi target berhasil diselesaikan, runtime state project berubah menjadi `Stopped`. `SleepProject` dengan alasan `idle` dari sistem mengubahnya menjadi `sleeping` kecuali project sudah `suspended`.
 
 Jika command gagal, runtime state tidak diubah menjadi `Stopped`.
 
@@ -468,12 +494,13 @@ Batas dihitung per workspace, tidak pernah per anggota, dan datang dari profil b
 | Memory per project | `SAKALA_MAX_CONTAINER_MEMORY_MB` (512) | `SAKALA_TEAM_MAX_CONTAINER_MEMORY_MB`, bila kosong sama dengan pribadi |
 | CPU per project | `SAKALA_MAX_CONTAINER_CPU_MILLIS` (1000) | `SAKALA_TEAM_MAX_CONTAINER_CPU_MILLIS`, bila kosong sama dengan pribadi |
 | Build per jam | belum ditegakkan | belum ditegakkan |
+| Tidur setelah sepi | `SAKALA_PROJECT_IDLE_SLEEP_MINUTES` (0, mati) | sama dengan pribadi |
 
-Dengan default ini tidak ada yang berubah bagi user yang sudah ada. Default tim sengaja kecil dan tidak mengikuti nilai pribadi, supaya membuat tim tidak menggandakan kuota; tim yang butuh lebih mendapat profil batas dari admin. Nilai env yang kosong memakai default di tabel. Container berjalan adalah project yang melayani (`active_deployment_id` terisi) atau sedang di-deploy; batasnya hanya berlaku saat men-deploy project yang belum melayani. Default memory dan CPU tidak pernah melebihi batas profil. `max_builds_per_hour` disiapkan untuk batas build (#124). Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
+Dengan default ini tidak ada yang berubah bagi user yang sudah ada. Default tim sengaja kecil dan tidak mengikuti nilai pribadi, supaya membuat tim tidak menggandakan kuota; tim yang butuh lebih mendapat profil batas dari admin. Nilai env yang kosong memakai default di tabel. Container berjalan adalah project yang melayani (`active_deployment_id` terisi dan tidak `sleeping`) atau sedang di-deploy; batasnya berlaku saat men-deploy project yang belum melayani atau sedang tidur, dan saat membangunkan project. `idle_sleep_minutes` profil (0 sampai 10080, atau `null`) mengatur jendela sepi: `null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` berarti project workspace itu tidak pernah ditidurkan, dan nilai lain menidurkannya setelah sekian menit, juga saat nilai global `0`. Default memory dan CPU tidak pernah melebihi batas profil. `max_builds_per_hour` disiapkan untuk batas build (#124). Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
 
 Membuat project mengunci baris user lalu baris workspace, dan membuat deployment mengunci baris workspace lalu baris project, sehingga dua request di workspace yang sama dihitung bergantian. Admin yang bertindak tidak dibatasi, sama seperti sebelumnya.
 
-`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, dan `quotas.current_active_containers_count`; `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
+`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (tanpa project yang `sleeping`), dan `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
 
 ### Akses GitHub untuk Project Tim
 
@@ -645,8 +672,8 @@ Endpoint dengan rentang waktu menerima `range`: `7d`, `30d`, `90d`, `custom` (de
 | `GET workspaces` | `search` (nama, slug), `type`, `limit_profile_id`. |
 | `GET workspaces/{workspace}` | Workspace, `members` (dengan email), `projects`, `quota`. |
 | `PUT workspaces/{workspace}/limit-profile` | Body `limit_profile_id` (atau `null`), `reason`. Audit `workspace.limit_profile_changed`. |
-| `GET`, `POST limit-profiles`; `GET`, `PATCH`, `DELETE limit-profiles/{limitProfile}` | Profil batas dengan `workspaces_count`. `PATCH` sebagian. `DELETE` membawa `reason` di body dan dijawab `409 LIMIT_PROFILE_IN_USE` (dengan `workspaces`) selama masih dipakai. |
-| `GET projects` | `search` (nama, slug, `owner/repo`), `status`, `runtime_status`, `workspace_id`, `suspended`. Project yang dihapus tidak ikut. |
+| `GET`, `POST limit-profiles`; `GET`, `PATCH`, `DELETE limit-profiles/{limitProfile}` | Profil batas dengan `workspaces_count` dan `idle_sleep_minutes` (`null` mengikuti global, `0` tidak pernah tidur, 1 sampai 10080 menit). Perubahannya tercatat di `limit_profile.created` dan `limit_profile.updated` seperti field lain. `GET workspaces/{workspace}` menyajikan nilai efektifnya di `quota.limits.idle_sleep_minutes`. `PATCH` sebagian. `DELETE` membawa `reason` di body dan dijawab `409 LIMIT_PROFILE_IN_USE` (dengan `workspaces`) selama masih dipakai. |
+| `GET projects` | `search` (nama, slug, `owner/repo`), `status`, `runtime_status` (termasuk `sleeping`), `workspace_id`, `suspended`. Project yang dihapus tidak ikut. |
 | `GET projects/{project}` | Project, `deployments_count`, `effective_port`, 20 control request terbaru dengan `reason`. Aksi stop, suspend, unsuspend, dan reconcile tetap seperti di "Project Control". |
 | `GET deployments/failures` | Deployment `failed` lintas project. `range` (default `30d`, boleh `all`), `category`, `code`, `search` (nama atau slug project, termasuk project yang menunggu purge). |
 | `GET deployments/failure-summary` | Jumlah per kategori dan per kode untuk `range`, dengan `previous_count` untuk jendela sebelumnya (`null` untuk `all`). |
@@ -666,7 +693,7 @@ Endpoint dengan rentang waktu menerima `range`: `7d`, `30d`, `90d`, `custom` (de
 
 ### Overview
 
-`totals` dihitung sepanjang waktu: `users`, `projects` (yang masih ada), dan `active_projects` (project dengan deployment yang melayani, `active_deployment_id` terisi). `period` dihitung untuk rentang: `new_users`, `new_projects` (termasuk yang sudah dihapus), dan `deployments` (`succeeded`, `failed`, `cancelled`, `in_progress`, `total`). `previous_period` berisi hitungan yang sama untuk jendela sepanjang rentang tepat sebelumnya, untuk badge tren. `user_growth` adalah user baru per hari WIB, setiap hari dalam rentang ada, termasuk yang nol.
+`totals` dihitung sepanjang waktu: `users`, `projects` (yang masih ada), dan `active_projects` (project dengan deployment yang melayani, `active_deployment_id` terisi dan tidak `sleeping`). `period` dihitung untuk rentang: `new_users`, `new_projects` (termasuk yang sudah dihapus), dan `deployments` (`succeeded`, `failed`, `cancelled`, `in_progress`, `total`). `previous_period` berisi hitungan yang sama untuk jendela sepanjang rentang tepat sebelumnya, untuk badge tren. `user_growth` adalah user baru per hari WIB, setiap hari dalam rentang ada, termasuk yang nol.
 
 `failure_categories` memuat semua kategori `DeploymentFailureCategory` dan `top_failure_codes` sepuluh kode terbanyak. Kategori tidak disimpan; ia diturunkan dari `failure_code` dengan `DeploymentFailureClassifier` yang sama dengan field `failure` di deployment, jadi angkanya selalu sama dengan yang dilihat pemilik project. Kegagalan tanpa kode dihitung `unknown` dengan `code: null`. Filter `category` di daftar kegagalan memakai daftar kode yang tercatat untuk kategori itu.
 
@@ -676,7 +703,7 @@ Hasil overview disimpan di cache 60 detik, dan `generated_at` menunjukkan kapan 
 
 ### Runtime Node
 
-`AdminAgentResource` menambah `agent_version` (dari heartbeat terakhir), `hostname`, `runtime_network` (nama network Docker di node, bukan alamat IP), `capabilities`, `registered_at`, `active_workload_count` (project yang deployment aktifnya berjalan di node ini), dan `open_commands_count` (`Pending`, `Claimed`, `Running`). Node yang belum pernah heartbeat punya `last_seen_at: null`; `never_seen=1` menampilkannya. Token dan hash-nya tidak pernah ada di response.
+`AdminAgentResource` menambah `agent_version` (dari heartbeat terakhir), `hostname`, `runtime_network` (nama network Docker di node, bukan alamat IP), `capabilities`, `registered_at`, `active_workload_count` (project yang deployment aktifnya ada di node ini, termasuk yang `sleeping` karena container-nya tetap disimpan di node), dan `open_commands_count` (`Pending`, `Claimed`, `Running`). Node yang belum pernah heartbeat punya `last_seen_at: null`; `never_seen=1` menampilkannya. Token dan hash-nya tidak pernah ada di response.
 
 `POST agents` memakai action yang sama dengan `artisan agent:provision`, yang dipanggil `provision-agent.sh` di repository deployment. Token hanya ada di response pembuatan atau rotate (`Cache-Control: no-store`); API hanya menyimpan HMAC-nya, jadi token yang hilang diganti dengan rotate. Command `DeployProject` melaporkan output sebagai log deployment, dibaca lewat `deployments/{deployment}/logs`; report command lain ada di detail command. Log proses `sakala-agent` sendiri tidak dikirim ke API dan tidak disimpan, jadi tidak ada endpoint untuknya. Restart agent juga tidak punya command; yang ada drain, resume, dan cleanup di `/api/agent/v1/agents/{agent}`.
 

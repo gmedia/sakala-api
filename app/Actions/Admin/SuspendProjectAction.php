@@ -6,7 +6,6 @@ namespace App\Actions\Admin;
 
 use App\Data\Admin\ProjectControlData;
 use App\Data\Admin\ProjectControlResultData;
-use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\NotificationCategory;
@@ -78,19 +77,20 @@ final class SuspendProjectAction
         }
     }
 
+    /**
+     * An idle sleep that is still open does not count: it only stops what the
+     * suspension stops anyway, and must not keep an admin waiting.
+     */
     private function findPendingSuspendCommand(
         Project $project,
     ): ?AgentCommand {
         return AgentCommand::query()
             ->where('project_id', $project->id)
             ->where('type', AgentCommandType::SleepProject)
-            ->whereIn('status', [
-                AgentCommandStatus::Pending,
-                AgentCommandStatus::Claimed,
-                AgentCommandStatus::Running,
-            ])
+            ->open()
             ->latest('created_at')
-            ->first();
+            ->get()
+            ->first(static fn (AgentCommand $command): bool => ! $command->isIdleSleep());
     }
 
     public function handle(

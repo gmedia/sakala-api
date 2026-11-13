@@ -67,6 +67,11 @@ final class PilotLimitsResource extends JsonResource
                 'max_request_bytes' => (int) config('sakala.pilot_limits.log_bounds.max_request_bytes', 1024 * 1024),
             ],
             'deleted_project_retention_days' => (int) config('sakala.project.deleted_retention_days', 30),
+            /**
+             * Minutes without a request before a running project of this workspace is put to sleep, from its
+             * limit profile or the global setting. `0` means its projects never sleep.
+             */
+            'project_idle_sleep_minutes' => $limits->idle_sleep_minutes,
         ];
     }
 }

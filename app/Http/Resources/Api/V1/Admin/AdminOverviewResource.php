@@ -29,7 +29,7 @@ final class AdminOverviewResource extends JsonResource
                 'users' => $data->totalUsers,
                 /** Projects that exist now; deleted projects are not counted. */
                 'projects' => $data->totalProjects,
-                /** Projects with a deployment serving traffic (`active_deployment_id` set). */
+                /** Projects with a deployment serving traffic (`active_deployment_id` set and not `sleeping`). */
                 'active_projects' => $data->activeProjects,
             ],
             /** Counts for the range. Deployments count by creation time. */
