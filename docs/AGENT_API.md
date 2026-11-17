@@ -293,7 +293,7 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   "repository_url": "https://github.com/example/app.git",
   "commit_sha": "0123456789abcdef0123456789abcdef01234567",
   "repository_access": "public",
-  "domain": "app.run.sakala.dev",
+  "domain": "portfolio.sakala.app",
   "container_port": 3000,
   "builder": "auto",
   "environment": { "APP_ENV": "production" },
@@ -311,6 +311,13 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   `root_directory` adalah path relatif terhadap root repository (tanpa `..`, tanpa
   `/` di awal) yang menjadi konteks build. API menjamin ketiganya satu baris,
   terbatas 1000 karakter untuk command dan 255 untuk direktori.
+- `domain` adalah `projects.default_domain` saat deployment dibuat, yaitu
+  `<slug>.<SAKALA_PROJECT_DEFAULT_DOMAIN>` (hosted: `<slug>.sakala.app`,
+  staging: `<slug>.staging.sakala.app`). Agent hanya menerima domain satu label
+  di bawah suffix yang ia layani (`SAKALA_PROJECT_DOMAIN_SUFFIXES`). Wake dan
+  restart memakai domain yang tersimpan di container, bukan payload baru, jadi
+  setelah `projects:move-domain` setiap project harus dideploy ulang supaya
+  route-nya pindah.
 - `container_port` adalah `effective_port` project saat deployment dibuat:
   `configured_port`, lalu `detected_port`, lalu 3000. Agent mengisi `PORT` dengan
   nilai ini, dan `runtime_port_conflict` muncul bila environment project menulis

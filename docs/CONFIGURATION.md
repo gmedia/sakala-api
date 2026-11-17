@@ -40,7 +40,7 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 `AUTH_VERIFICATION_EXPIRE` menentukan masa berlaku signed URL verifikasi email
 dalam menit (default `60`).
 
-- `SAKALA_PROJECT_DEFAULT_DOMAIN`: domain induk project, misalnya `run.sakala.dev`.
+- `SAKALA_PROJECT_DEFAULT_DOMAIN`: domain induk project. Project baru mendapat `<slug>.<domain induk>`. Default `sakala.app` (production hosted); staging hosted memakai `staging.sakala.app`, sehingga project staging menjadi `<slug>.staging.sakala.app`. Lokal memakai `run.sakala.localhost`. Domain ini sebaiknya registrable domain terpisah dari API dan Console (ADR-016), supaya aplikasi pengguna tidak se-site dengan Sakala. Nilai yang sama harus ada di `SAKALA_PROJECT_DOMAIN_SUFFIXES` agent, dan slug `staging` dicadangkan supaya tidak ada project production yang mengambil `staging.sakala.app`. Mengganti nilai ini hanya berlaku untuk project baru; project lama dipindah dengan [`projects:move-domain`](#memindah-domain-project).
 - `SAKALA_PROJECT_URL_SCHEME`, `SAKALA_PROJECT_URL_PORT`: membentuk `public_url` project. Default `https` tanpa port; lingkungan lokal biasanya `http`, dan port diisi bila runtime tidak di 80 atau 443.
 - `SAKALA_AVATAR_STORAGE`: `local` menyimpan foto profil di `storage/app/public` (perlu `php artisan storage:link`, sudah dijalankan `composer setup`). Default `s3` memakai bucket `AWS_*`. Bila penyimpanan tidak bisa dipakai, API menjawab `503 AVATAR_STORAGE_UNAVAILABLE`.
 - `GITHUB_PUBLIC_API_TOKEN`: opsional, disarankan untuk produksi. Token GitHub baca-saja untuk repository publik. Tanpa token, GitHub membatasi 60 request per jam per IP server untuk semua user. Token ini hanya dikirim ke GitHub, tidak pernah ke agent, browser, atau log. Beri akses publik saja; API tetap menolak membaca repository private lewat alur URL publik. Bila GitHub menolak token ini (`401`, atau `403` karena kebijakan organisasi seperti batas umur fine-grained token 366 hari atau SAML SSO), pembacaan jatuh ke request anonim dan log mendapat warning berisi pesan GitHub. Pakai fine-grained token dengan masa berlaku paling lama 366 hari supaya organisasi seperti itu tetap mendapat kuota token.
@@ -48,6 +48,23 @@ dalam menit (default `60`).
 `APP_LOCALE` menentukan bahasa pesan validasi, default `id`.
 
 GitHub App harus berlangganan event `push` supaya `auto_deploy` bekerja, selain event `installation` yang sudah dipakai.
+
+### Memindah Domain Project
+
+`projects.default_domain` tersimpan per project dan dikirim ke agent saat deploy, jadi mengganti `SAKALA_PROJECT_DEFAULT_DOMAIN` tidak memindah project lama. Urutannya:
+
+1. Tambahkan domain baru ke `SAKALA_PROJECT_DOMAIN_SUFFIXES` agent dan siapkan DNS, TLS, serta route edge untuk `*.<domain baru>`.
+2. Ganti `SAKALA_PROJECT_DEFAULT_DOMAIN` ke domain baru, lalu buat ulang container API dan queue supaya project baru langsung memakainya.
+3. Jalankan `php artisan projects:move-domain <lama> <baru>` di container API. Tanpa `--force` perintah ini hanya melapor: berapa project yang akan pindah (termasuk yang sudah dihapus tapi belum di-purge), berapa yang sudah di domain baru, project dengan domain yang bukan `<slug>.<lama>`, dan project yang slug-nya kini dicadangkan.
+4. Periksa laporannya, lalu jalankan lagi dengan `--force`. Semua baris berubah dalam satu transaction, dan satu audit event `project.domains_moved` (aktor `system`, ID `projects:move-domain`) mencatat domain lama, domain baru, jumlahnya, serta ID project yang dibiarkan. Menjalankannya lagi aman: project yang sudah pindah dihitung, tidak diubah.
+5. Deploy ulang setiap project yang pindah, termasuk yang sedang tidur. Node terus melayani domain lama sampai project dideploy ulang, karena wake dan restart memakai domain yang tersimpan di container.
+
+Project dengan domain yang bukan `<slug>.<lama>` tidak pernah diubah, termasuk yang berada di bawah domain lama dengan label tambahan. Bila salah satu domain baru sudah dipakai project lain, tidak ada yang berubah dan perintah gagal.
+
+```bash
+php artisan projects:move-domain run.sakala.dev sakala.app
+php artisan projects:move-domain run.sakala.dev sakala.app --force
+```
 
 ## Agent
 
@@ -122,7 +139,7 @@ Edge wajib menormalkan `X-Forwarded-For` menjadi satu alamat client. Bila edge m
 ## Browser Authentication
 
 - `SESSION_COOKIE`: nama cookie session. Production dan staging memakai `__Host-sakala-api-session`, yang hanya diterima browser lewat HTTPS. Nama ini memaksa `Secure`, `Path=/`, dan tanpa `Domain`, apa pun isi env lain. Lokal berjalan di HTTP, jadi memakai `sakala-api-session`.
-- `SESSION_DOMAIN`: kosongkan. Cookie session host-only di host API. Domain yang mencakup `SAKALA_PROJECT_DEFAULT_DOMAIN` selalu diabaikan untuk cookie session, supaya cookie itu tidak terkirim ke aplikasi pengguna walaupun env lama masih mengisinya.
+- `SESSION_DOMAIN`: kosongkan. Cookie session host-only di host API. Domain yang mencakup `SAKALA_PROJECT_DEFAULT_DOMAIN` selalu diabaikan untuk cookie session, supaya cookie itu tidak terkirim ke aplikasi pengguna walaupun env lama masih mengisinya. Di hosted Sakala aplikasi pengguna ada di `sakala.app`, jadi `.sakala.dev` tidak lagi mencakupnya; penjagaan ini tetap berlaku untuk instalasi self-host yang menaruh aplikasi pengguna di bawah domain API-nya.
 - `SAKALA_XSRF_COOKIE_DOMAIN`: domain untuk `XSRF-TOKEN` saja, misalnya `.sakala.dev`. Console membaca cookie ini lewat JavaScript dari host lain, jadi cookie ini perlu parent domain. Bila kosong, nilainya mengikuti `SESSION_DOMAIN`.
 - `SESSION_SECURE_COOKIE`: `true` di HTTPS. `__Host-` selalu `Secure`.
 - `SANCTUM_STATEFUL_DOMAINS`: host/port console dan API yang dianggap first-party. Jangan pernah memakai wildcard yang mencakup `SAKALA_PROJECT_DEFAULT_DOMAIN`: daftar ini adalah batas yang memisahkan Console dari aplikasi pengguna.

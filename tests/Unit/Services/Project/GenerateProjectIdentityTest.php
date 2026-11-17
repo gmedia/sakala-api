@@ -13,7 +13,7 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     Config::set('sakala.project.reserved_slugs', ['api']);
-    Config::set('sakala.project.default_domain', 'run.sakala.dev');
+    Config::set('sakala.project.default_domain', 'sakala.app');
 
     // Framework menyala app() akan berhasil membaca AppServiceProvider
     $this->action = app(GenerateProjectIdentity::class);
@@ -24,7 +24,7 @@ it('Mengatur pembuatan identity dengan benar', function () {
     expect($result)
         ->toBeInstanceOf(ProjectIdentity::class)
         ->and($result->slug)->toBe('my-dashboard')
-        ->and($result->defaultDomain)->toBe('my-dashboard.run.sakala.dev');
+        ->and($result->defaultDomain)->toBe('my-dashboard.sakala.app');
 });
 
 it('Menghasilkan slug unik jika terjadi tabrakan', function () {
@@ -32,7 +32,7 @@ it('Menghasilkan slug unik jika terjadi tabrakan', function () {
 
     $result = $this->action->handle('My Dashboard');
     expect($result->slug)->toBe('my-dashboard-1');
-    expect($result->defaultDomain)->toBe('my-dashboard-1.run.sakala.dev');
+    expect($result->defaultDomain)->toBe('my-dashboard-1.sakala.app');
 });
 
 it('Menolak reserved slug', function () {
@@ -46,7 +46,7 @@ it('Menghasilkan suffix berikutnya jika collision lebih dari sekali', function (
 
     $result = $this->action->handle('My Dashboard');
     expect($result->slug)->toBe('my-dashboard-2');
-    expect($result->defaultDomain)->toBe('my-dashboard-2.run.sakala.dev');
+    expect($result->defaultDomain)->toBe('my-dashboard-2.sakala.app');
 });
 
 it('Menghasilkan slug unik untuk project yang dihapus', function () {
@@ -55,7 +55,7 @@ it('Menghasilkan slug unik untuk project yang dihapus', function () {
 
     $result = $this->action->handle('My Dashboard');
     expect($result->slug)->toBe('my-dashboard-1');
-    expect($result->defaultDomain)->toBe('my-dashboard-1.run.sakala.dev');
+    expect($result->defaultDomain)->toBe('my-dashboard-1.sakala.app');
 });
 
 it('Membatasi panjang slug', function () {
@@ -75,5 +75,5 @@ it('Menghasilkan slug unik tanpa melebihi batas 63 karakter', function () {
         ->toBe(str_repeat('a', 61).'-1')
         ->and(strlen($result->slug))->toBe(63)
         ->and($result->defaultDomain)
-        ->toBe(str_repeat('a', 61).'-1.run.sakala.dev');
+        ->toBe(str_repeat('a', 61).'-1.sakala.app');
 });

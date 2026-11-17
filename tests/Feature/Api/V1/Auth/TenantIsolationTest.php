@@ -16,15 +16,17 @@ use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Support\TestingPreventRequestForgery;
 
 /*
- * Tenant applications run on *.run.sakala.dev, which is the same site as the API
- * and the console. SameSite=Lax therefore does not stop their pages from making
- * the browser send the session cookie to the API, so these tests replay what a
- * browser sends from such a page, using a real session and real CSRF checks.
+ * Hosted tenant applications run on *.sakala.app, a registrable domain apart
+ * from the API and the console (ADR-016), so SameSite=Lax already keeps the
+ * session cookie off their requests. These tests do not count on that: a
+ * self-hosted install may put tenants on the same site as its API, and then
+ * only the server-side guards remain. They replay what a browser sends from a
+ * tenant page that is same-site, using a real session and real CSRF checks.
  */
 
 uses(LazilyRefreshDatabase::class);
 
-const TENANT_ORIGIN = 'https://evil.run.sakala.dev';
+const TENANT_ORIGIN = 'https://evil.sakala.app';
 const CONSOLE_ORIGIN = 'https://app.sakala.dev';
 
 beforeEach(function (): void {
@@ -218,7 +220,7 @@ test('a tenant slug that merely starts like the console host is not the console'
     withBrowserCookies($this, $cookies, $origin)
         ->getJson(route('api.v1.auth.user'))
         ->assertUnauthorized();
-})->with(['https://app.run.sakala.dev', 'https://app.sakala.dev.run.sakala.dev', 'https://api.run.sakala.dev']);
+})->with(['https://app.sakala.app', 'https://app.sakala.dev.sakala.app', 'https://api.sakala.app']);
 
 test('CORS gives a tenant origin nothing, so it cannot send the CSRF header or read answers', function (): void {
     $response = $this->withHeader('Origin', TENANT_ORIGIN)
