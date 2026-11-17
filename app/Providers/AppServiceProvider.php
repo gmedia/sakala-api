@@ -38,7 +38,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(
             ProjectDomainGenerator::class,
             fn () => new ProjectDomainGenerator(
-                config('sakala.project.default_domain', 'run.sakala.dev')
+                config()->string('sakala.project.default_domain')
             )
         );
     }

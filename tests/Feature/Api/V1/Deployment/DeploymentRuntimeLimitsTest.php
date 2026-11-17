@@ -49,7 +49,7 @@ test('create deployment action resolves effective runtime limits and persists sn
     $project = Project::factory()->for($user)->create([
         'repository_url' => 'https://github.com/example/demo-app',
         'branch' => 'main',
-        'default_domain' => 'demo.run.sakala.dev',
+        'default_domain' => 'demo.sakala.app',
     ]);
 
     $action = app(CreateDeploymentAction::class);

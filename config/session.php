@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Support\Domains\ProjectDomainGenerator;
 use App\Support\Http\SessionCookieScope;
 use Illuminate\Support\Str;
 
@@ -162,14 +163,16 @@ return [
     | This value determines the domain and subdomains the session cookie is
     | available to. Sakala keeps it host-only: a domain that also covers the
     | tenant applications under SAKALA_PROJECT_DEFAULT_DOMAIN is ignored, and so
-    | is any domain on a `__Host-` cookie. See docs/AUTHENTICATION.md.
+    | is any domain on a `__Host-` cookie. Hosted Sakala keeps tenants on their
+    | own registrable domain, but a self-hosted install may not. See
+    | docs/AUTHENTICATION.md.
     |
     */
 
     'domain' => SessionCookieScope::domain(
         $sessionCookie,
         is_string($sessionDomain) ? $sessionDomain : null,
-        (string) env('SAKALA_PROJECT_DEFAULT_DOMAIN', 'run.sakala.dev'),
+        (string) env('SAKALA_PROJECT_DEFAULT_DOMAIN', ProjectDomainGenerator::DEFAULT_BASE_DOMAIN),
     ),
 
     /*

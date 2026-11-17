@@ -4,6 +4,17 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- **Projects move to their own domain (ADR-016).** `SAKALA_PROJECT_DEFAULT_DOMAIN` now defaults to `sakala.app`, so new projects get `<slug>.sakala.app` instead of `<slug>.run.sakala.dev`; hosted staging sets `staging.sakala.app` and its projects get `<slug>.staging.sakala.app`. Tenant applications are then a different registrable domain from the API and console on `sakala.dev`, so browsers treat them as another site. The session cookie guard, `SANCTUM_STATEFUL_DOMAINS`, and the CORS rules stay as they are, for self-hosted installs that keep tenants under their API domain. The old addresses are not redirected.
+- The slug `staging` is reserved, so no production project can take `staging.sakala.app`, the staging namespace. `www`, `api`, `app`, `admin`, `status`, and `mail` were reserved already.
+- The default domain lives in one place, `ProjectDomainGenerator::DEFAULT_BASE_DOMAIN`, used by `config/sakala.php` and `config/session.php`.
+- Upgrading needs operator steps, in order: add the new domain to the agent's `SAKALA_PROJECT_DOMAIN_SUFFIXES` and prepare DNS, TLS, and the edge route; set `SAKALA_PROJECT_DEFAULT_DOMAIN` (production `sakala.app`, staging `staging.sakala.app`) and recreate the API and queue containers; run `projects:move-domain` without and then with `--force` (production `run.sakala.dev sakala.app`, staging `run.staging.sakala.dev staging.sakala.app`); then deploy every moved project again, sleeping ones included. A node keeps routing the old domain until the project is deployed again, because wake and restart use the domain stored on the container. See `docs/CONFIGURATION.md#memindah-domain-project`.
+
+### Added
+
+- `php artisan projects:move-domain {from} {to}` moves existing projects, soft-deleted ones included, from `<slug>.<from>` to `<slug>.<to>`. It only reports unless `--force` is given, lists projects whose domain is not `<slug>.<from>` and never changes them, points out projects whose slug is now reserved, and warns when `SAKALA_PROJECT_DEFAULT_DOMAIN` is not the new domain yet. An applied run changes every row in one transaction and writes one `project.domains_moved` audit event (actor `system`, ID `projects:move-domain`) with both domains, the counts, and the IDs of the projects left alone. Running it again changes nothing.
+
 ## [0.5.0] - 2026-11-13
 
 ### Added

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Support\Domains\ProjectDomainGenerator;
+
 $emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
 
 return [
@@ -71,7 +73,7 @@ return [
     ],
 
     'project' => [
-        'default_domain' => env('SAKALA_PROJECT_DEFAULT_DOMAIN', 'run.sakala.dev'),
+        'default_domain' => env('SAKALA_PROJECT_DEFAULT_DOMAIN', ProjectDomainGenerator::DEFAULT_BASE_DOMAIN),
         'url_scheme' => env('SAKALA_PROJECT_URL_SCHEME', 'https'),
         'url_port' => env('SAKALA_PROJECT_URL_PORT'),
         // A deleted project is kept this long, then projects:purge-deleted
@@ -84,6 +86,8 @@ return [
         'reserved_slugs' => [
             'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',
             'support', 'help', 'status', 'mail', 'test', 'run',
+            // Hosted staging serves its projects under staging.<default_domain>.
+            'staging',
         ],
     ],
 

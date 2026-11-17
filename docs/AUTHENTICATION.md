@@ -13,16 +13,18 @@ Console.
 
 ### Cookie dan Aplikasi Pengguna
 
-Aplikasi pengguna berjalan di `*.run.sakala.dev`, yaitu server milik orang lain pada site yang sama dengan API dan Console. Dua hal mengikuti dari sana: cookie yang memakai `Domain=.sakala.dev` ikut terkirim ke server mereka, dan `SameSite=Lax` tidak menghalangi halaman mereka mengirim request ke API, karena bagi browser itu bukan lintas site.
+Aplikasi pengguna adalah server milik orang lain. Di hosted Sakala mereka berjalan di `*.sakala.app` (staging: `*.staging.sakala.app`), registrable domain yang terpisah dari API dan Console di `sakala.dev` (ADR-016). Bagi browser, halaman mereka lintas site terhadap API: cookie `Domain=.sakala.dev` tidak terkirim ke server mereka, dan `SameSite=Lax` menahan cookie session pada request yang dikirim halaman mereka ke API, kecuali navigasi `GET` tingkat atas (lihat baris `GET /auth/*` di bawah).
+
+Pertahanan di bawah ini tetap dipasang seolah aplikasi pengguna se-site dengan API, karena itu yang terjadi sebelum perpindahan domain dan yang masih bisa terjadi di instalasi self-host yang menaruh `SAKALA_PROJECT_DEFAULT_DOMAIN` di bawah domain API-nya. Pada susunan itu, cookie dengan parent domain ikut terkirim ke server mereka, dan `SameSite=Lax` tidak menghalangi halaman mereka mengirim request ke API. Test `TenantIsolationTest` memutar ulang request dari halaman seperti itu.
 
 | Cookie | Scope | Sampai ke aplikasi pengguna? | Isi |
 | --- | --- | --- | --- |
 | `__Host-sakala-api-session` | Host API saja, `Secure`, `HttpOnly`, `Path=/`, `SameSite=Lax` | Tidak | ID session terenkripsi |
-| `XSRF-TOKEN` | `SAKALA_XSRF_COOKIE_DOMAIN`, `Secure`, terbaca JavaScript, `SameSite=Lax` | Ya | Token CSRF terenkripsi |
+| `XSRF-TOKEN` | `SAKALA_XSRF_COOKIE_DOMAIN`, `Secure`, terbaca JavaScript, `SameSite=Lax` | Tidak di hosted Sakala (`.sakala.dev` tidak mencakup `sakala.app`); ya bila aplikasi pengguna berada di bawah domain itu | Token CSRF terenkripsi |
 
 Console tetap mengirim session cookie, karena fetch dari `app.` ke `api.` adalah same-site dan cookie host-only milik `api.` ikut pada request ke `api.`. Prefix `__Host-` membuat browser menolak cookie dengan nama itu yang dipasang dari subdomain lain, sehingga aplikasi pengguna tidak bisa menanamkan session-nya ke browser korban.
 
-**`XSRF-TOKEN` memang masih sampai ke aplikasi pengguna, dan ini sudah dinilai tidak berbahaya.** Nilainya terenkripsi dengan `APP_KEY`. Untuk dipakai, nilai itu harus dikirim sebagai header `X-XSRF-TOKEN`, sedangkan CORS tidak mengizinkan origin aplikasi pengguna mengirim header itu. Sebagai `_token` di form, nilainya tidak cocok, karena `_token` dibandingkan dengan token mentah yang tidak pernah mereka lihat.
+**Bila `XSRF-TOKEN` sampai ke aplikasi pengguna, itu sudah dinilai tidak berbahaya.** Nilainya terenkripsi dengan `APP_KEY`. Untuk dipakai, nilai itu harus dikirim sebagai header `X-XSRF-TOKEN`, sedangkan CORS tidak mengizinkan origin aplikasi pengguna mengirim header itu. Sebagai `_token` di form, nilainya tidak cocok, karena `_token` dibandingkan dengan token mentah yang tidak pernah mereka lihat.
 
 **Halaman aplikasi pengguna tidak bisa bertindak dengan session.** Setiap route punya penjaganya:
 
@@ -40,7 +42,9 @@ Console tetap mengirim session cookie, karena fetch dari `app.` ke `api.` adalah
 
 **Lokal.** Lokal berjalan di HTTP, sehingga prefix `__Host-` tidak dipakai. `sakala-api-session` host-only di `api.sakala.localhost`, dan `XSRF-TOKEN` di `.sakala.localhost`. Chromium memang menyimpan cookie `__Host-` dari `http://api.sakala.localhost`, tetapi itu perlakuan khusus untuk `localhost`, jadi lokal tidak bergantung padanya. Tanpa prefix, aplikasi lokal bisa menanamkan `sakala-api-session` di `.sakala.localhost`, yang menimpa session dan membuat request berikutnya `401`. Ini hanya berlaku lokal, dan itulah alasan production memakai `__Host-`.
 
-**Risiko yang tersisa.** Selama aplikasi pengguna berada di bawah `sakala.dev`, keduanya tetap same-site, sehingga pertahanan ini bergantung pada konfigurasi `SANCTUM_STATEFUL_DOMAINS` dan CORS yang benar. Arah jangka panjang ada di ADR-016: aplikasi pengguna pindah ke registrable domain terpisah yang masuk Public Suffix List. Perpindahan itu lebih dari sekadar env dan DNS: `SAKALA_PROJECT_DEFAULT_DOMAIN` hanya menentukan domain proyek baru. `projects.default_domain` proyek lama tersimpan per baris dan dikirim ke agent saat deploy, sehingga perlu diubah lalu di-deploy ulang, dan blok `*.run.sakala.dev` di Caddyfile `sakala-deployment` juga perlu diganti.
+**Risiko yang tersisa.** Pemisahan site di hosted Sakala bergantung pada `SAKALA_PROJECT_DEFAULT_DOMAIN` yang benar-benar di luar `sakala.dev`; pertahanan di atas tetap menjadi lapis kedua, sehingga `SANCTUM_STATEFUL_DOMAINS` dan CORS tetap harus benar. Selama `sakala.app` belum masuk Public Suffix List, aplikasi pengguna masih se-site satu sama lain: cookie `Domain=.sakala.app` yang dipasang satu aplikasi terkirim ke aplikasi lain. Itu urusan antar aplikasi pengguna, bukan session Sakala, dan pendaftaran ke Public Suffix List adalah langkah berikutnya di ADR-016.
+
+**Perpindahan domain.** `SAKALA_PROJECT_DEFAULT_DOMAIN` hanya menentukan domain project baru. `projects.default_domain` project lama tersimpan per baris dan dikirim ke agent saat deploy, sehingga dipindah dengan `projects:move-domain` lalu di-deploy ulang. Langkahnya ada di [Configuration](CONFIGURATION.md#memindah-domain-project).
 
 ### Session Foundation
 

@@ -54,6 +54,13 @@ test('the domain preview explains a reserved name and validates input', function
         ->assertJsonValidationErrors(['name']);
 });
 
+test('no project can take the staging namespace or an infrastructure name under the project domain', function (string $name): void {
+    $this->actingAs(User::factory()->create(), 'web')
+        ->getJson(route('api.v1.app.projects.domain-preview', ['name' => $name]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['name']);
+})->with(['staging', 'Staging', 'www', 'api', 'app', 'admin', 'status', 'mail']);
+
 test('the preview route is not swallowed by the project show route', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();
