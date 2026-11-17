@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-18
+
 ### Changed
 
 - **Projects move to their own domain (ADR-016).** `SAKALA_PROJECT_DEFAULT_DOMAIN` now defaults to `sakala.app`, so new projects get `<slug>.sakala.app` instead of `<slug>.run.sakala.dev`; hosted staging sets `staging.sakala.app` and its projects get `<slug>.staging.sakala.app`. Tenant applications are then a different registrable domain from the API and console on `sakala.dev`, so browsers treat them as another site. The session cookie guard, `SANCTUM_STATEFUL_DOMAINS`, and the CORS rules stay as they are, for self-hosted installs that keep tenants under their API domain. The old addresses are not redirected.
@@ -207,7 +209,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/gmedia/sakala-api/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gmedia/sakala-api/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/gmedia/sakala-api/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/gmedia/sakala-api/compare/v0.4.0...v0.4.1
