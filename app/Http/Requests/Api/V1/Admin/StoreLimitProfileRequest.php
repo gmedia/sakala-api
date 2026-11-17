@@ -7,6 +7,7 @@ namespace App\Http\Requests\Api\V1\Admin;
 use App\Data\Admin\LimitProfileData;
 use App\Http\Requests\Concerns\RequiresAdminReason;
 use App\Models\LimitProfile;
+use App\Models\Project;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -14,7 +15,7 @@ class StoreLimitProfileRequest extends FormRequest
 {
     use RequiresAdminReason;
 
-    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes'];
+    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas'];
 
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
@@ -37,6 +38,11 @@ class StoreLimitProfileRequest extends FormRequest
              * projects to sleep; `null` (the default) follows `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`.
              */
             'idle_sleep_minutes' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_IDLE_SLEEP_MINUTES],
+            /**
+             * Most replicas per project, 1 to 10. `null` (the default) allows one, so replicas stay off. All replicas of a
+             * project run on one node, which may cap them lower.
+             */
+            'max_replicas' => ['sometimes', 'nullable', 'integer', 'between:'.Project::DEFAULT_REPLICAS.','.LimitProfile::MAX_REPLICAS_CEILING],
         ];
     }
 

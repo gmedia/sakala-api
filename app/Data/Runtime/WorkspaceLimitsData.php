@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Data\Runtime;
 
 use App\Models\LimitProfile;
+use App\Models\Project;
 
 /**
  * The limits a workspace runs under: its limit profile, or the default for its
@@ -22,9 +23,11 @@ final readonly class WorkspaceLimitsData
         public ?LimitProfile $profile = null,
         /** Effective minutes without a request before a project sleeps; 0 = never. */
         public int $idle_sleep_minutes = 0,
+        /** Effective most replicas per project. */
+        public int $max_replicas = Project::DEFAULT_REPLICAS,
     ) {}
 
-    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes): self
+    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas): self
     {
         return new self(
             max_projects: $profile->max_projects,
@@ -35,6 +38,7 @@ final readonly class WorkspaceLimitsData
             max_builds_per_hour: $profile->max_builds_per_hour,
             profile: $profile,
             idle_sleep_minutes: $idleSleepMinutes,
+            max_replicas: $maxReplicas,
         );
     }
 }

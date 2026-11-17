@@ -67,6 +67,12 @@ final class AssignPendingCommandsAction
                     return 0;
                 }
 
+                // A deployment of several replicas waits for a node that runs
+                // them all; an older one would quietly run one.
+                if (! $node->supportsReplicas($command->requestedReplicas())) {
+                    return 0;
+                }
+
                 $command->update(['agent_node_id' => $node->id]);
 
                 if ($command->type === AgentCommandType::DeployProject && $command->deployment_id !== null) {

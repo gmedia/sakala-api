@@ -166,6 +166,26 @@ test('the OpenAPI document describes idle sleep: the status, both wake endpoints
         ->and($document['components']['schemas']['PilotLimitsResource']['properties']['project_idle_sleep_minutes']['type'])->toBe('integer');
 });
 
+test('the OpenAPI document describes replicas on projects, limits, and the wake conflict', function (): void {
+    $document = openApiDocumentForTypes();
+    $schemas = $document['components']['schemas'];
+    $project = $schemas['ProjectResource']['properties'];
+    $update = $document['paths']['/v1/app/projects/{project}']['put']['requestBody']['content']['application/json']['schema'];
+    $updateProperties = isset($update['$ref'])
+        ? $schemas[str_replace('#/components/schemas/', '', $update['$ref'])]['properties']
+        : $update['properties'];
+    $conflict = $document['components']['responses']['ProjectWakeConflict']['content']['application/json']['schema'];
+
+    expect($project['replicas']['type'])->toBe('integer')
+        ->and($project['max_replicas']['type'])->toBe('integer')
+        ->and($project['serving_replicas']['type'])->toBe(['integer', 'null'])
+        ->and($project['replicas_ready']['type'])->toBe(['integer', 'null'])
+        ->and($updateProperties['replicas']['type'])->toBe('integer')
+        ->and($schemas['LimitProfileResource']['properties']['max_replicas']['type'])->toBe(['integer', 'null'])
+        ->and($schemas['PilotLimitsResource']['properties']['quotas']['properties']['max_replicas']['type'])->toBe('integer')
+        ->and($conflict['properties']['requested']['type'])->toBe('integer');
+});
+
 test('responses send the types the OpenAPI document gives', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();

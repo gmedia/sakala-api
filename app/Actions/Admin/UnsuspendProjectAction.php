@@ -190,7 +190,7 @@ final class UnsuspendProjectAction
         }
 
         try {
-            $this->limits->checkWakeLimit($project);
+            $this->limits->checkWakeLimit($project, $deployment);
         } catch (ProjectWakeLimitExceededException) {
             return [UnsuspendWakeOutcome::ContainerLimitReached, null];
         }

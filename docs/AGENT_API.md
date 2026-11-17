@@ -151,6 +151,33 @@ berhenti; API tidak menganggapnya sampah. Laporan crash untuk deployment yang
 `sleeping` diabaikan, sama seperti `stopped`. Lihat
 [Tidur Otomatis](API_CONVENTIONS.md#tidur-otomatis).
 
+`metadata.workloads.replicas` juga tambahan opsional di dalam revision 4, dikirim
+node ber-capability `replicas`. Isinya satu item per deployment yang berjalan dengan
+replika: berapa container yang dijalankan node dan berapa yang lolos health check
+router. Batasnya 500 item, dan seperti `traffic`, seluruh heartbeat ditolak `422`
+bila ada item yang tidak sesuai:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `project_id` | UUID, wajib | Project pemilik workload. |
+| `deployment_id` | UUID, wajib | Deployment pemilik replika. |
+| `desired` | integer 1 sampai 1000, wajib | Container yang dijalankan node untuk deployment itu. |
+| `ready` | integer 0 sampai 1000, wajib | Dari jumlah itu, yang lolos health check router saat ini. |
+
+`metadata.detail_counts.replicas` (integer ≥ 0, opsional) menyimpan jumlah sebelum
+dipotong. API menyimpan `desired` dan `ready` ke `deployments.replicas_desired` dan
+`deployments.replicas_ready` hanya untuk deployment yang menjadi
+`active_deployment_id` project yang melayani (tidak `sleeping`), berjalan di node
+pelapor, dan `project_id`-nya cocok. Item yang berulang untuk deployment yang sama
+memakai item terakhir. Biayanya satu query baca dan paling banyak satu query tulis
+per heartbeat, dan laporan yang sama tidak menulis apa pun. Deployment yang tidak
+tercantum menyimpan laporan terakhirnya.
+
+`ready < desired` tidak pernah mengubah `runtime_status`: project dengan sebagian
+replika mati tetap melayani lewat replika yang sehat. Agent hanya mencantumkan
+deployment di `crashed_details` bila semua replikanya crash, dan hanya daftar itu
+yang membuat project `crashed`.
+
 API menyimpan `metadata.protocol_version` ke kolom `agent_nodes.protocol_version`
 dan membandingkannya dengan `sakala.agent.supported_protocol_versions`. Node
 dengan revisi tidak didukung tetap tercatat online, tetapi tidak menerima
@@ -238,6 +265,9 @@ lifecycle command lain hanya membawa identitas.
 | `RefreshRoute` | `caddy-file-routing` |
 | `DrainNode`, `ResumeNode` | — |
 
+`DeployProject` yang payload-nya membawa `replicas` lebih dari 1 juga butuh
+capability `replicas`; lihat [DeployProject](#deployproject).
+
 ### Pembatalan command
 
 Kontrak ini tambahan di dalam protocol revision 4: arahnya tetap outbound, tidak
@@ -318,6 +348,17 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   restart memakai domain yang tersimpan di container, bukan payload baru, jadi
   setelah `projects:move-domain` setiap project harus dideploy ulang supaya
   route-nya pindah.
+- `replicas` adalah field opsional tambahan (revisi protocol tetap 4): jumlah
+  container yang dijalankan untuk deployment ini di node yang sama, di belakang
+  router node. API hanya mengirimnya bila nilainya lebih dari 1, dan hanya ke node
+  yang mengiklankan capability `replicas`; tanpa field ini agent menjalankan satu
+  container. Bila project meminta lebih dari 1 tetapi node target tidak punya
+  capability itu, deployment ditolak saat dibuat dengan `409
+  PROJECT_REPLICAS_UNSUPPORTED`, karena agent lama akan mengabaikan field ini dan
+  diam-diam menjalankan satu container. Command yang belum punya target menunggu
+  node yang punya capability itu. Nilainya adalah `replicas` project saat deployment
+  dibuat, dibatasi `max_replicas` workspace, dan disimpan di `deployments.replicas`.
+  Wake dan restart menjalankan semua replika yang disimpan node, bukan nilai baru.
 - `container_port` adalah `effective_port` project saat deployment dibuat:
   `configured_port`, lalu `detected_port`, lalu 3000. Agent mengisi `PORT` dengan
   nilai ini, dan `runtime_port_conflict` muncul bila environment project menulis

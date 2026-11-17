@@ -16,6 +16,7 @@ use App\Enums\UsageSignalType;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
+use App\Exceptions\Runtime\ProjectReplicasUnsupportedException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
@@ -217,6 +218,8 @@ final class CreateDeploymentAction
                     $lockedProject->workspace,
                 );
 
+                $replicas = $this->runtimeLimitService->replicasFor($lockedProject);
+
                 $sequence = (int) $lockedProject->deployments()->max('sequence') + 1;
 
                 $created = true;
@@ -229,6 +232,13 @@ final class CreateDeploymentAction
                     AgentCommandType::DeployProject,
                     $lockedProject,
                 );
+
+                // An older node would run one container and report success.
+                // Without a node yet, the command waits for one that can run
+                // every replica (AssignPendingCommandsAction).
+                if ($node !== null && ! $node->supportsReplicas($replicas)) {
+                    throw new ProjectReplicasUnsupportedException($replicas);
+                }
 
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,
@@ -243,6 +253,8 @@ final class CreateDeploymentAction
                     'commit_message' => $this->commitSubject($commit['message']),
                     // Fixed at creation: a later port change only affects the next deployment.
                     'container_port' => $lockedProject->effectivePort(),
+                    // Fixed at creation too: a later change applies from the next deployment.
+                    'replicas' => $replicas,
                     'requested_resources' => $data->requested_resources?->toArray(),
                     'effective_resources' => $effectiveLimits->toArray(),
                 ]);
@@ -277,6 +289,9 @@ final class CreateDeploymentAction
                         'start_command' => $lockedProject->start_command,
                         'root_directory' => $lockedProject->root_directory,
                     ], static fn (?string $value): bool => $value !== null),
+                    // Optional addition to protocol revision 4, only above one,
+                    // and only to a node with the `replicas` capability.
+                    ...($replicas > Project::DEFAULT_REPLICAS ? ['replicas' => $replicas] : []),
                 ];
 
                 AgentCommand::create([

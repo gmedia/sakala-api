@@ -23,5 +23,6 @@ final readonly class AgentHeartbeatData
         public CarbonImmutable $sentAt,
         public ?CrashedWorkloadsData $crashedWorkloads = null,
         public ?WorkloadTrafficData $workloadTraffic = null,
+        public ?WorkloadReplicasData $workloadReplicas = null,
     ) {}
 }

@@ -61,6 +61,21 @@ class AgentNode extends Model
         });
     }
 
+    /**
+     * Capability of a node that runs a deployment's `replicas` behind its
+     * router. Agents without it ignore the payload field and run one container.
+     */
+    public const REPLICAS_CAPABILITY = 'replicas';
+
+    /**
+     * Whether a deployment of `$replicas` containers may be sent to this node:
+     * one always, more only when it advertises REPLICAS_CAPABILITY.
+     */
+    public function supportsReplicas(int $replicas): bool
+    {
+        return $replicas <= Project::DEFAULT_REPLICAS || $this->hasCapability(self::REPLICAS_CAPABILITY);
+    }
+
     /** Whether the node's last heartbeat advertised `$capability`. */
     public function hasCapability(string $capability): bool
     {

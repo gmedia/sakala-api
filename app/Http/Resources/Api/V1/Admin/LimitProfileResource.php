@@ -41,6 +41,10 @@ final class LimitProfileResource extends JsonResource
              */
             'idle_sleep_minutes' => $profile->idle_sleep_minutes,
             /**
+             * Most replicas per project. `null` allows one, so replicas stay off.
+             */
+            'max_replicas' => $profile->max_replicas,
+            /**
              * Workspaces running under this profile. A profile is deleted only at zero.
              *
              * @var int|null

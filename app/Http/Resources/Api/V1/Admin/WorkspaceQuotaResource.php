@@ -40,12 +40,14 @@ final class WorkspaceQuotaResource extends JsonResource
                 'max_builds_per_hour' => $limits->max_builds_per_hour,
                 /** Effective minutes without a request before a project sleeps, from the profile or the global setting. `0` never sleeps. */
                 'idle_sleep_minutes' => $limits->idle_sleep_minutes,
+                /** Effective most replicas per project, from the profile; 1 without one. */
+                'max_replicas' => $limits->max_replicas,
                 /** Global, the same for every workspace. */
                 'max_active_deployments_per_project' => $this->resource->max_active_deployments_per_project,
             ],
             'usage' => [
                 'projects' => $this->resource->current_projects_count,
-                /** Projects that serve or are being deployed. */
+                /** Replicas of the projects that serve or are being deployed; sleeping projects do not count. */
                 'active_containers' => $this->resource->current_active_containers_count,
                 'active_deployments' => $this->resource->current_active_deployments_count,
             ],

@@ -77,6 +77,17 @@ class AgentCommand extends Model
     public const WORKLOAD_NOT_FOUND_ERROR = 'runtime_workload_not_found';
 
     /**
+     * Containers a DeployProject asks the node to run: its payload's
+     * `replicas`, which is only present above one.
+     */
+    public function requestedReplicas(): int
+    {
+        $replicas = $this->payload['replicas'] ?? null;
+
+        return is_int($replicas) ? $replicas : Project::DEFAULT_REPLICAS;
+    }
+
+    /**
      * Whether this SleepProject puts an idle project to sleep, as opposed to
      * suspending it. Suspension sleeps always carry the admin as actor or no
      * actor at all, so an admin who writes "idle" as a reason still suspends.

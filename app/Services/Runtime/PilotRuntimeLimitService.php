@@ -10,7 +10,6 @@ use App\Data\Runtime\PilotQuotaLimitsData;
 use App\Data\Runtime\RuntimeResourceLimitsData;
 use App\Data\Runtime\RuntimeTimeoutLimitsData;
 use App\Data\Runtime\WorkspaceLimitsData;
-use App\Enums\RuntimeStatus;
 use App\Enums\WorkspaceType;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
@@ -44,7 +43,7 @@ class PilotRuntimeLimitService
         $profile = $workspace->limit_profile_id === null ? null : $workspace->limitProfile;
 
         if ($profile !== null) {
-            return WorkspaceLimitsData::fromProfile($profile, $this->idleSleepMinutesFor($profile));
+            return WorkspaceLimitsData::fromProfile($profile, $this->idleSleepMinutesFor($profile), $this->maxReplicasFor($profile));
         }
 
         $maxProjects = (int) config('sakala.pilot_limits.max_projects_per_user', 3);
@@ -56,6 +55,7 @@ class PilotRuntimeLimitService
             max_cpu_millis: (int) config('sakala.pilot_limits.resources.max_cpu_millis', 1000),
             max_builds_per_hour: null,
             idle_sleep_minutes: $this->idleSleepMinutesFor(null),
+            max_replicas: $this->maxReplicasFor(null),
         );
 
         if ($workspace->type === WorkspaceType::Personal) {
@@ -72,6 +72,7 @@ class PilotRuntimeLimitService
             max_cpu_millis: $team('max_cpu_millis', $personal->max_cpu_millis),
             max_builds_per_hour: null,
             idle_sleep_minutes: $personal->idle_sleep_minutes,
+            max_replicas: $personal->max_replicas,
         );
     }
 
@@ -88,6 +89,35 @@ class PilotRuntimeLimitService
         }
 
         return max(0, (int) config('sakala.project.idle_sleep_minutes', 0));
+    }
+
+    /**
+     * Most replicas a project of a workspace under this profile may run. A
+     * profile without its own value, and a workspace without a profile, allow
+     * one, so replicas stay off until an admin allows more. This is the only
+     * place that decides.
+     */
+    public function maxReplicasFor(?LimitProfile $profile): int
+    {
+        return max(Project::DEFAULT_REPLICAS, $profile->max_replicas ?? Project::DEFAULT_REPLICAS);
+    }
+
+    /** maxReplicasFor() the workspace's profile; one for a project without a workspace. */
+    public function maxReplicasIn(?Workspace $workspace): int
+    {
+        $profile = $workspace?->limit_profile_id === null ? null : $workspace->limitProfile;
+
+        return $this->maxReplicasFor($profile);
+    }
+
+    /**
+     * Replicas the project's next deployment runs: its setting, within what its
+     * workspace allows now. A profile whose maximum was lowered applies from the
+     * next deployment, without touching the project's setting.
+     */
+    public function replicasFor(Project $project): int
+    {
+        return max(Project::DEFAULT_REPLICAS, min($project->replicas, $this->maxReplicasIn($project->workspace)));
     }
 
     /**
@@ -230,28 +260,35 @@ class PilotRuntimeLimitService
             );
         }
 
-        // Redeploying a project that already serves replaces its container. A
-        // sleeping one holds no slot, so its redeploy takes one like a wake.
-        if ($project->active_deployment_id !== null && $project->runtime_status !== RuntimeStatus::Sleeping) {
+        // Redeploying a project that already serves replaces its containers, so
+        // only replicas beyond the ones it runs need a free slot: going from 1
+        // to 3 needs 2. A sleeping one holds no slot, so its redeploy takes
+        // all of its replicas like a wake.
+        $required = $this->replicasFor($project);
+        $held = $project->isServing() ? ($project->activeDeployment->replicas ?? Project::DEFAULT_REPLICAS) : 0;
+
+        if ($required <= $held) {
             return;
         }
 
-        $containers = $this->activeContainersIn($workspace, except: $project);
+        $others = $this->activeContainersIn($workspace, except: $project);
 
-        if ($containers >= $limits->max_active_containers) {
-            throw new ActiveContainerLimitExceededException($limits->max_active_containers, $containers);
+        if ($others + $required > $limits->max_active_containers) {
+            throw new ActiveContainerLimitExceededException($limits->max_active_containers, $others + $held, $required);
         }
     }
 
     /**
      * Whether waking this sleeping project stays within its workspace's running
-     * container limit. Applies to everyone, admins included: a wake can come
-     * from an anonymous visitor, and the limit is what keeps a node's slots
-     * shared. The caller holds the project row lock.
+     * container limit. A wake starts every replica of the deployment the node
+     * keeps (`$workload`), whatever the project's setting says now. Applies to
+     * everyone, admins included: a wake can come from an anonymous visitor, and
+     * the limit is what keeps a node's slots shared. The caller holds the
+     * project row lock.
      *
      * @throws ProjectWakeLimitExceededException
      */
-    public function checkWakeLimit(Project $project, bool $exposeUsage = true): void
+    public function checkWakeLimit(Project $project, Deployment $workload, bool $exposeUsage = true): void
     {
         $workspace = $project->workspace;
 
@@ -262,8 +299,8 @@ class PilotRuntimeLimitService
         $limit = $this->limitsFor($workspace)->max_active_containers;
         $containers = $this->activeContainersIn($workspace, except: $project);
 
-        if ($containers >= $limit) {
-            throw new ProjectWakeLimitExceededException($limit, $containers, $exposeUsage);
+        if ($containers + $workload->replicas > $limit) {
+            throw new ProjectWakeLimitExceededException($limit, $containers, $exposeUsage, $workload->replicas);
         }
     }
 
@@ -304,18 +341,18 @@ class PilotRuntimeLimitService
     }
 
     /**
-     * Projects that serve, or are being deployed and will serve, so two
-     * deployments racing for the last slot cannot both pass. A sleeping project
-     * keeps its active deployment but runs nothing, so it does not count.
+     * Running containers of the workspace: the replicas of every project that
+     * serves, or is being deployed and will serve (Project::heldContainers()).
+     * A sleeping project keeps its active deployment but runs nothing, so it
+     * does not count. One query.
      */
     private function activeContainersIn(Workspace $workspace, ?Project $except = null): int
     {
         return Project::query()
             ->where('workspace_id', $workspace->id)
             ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except?->id))
-            ->where(fn (Builder $query) => $query
-                ->where(fn (Builder $serving) => $serving->serving())
-                ->orWhereHas('deployments', fn (Builder $deployments) => $deployments->active()))
-            ->count();
+            ->holdingContainers()
+            ->get()
+            ->sum(static fn (Project $project): int => $project->heldContainers());
     }
 }

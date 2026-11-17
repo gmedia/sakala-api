@@ -30,6 +30,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $commit_message
  * @property string|null $image_reference
  * @property int|null $container_port
+ * @property int $replicas Containers this deployment was asked to run, fixed at creation like `container_port`.
+ * @property int|null $replicas_desired Containers the node runs for it, from heartbeats. Null until reported.
+ * @property int|null $replicas_ready Of those, how many pass the router's health check, from heartbeats. Null until reported.
  * @property string|null $idempotency_key
  * @property array{
  *     memory_mb: int|null,
@@ -83,6 +86,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'commit_message',
     'image_reference',
     'container_port',
+    'replicas',
+    'replicas_desired',
+    'replicas_ready',
     'requested_resources',
     'effective_resources',
     'applied_resources',
@@ -110,13 +116,14 @@ class Deployment extends Model
     public const MAX_COMMIT_MESSAGE_LENGTH = 500;
 
     /**
-     * The column default, so a deployment answered right after it is created
-     * sends `false` instead of null.
+     * The column defaults, so a deployment answered right after it is created
+     * sends `false` and 1 instead of null.
      *
-     * @var array<string, bool>
+     * @var array<string, bool|int>
      */
     protected $attributes = [
         'finalization_deferred' => false,
+        'replicas' => Project::DEFAULT_REPLICAS,
     ];
 
     /** @return BelongsTo<Project, $this> */
@@ -181,6 +188,9 @@ class Deployment extends Model
             'realtime_sequence' => 'integer',
             'trigger' => DeploymentTrigger::class,
             'container_port' => 'integer',
+            'replicas' => 'integer',
+            'replicas_desired' => 'integer',
+            'replicas_ready' => 'integer',
             'requested_resources' => 'array',
             'effective_resources' => 'array',
             'applied_resources' => 'array',

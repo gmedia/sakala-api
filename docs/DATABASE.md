@@ -18,10 +18,10 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `github_installations` | Entity global GitHub App installation, metadata akun GitHub, dan status akses repository. |
 | `github_installation_user` | Relasi user Sakala dengan installation GitHub yang telah diverifikasi. |
 | `github_webhook_deliveries` | Delivery ID webhook GitHub untuk pemrosesan lifecycle yang idempoten. |
-| `projects` | Metadata repository, generated domain, status runtime, deployment yang sedang melayani atau tidur (`active_deployment_id`), kapan router terakhir melayani request (`last_request_at`, dari heartbeat), dan hasil inspeksi stack terakhir (`inspection`, `inspection_status`, `inspection_error_code`, `inspected_at`). |
+| `projects` | Metadata repository, generated domain, status runtime, deployment yang sedang melayani atau tidur (`active_deployment_id`), kapan router terakhir melayani request (`last_request_at`, dari heartbeat), jumlah replika untuk deployment berikutnya (`replicas`, default 1), dan hasil inspeksi stack terakhir (`inspection`, `inspection_status`, `inspection_error_code`, `inspected_at`). |
 | `environment_variables` | Key dan value terenkripsi per project. |
 | `retired_project_slugs` | Slug project yang sudah di-purge. Hanya slug dan waktunya, dan tidak pernah dihapus, supaya alamat lama tidak bisa dipakai project lain. |
-| `deployments` | Satu attempt deployment, snapshot source yang dijalankan, node target, resource yang diterapkan agent, status finalisasi, dan keterangan kegagalan (`failure_code`, `failure_summary`, `failure_detail`, `failure_stage`). |
+| `deployments` | Satu attempt deployment, snapshot source yang dijalankan, replika yang diminta (`replicas`) dan yang dilaporkan node (`replicas_desired`, `replicas_ready`), node target, resource yang diterapkan agent, status finalisasi, dan keterangan kegagalan (`failure_code`, `failure_summary`, `failure_detail`, `failure_stage`). |
 | `agent_nodes` | Identitas runtime node, token hash, capability, protocol revision, desired lifecycle state, dan heartbeat terakhir. |
 | `agent_commands` | Durable command queue antara API dan agent. |
 | `agent_command_reports` | Event/log append-only untuk command tanpa deployment (InspectProject, CleanupRuntime, DrainNode, ResumeNode). |
@@ -32,7 +32,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `workspaces` | Pemilik project: satu workspace pribadi per user (`personal_user_id` unik) dan workspace tim. `slug` unik untuk keduanya. `limit_profile_id` opsional. |
 | `workspace_members` | Anggota workspace dengan peran `owner`, `member`, atau `viewer`. Unik per workspace dan user; ikut terhapus bersama workspace atau user. |
 | `workspace_invitations` | Undangan: email (huruf kecil), peran, `status` (`pending`, `accepted`, `declined`, `revoked`), hash SHA-256 token, pengundang, masa berlaku, dan `closed_at`. Diterima, ditolak, dicabut, atau diganti berarti barisnya ditutup, bukan dihapus, supaya tautannya bisa menjelaskan kenapa tidak berlaku. `workspaces:prune-invitations` menghapus setiap baris setelah `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS` lewat dari masa berlakunya. |
-| `limit_profiles` | Profil batas yang bisa dipakai ulang: jumlah project, container berjalan, deployment berjalan, memory dan CPU per project, `max_builds_per_hour` yang disiapkan untuk batas build, dan `idle_sleep_minutes` (`null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` tidak pernah tidur). Tidak bisa dihapus selama dipakai workspace. |
+| `limit_profiles` | Profil batas yang bisa dipakai ulang: jumlah project, container berjalan, deployment berjalan, memory dan CPU per project, `max_builds_per_hour` yang disiapkan untuk batas build, `idle_sleep_minutes` (`null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` tidak pernah tidur), dan `max_replicas` (`null` berarti 1 replika per project). Tidak bisa dihapus selama dipakai workspace. |
 | `legal_acceptances` | Versi dokumen yang disetujui atau diketahui tiap user, dengan waktunya. Append-only, unik per user, dokumen, dan versi; index itu juga melayani pembacaan per user. Ikut terhapus bersama user. |
 | `usage_signal_records` | Sinyal agregat penggunaan dan abuse (deployment attempts, agent failures, rejected limits, dll.) untuk observabilitas pilot. Append-only, diproses secara berkala oleh scheduler. |
 
@@ -111,6 +111,8 @@ Migrasi `2026_11_05_143109` dan `2026_11_05_143110` hanya menambah kolom nullabl
 `deployments.crash_notified_at` mencegah notifikasi ganda untuk crash yang sama dan dikosongkan saat agent berhenti melaporkan workload itu.
 
 `deployments.container_port` menyimpan port yang dikirim ke agent saat deployment dibuat, sumber `serving_port`. Migrasinya mengisi baris lama dari payload `DeployProject`; yang tanpa command tetap `null`.
+
+`deployments.replicas` (smallint, default 1) menyimpan replika yang diminta saat deployment dibuat, seperti `container_port`, dan menjadi dasar hitungan container berjalan workspace serta wake. `deployments.replicas_desired` dan `deployments.replicas_ready` (smallint, nullable) ditulis heartbeat node yang menjalankan deployment aktif, dalam satu `UPDATE ... CASE` per heartbeat. Laporan replika disimpan per deployment, bukan di `projects`, supaya deployment baru otomatis mulai dari "belum dilaporkan" tanpa jalur deploy, sleep, atau stop perlu mengosongkannya. Hitungan container berjalan membaca replika deployment aktif lewat subquery dan replika terbanyak deployment yang berjalan lewat `withMax`, dalam satu query per workspace; tidak ada index baru karena query itu sudah dibatasi `workspace_id` dan index `deployments (project_id, status)` yang ada. Migrasi `2026_11_18_000001` hanya menambah kolom berdefault 1 atau nullable, jadi setiap baris lama tetap satu container dan tidak ada backfill.
 
 Migrasi `2026_11_06_00000x` hanya menambah kolom nullable atau berdefault dan satu tabel baru, jadi kode lama tetap berjalan dan tidak ada backfill.
 
