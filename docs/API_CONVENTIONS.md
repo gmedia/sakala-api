@@ -745,6 +745,7 @@ Endpoint dengan rentang waktu menerima `range`: `7d`, `30d`, `90d`, `custom` (de
 | `POST agents/{agent}/revoke` | Body `reason`. Node tidak bisa autentikasi atau menerima command lagi. Idempoten. |
 | `GET agents/{agent}/commands` | Riwayat command node: `type`, `status`, project, `deployment_id`, waktu, `error_code`, `error_message` (sudah diredaksi), `reports_count`. Filter `type`, `status`. |
 | `GET agents/{agent}/commands/{command}` | Command dengan sampai 200 report terbaru. Command milik node lain `404`. |
+| `GET edges` | Semua instance Sakala Edge (token Edge, termasuk yang dicabut), urut menurut `name`, tanpa pagination: versi, revisi yang disajikan dan revisi sekarang, status, `healthy`, `unhealthy_reasons`, `unhealthy_since`. Lihat [EDGE_API.md](EDGE_API.md#get-apiv1adminedges). |
 | `GET feedback` | `status` (`open`, `acknowledged`, `resolved`), `category`, `search` (isi pesan). |
 | `PATCH feedback/{feedback}` | Body `status`, `reason`. |
 | `GET audit-events` | `actor_type` + `actor_id`, `action` (persis), `subject_type` + `subject_id`, `range` (default `all`). |

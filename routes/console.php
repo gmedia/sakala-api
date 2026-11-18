@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Console\Commands\AssignAgentCommandsCommand;
+use App\Console\Commands\CheckEdgeHealthCommand;
 use App\Console\Commands\CollectUsageSignalsCommand;
 use App\Console\Commands\ExpireAgentCommandsCommand;
 use App\Console\Commands\MarkOfflineAgentNodesCommand;
@@ -32,6 +33,11 @@ Schedule::command(MarkOfflineAgentNodesCommand::class)
     ->onOneServer();
 
 Schedule::command(SleepIdleProjectsCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(CheckEdgeHealthCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();

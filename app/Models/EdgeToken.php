@@ -20,7 +20,13 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $name Which Edge instance holds it, for example `edge-jkt-1`.
  * @property string $token_hash
  * @property string $token_prefix The first characters of the token, to recognise it in logs and configuration.
- * @property CarbonImmutable|null $last_used_at Updated at most once per LAST_USED_RESOLUTION_SECONDS.
+ * @property CarbonImmutable|null $last_used_at The last authenticated request (exposed as `last_seen_at` by the admin API), written at most once per LAST_USED_RESOLUTION_SECONDS unless a reported value changed.
+ * @property string|null $last_version The sakala-edge version from `User-Agent`; null when unknown.
+ * @property string|null $last_applied_revision The revision the Edge serves (64 lowercase hex) or `none`; null when unknown.
+ * @property string|null $last_status `ok` or the code sakala-edge failed to apply the table with; null when unknown.
+ * @property CarbonImmutable|null $status_since When `last_status` last changed value (null to a value and back included).
+ * @property CarbonImmutable|null $revision_mismatch_since Set by `edge:check-health` when it first sees the applied revision differ from the current one; cleared on a match or an unknown revision.
+ * @property CarbonImmutable|null $unhealthy_since The alert state of `edge:check-health`: when the Edge became unhealthy, null while healthy.
  * @property CarbonImmutable|null $revoked_at A revoked token is refused until it is issued again.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
@@ -38,8 +44,17 @@ class EdgeToken extends Model
 
     public const PREFIX_LENGTH = 12;
 
-    /** The Edge polls every few seconds; recording each poll would write on every request. */
+    /**
+     * The Edge polls every few seconds; recording each poll would write on
+     * every request. A changed version, revision, or status is written at once.
+     */
     public const LAST_USED_RESOLUTION_SECONDS = 60;
+
+    /** `last_status` when the Edge applied the last table it fetched. */
+    public const STATUS_OK = 'ok';
+
+    /** `last_applied_revision` of an Edge that has not applied any table yet. */
+    public const APPLIED_REVISION_NONE = 'none';
 
     /** The stored form of a plaintext token. */
     public static function hash(string $token): string
@@ -57,6 +72,9 @@ class EdgeToken extends Model
     {
         return [
             'last_used_at' => 'immutable_datetime',
+            'status_since' => 'immutable_datetime',
+            'revision_mismatch_since' => 'immutable_datetime',
+            'unhealthy_since' => 'immutable_datetime',
             'revoked_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',

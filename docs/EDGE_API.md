@@ -23,7 +23,9 @@ memeriksa bentuk dan aturan di bawah; nilai pada contoh hanya ilustrasi.
   API hanya menyimpan HMAC-nya (`APP_KEY`), jadi token yang hilang diganti, tidak
   dipulihkan. Setiap perubahan dicatat sebagai audit event `edge_token.issued`,
   `edge_token.rotated`, atau `edge_token.revoked` (actor `system`/`cli`, tanpa token).
-- `last_used_at` diperbarui paling sering sekali per menit.
+- Setiap request yang lolos autentikasi dicatat di token: `last_used_at` dan isi
+  header Edge di bawah, paling sering sekali per menit kecuali ada nilai yang berubah.
+  Lihat [Pemantauan](#pemantauan).
 
 | Keadaan | Status |
 | --- | --- |
@@ -43,6 +45,15 @@ salah juga dibatasi. Satu instance Edge yang polling setiap 2 sampai 5 detik mem
 | --- | --- | --- |
 | `Authorization` | ya | `Bearer <token>`. |
 | `If-None-Match` | tidak | ETag dari response sebelumnya (`"<revision>"`, dengan tanda kutip). Bila sama dengan revisi sekarang, API menjawab `304`. |
+| `User-Agent` | tidak | `sakala-edge/<versi>`, versi berbentuk SemVer `X.Y.Z` dengan akhiran pre-release atau build opsional (`^sakala-edge/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-+]+)?)$`), versi paling panjang 64 karakter. Dicatat sebagai `last_version` tanpa awalan `sakala-edge/`. |
+| `Sakala-Edge-Applied-Revision` | tidak | Revisi yang sedang disajikan Caddy di Edge: 64 karakter hex huruf kecil (`^[0-9a-f]{64}$`), atau persis `none` sebelum Edge pernah menerapkan tabel. |
+| `Sakala-Edge-Status` | tidak | `ok` bila tabel terakhir yang diambil berhasil diterapkan, selain itu kode penolakan atau error dari sakala-edge, misalnya `below_expected_minimum` atau `invalid_revision`: snake_case huruf kecil, diawali huruf, paling panjang 64 karakter (`^[a-z][a-z0-9_]*$`). |
+
+Ketiga header terakhir hanya untuk pemantauan. Header yang tidak ada atau tidak cocok
+dengan aturannya (misalnya huruf besar, revisi 63 karakter, atau `User-Agent` klien
+lain) dicatat sebagai "tidak diketahui" (`null`) dan **tidak pernah** menggagalkan
+request: Edge versi lama tidak mengirimnya, dan versi yang sudah rilis hanya mengirim
+`User-Agent`.
 
 ### Response `200`
 
@@ -153,3 +164,133 @@ empat query, berapa pun jumlah project-nya.
    salinan terakhir sudah terlalu tua.
 4. Teruskan request ke salah satu `upstreams` dengan `Host` asli; untuk host yang
    tidak dikenal, jawab dengan halaman default Edge.
+5. Kirim `User-Agent`, `Sakala-Edge-Applied-Revision`, dan `Sakala-Edge-Status` di
+   setiap polling, supaya API bisa memberi tahu admin bila Edge bermasalah (lihat
+   Pemantauan).
+
+## Pemantauan
+
+API memantau setiap instance Edge dari request yang dikirimnya sendiri, lalu
+mengirim email ke admin bila Edge berhenti mengambil tabel, gagal menerapkannya, atau
+tertinggal revisi. Tidak ada yang perlu dipasang di Edge selain mengirim header di
+atas.
+
+### Yang dicatat
+
+Setiap request yang lolos autentikasi (jawaban `200` maupun `304`) dicatat di baris
+`edge_tokens` milik token itu (`RecordEdgeContactAction`):
+
+| Kolom | Isi |
+| --- | --- |
+| `last_used_at` | Kapan request terakhir dicatat. API admin menampilkannya sebagai `last_seen_at`. |
+| `last_version` | Versi dari `User-Agent`, atau `null`. |
+| `last_applied_revision` | Nilai `Sakala-Edge-Applied-Revision` (`none` ikut disimpan), atau `null`. |
+| `last_status` | Nilai `Sakala-Edge-Status`, atau `null`. |
+| `status_since` | Kapan `last_status` terakhir berganti nilai, termasuk dari dan ke `null`. |
+
+Edge polling setiap beberapa detik, jadi baris hanya ditulis bila salah satu nilai
+berubah, atau bila penulisan terakhir (`last_used_at`) sudah lebih dari 60 detik
+(`EdgeToken::LAST_USED_RESOLUTION_SECONDS`). Nilai yang tidak dikirim di request
+terakhir menjadi `null`, karena yang dicatat adalah keadaan Edge menurut request
+terakhirnya.
+
+### Kapan Edge dianggap tidak sehat
+
+Ambangnya `SAKALA_EDGE_STALE_AFTER_SECONDS` (default 300). Hanya token yang tidak
+dicabut dan pernah terlihat (`last_used_at` terisi) yang dinilai; selain itu
+keadaannya "tidak diketahui" dan tidak pernah memicu peringatan. Edge tidak sehat bila
+salah satu kondisi ini berlangsung terus-menerus **lebih lama** dari ambang (tepat
+sama dengan ambang masih sehat):
+
+| Alasan | Kondisi | Dihitung sejak |
+| --- | --- | --- |
+| `stale` | Edge tidak mengambil tabel route. | `last_used_at` |
+| `status` | `last_status` diketahui dan bukan `ok`. | `status_since` |
+| `revision_behind` | `last_applied_revision` diketahui (termasuk `none`) dan berbeda dari revisi tabel sekarang. | `revision_mismatch_since` |
+
+Revisi sekarang adalah `revision` dari tabel route yang sama dengan yang diterima Edge
+(cache sampai `SAKALA_EDGE_ROUTES_CACHE_SECONDS`). `revision_mismatch_since` diisi oleh
+`edge:check-health` saat pertama kali melihat revisi berbeda, dan dikosongkan saat
+melihat revisi sama atau tidak diketahui; jadi satu kali cocok di antaranya memulai
+hitungan dari awal. Edge yang tidak mengirim revisi (versi lama) hanya dinilai dengan
+aturan `stale`.
+
+Penilaian ini (`EvaluateEdgeHealthAction`) dipakai oleh command dan endpoint admin di
+bawah, sehingga keduanya selalu sepakat. Waktu tidak sehat (`unhealthy_since`) adalah
+saat paling awal salah satu kondisi yang aktif melewati ambang, yaitu "dihitung sejak"
+ditambah ambang.
+
+### `edge:check-health`
+
+`php artisan edge:check-health` dijadwalkan setiap menit di `routes/console.php`
+(`withoutOverlapping`, `onOneServer`). Untuk setiap token yang dinilai, di dalam
+transaction dengan row lock, command ini memperbarui `revision_mismatch_since`, menilai
+Edge, lalu membandingkannya dengan keadaan peringatan yang tersimpan
+(`edge_tokens.unhealthy_since`, `null` berarti sehat):
+
+- Sehat menjadi tidak sehat: `unhealthy_since` diisi waktu tidak sehat, audit event
+  `edge.unhealthy` ditulis, dan semua admin (`role = admin`) menerima email
+  `edge-unhealthy` sekali.
+- Tidak sehat menjadi sehat: `unhealthy_since` dikosongkan, audit event
+  `edge.recovered` ditulis, dan semua admin menerima email `edge-recovered` sekali.
+- Keadaan tidak berubah, termasuk alasan yang berganti selama masih tidak sehat: tidak
+  ada yang dikirim.
+
+Email dikirim lewat queue setelah transaction selesai, dan hanya bila
+`SAKALA_EMAIL_DELIVERY_ENABLED` aktif; audit event tetap ditulis tanpa email. Email
+yang gagal dilaporkan dan tidak diulang di menit berikutnya. Email tidak sehat menyebut
+nama Edge, sejak kapan, alasannya (tidak mengambil tabel sejak kapan, kode status, atau
+revisi yang disajikan dibanding revisi API, masing-masing 12 karakter pertama), bahwa
+proyek yang sudah berjalan tetap dilayani dari salinan route terakhir sementara
+deployment baru dan perubahan route tidak sampai, serta perintah pertama untuk
+memeriksa di server Edge: `systemctl status sakala-edge`,
+`cat /var/lib/sakala-edge/status.json`, dan `journalctl -u sakala-edge`. Email pulih
+menyebut sejak kapan Edge sehat lagi (waktu pengecekan) dan berapa lama tidak sehat.
+
+Audit event memakai actor `system` dengan ID `edge:check-health` dan subject token
+Edge, tanpa token, hash, atau prefix-nya:
+
+| Event | Metadata |
+| --- | --- |
+| `edge.unhealthy` | `name`, `reasons` (list alasan), `unhealthy_since`, `status`, `applied_revision`, `current_revision`, `last_seen_at`, `version` |
+| `edge.recovered` | `name`, `unhealthy_since`, `recovered_at`, `unhealthy_seconds` |
+
+### `GET /api/v1/admin/edges`
+
+Khusus admin (sesi Console; `401` tanpa sesi, `403` untuk bukan admin). Semua token
+Edge, termasuk yang dicabut, urut menurut `name`, tanpa pagination karena satu token
+mewakili satu instance Edge. Kesehatannya dinilai saat request, dengan aturan di atas,
+jadi bisa lebih dulu menunjukkan tidak sehat daripada email yang menunggu command
+berikutnya (paling lambat satu menit).
+
+```json
+{
+  "data": [
+    {
+      "name": "edge-jkt-1",
+      "last_seen_at": "2026-11-18T07:20:00+00:00",
+      "last_version": "1.0.0",
+      "applied_revision": "9a1b3c5d7e9f0a2b4c6d8e0f1a3b5c7d9e1f3a5b7c9d0e2f4a6b8c0d2e4f6a8b",
+      "current_revision": "5f2c0e9d4b6a7c1e3f8a2d9b0c4e6f1a7b3d5c9e2f0a8b6d4c1e7f3a9b5d2c0e",
+      "status": "below_expected_minimum",
+      "healthy": false,
+      "unhealthy_reasons": ["stale", "status", "revision_behind"],
+      "unhealthy_since": "2026-11-18T07:15:00+00:00",
+      "revoked": false
+    }
+  ]
+}
+```
+
+| Field | Tipe | Null | Keterangan |
+| --- | --- | --- | --- |
+| `name` | string | tidak | Nama instance Edge, seperti pada `edge:token {name}`. |
+| `last_seen_at` | string RFC 3339 | ya | Request terakhir yang dicatat (kolom `edge_tokens.last_used_at`); `null` bila belum pernah terlihat. |
+| `last_version` | string | ya | Versi sakala-edge dari `User-Agent`; `null` bila tidak diketahui. |
+| `applied_revision` | string | ya | Revisi yang disajikan Edge (64 hex) atau `none`; `null` bila tidak diketahui. |
+| `current_revision` | string, 64 hex | tidak | Revisi tabel route sekarang; sama di setiap item. |
+| `status` | string | ya | `ok` atau kode dari sakala-edge; `null` bila tidak diketahui. |
+| `healthy` | boolean | ya | `null` untuk token yang dicabut atau belum pernah terlihat (tidak dinilai). |
+| `unhealthy_reasons` | array of string enum | tidak | `stale`, `status`, `revision_behind`, urut seperti itu; kosong bila sehat atau tidak diketahui. |
+| `unhealthy_since` | string RFC 3339 | ya | Saat paling awal salah satu `unhealthy_reasons` melewati ambang; `null` kecuali tidak sehat. |
+| `revoked` | boolean | tidak | Token dicabut. |

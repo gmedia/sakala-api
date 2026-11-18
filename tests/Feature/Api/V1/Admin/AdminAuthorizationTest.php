@@ -68,6 +68,7 @@ function adminApiRoutes(): array
         'agents revoke' => ['POST', "/api/v1/admin/agents/{$agent->id}/revoke"],
         'agents commands' => ['GET', "/api/v1/admin/agents/{$agent->id}/commands"],
         'agents command' => ['GET', "/api/v1/admin/agents/{$agent->id}/commands/{$command->id}"],
+        'edges index' => ['GET', '/api/v1/admin/edges'],
         'feedback index' => ['GET', '/api/v1/admin/feedback'],
         'feedback update' => ['PATCH', "/api/v1/admin/feedback/{$feedback->id}"],
         'audit events' => ['GET', '/api/v1/admin/audit-events'],
