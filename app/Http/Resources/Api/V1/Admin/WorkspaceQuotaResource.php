@@ -35,7 +35,8 @@ final class WorkspaceQuotaResource extends JsonResource
                 /** Per project. */
                 'max_cpu_millis' => $limits->max_cpu_millis,
                 /**
-                 * Reserved for the build rate limit; not enforced yet.
+                 * Effective deployments per rolling hour, from the profile or the global setting. `null` means no
+                 * limit. Admins acting are not limited.
                  */
                 'max_builds_per_hour' => $limits->max_builds_per_hour,
                 /** Effective minutes without a request before a project sleeps, from the profile or the global setting. `0` never sleeps. */

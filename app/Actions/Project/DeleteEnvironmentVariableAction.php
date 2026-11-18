@@ -13,9 +13,16 @@ final class DeleteEnvironmentVariableAction
     public function handle(EnvironmentVariable $environmentVariable): void
     {
         DB::transaction(function () use ($environmentVariable): void {
+            // The project row first, so concurrent variable changes recompute
+            // the environment fingerprint one at a time.
+            /** @var Project $project */
+            $project = Project::query()->whereKey($environmentVariable->project_id)->lockForUpdate()->firstOrFail();
+
             $environmentVariable->delete();
 
-            Project::query()->whereKey($environmentVariable->project_id)->update(['config_changed_at' => now()]);
+            $project->refreshEnvironmentFingerprint();
+            $project->config_changed_at = now()->toImmutable();
+            $project->save();
         });
     }
 }

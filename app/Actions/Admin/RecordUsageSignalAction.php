@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Admin;
 
 use App\Enums\UsageSignalType;
+use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Models\AuditEvent;
 use App\Models\UsageSignalRecord;
 use Carbon\CarbonImmutable;
@@ -79,6 +80,7 @@ final class RecordUsageSignalAction
         'build_timeout_seconds',
         'start_timeout_seconds',
         'command_timeout_seconds',
+        BuildRateLimitExceededException::LIMIT_NAME,
     ];
 
     /**

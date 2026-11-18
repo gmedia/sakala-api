@@ -45,6 +45,11 @@ final class PilotLimitsResource extends JsonResource
                 'current_active_containers_count' => $this->resource->current_active_containers_count,
                 /** Most replicas per project, from the workspace's limit profile; 1 without one. */
                 'max_replicas' => $limits->max_replicas,
+                /**
+                 * Deployments the workspace may create per rolling hour, from its limit profile or the global
+                 * setting; every deployment builds. `null` means no limit.
+                 */
+                'max_builds_per_hour' => $limits->max_builds_per_hour,
             ],
             'runtime_defaults' => [
                 /** @var int */
