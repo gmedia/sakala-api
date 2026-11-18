@@ -44,6 +44,8 @@ final class LimitProfileResource extends JsonResource
              * Most replicas per project. `null` allows one, so replicas stay off.
              */
             'max_replicas' => $profile->max_replicas,
+            /** Region the workspace's projects run in unless a project sets its own; `null` for any region. */
+            'default_region' => $profile->default_region,
             /**
              * Workspaces running under this profile. A profile is deleted only at zero.
              *

@@ -11,6 +11,8 @@ use App\Data\Agent\WorkloadTrafficData;
 use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
 use App\Models\Project;
+use App\Rules\EdgeAddress;
+use App\Rules\RegionSlug;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -111,12 +113,24 @@ final class AgentHeartbeatRequest extends FormRequest
             // Sent by agents with the `replicas` capability on every
             // heartbeat; null when the node's driver cannot run replicas.
             'metadata.workloads.'.AgentNode::MAXIMUM_REPLICAS_METADATA_KEY => ['sometimes', 'nullable', 'integer', 'between:'.Project::DEFAULT_REPLICAS.','.AgentNode::MAXIMUM_REPLICAS_REPORT_CEILING],
+            // Optional and additive within protocol revision 4: the most
+            // containers the node runs at once (SAKALA_MAX_ACTIVE_CONTAINERS),
+            // for capacity-aware placement.
+            'metadata.workloads.'.AgentNode::MAXIMUM_ACTIVE_WORKLOADS_METADATA_KEY => ['sometimes', 'nullable', 'integer', 'min:0'],
             'metadata.workloads.replicas' => ['sometimes', 'array', 'max:'.self::MAX_REPLICA_ITEMS],
             'metadata.workloads.replicas.*' => ['required', 'array'],
             'metadata.workloads.replicas.*.project_id' => ['required', 'uuid'],
             'metadata.workloads.replicas.*.deployment_id' => ['required', 'uuid'],
             'metadata.workloads.replicas.*.desired' => ['required', 'integer', 'min:1', 'max:'.self::MAX_REPORTED_REPLICAS],
             'metadata.workloads.replicas.*.ready' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_REPLICAS],
+
+            // Optional and additive within protocol revision 4: where the node
+            // is (SAKALA_AGENT_REGION) and where Sakala Edge reaches its
+            // runtime router. An admin override on the node wins over both.
+            // A malformed value rejects the heartbeat, like the lists above.
+            'metadata.'.AgentNode::RUNTIME_METADATA_KEY => ['sometimes', 'array'],
+            'metadata.'.AgentNode::RUNTIME_METADATA_KEY.'.'.AgentNode::REGION_METADATA_KEY => ['sometimes', 'nullable', 'string', 'max:'.RegionSlug::MAX_LENGTH, new RegionSlug],
+            'metadata.'.AgentNode::RUNTIME_METADATA_KEY.'.'.AgentNode::EDGE_ADDRESS_METADATA_KEY => ['sometimes', 'nullable', 'string', 'max:'.EdgeAddress::MAX_LENGTH, new EdgeAddress],
 
             'metadata.disk_pressure' => ['required', 'array'],
             'metadata.disk_pressure.state' => ['required', 'string', 'max:50'],

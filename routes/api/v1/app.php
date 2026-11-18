@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\Project\DomainPreviewController;
 use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
+use App\Http\Controllers\Api\V1\Runtime\RegionController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceInvitationController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceMemberController;
@@ -35,6 +36,10 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
     // Pilot runtime and quota limits
     Route::get('/pilot-limits', [PilotLimitsController::class, 'show'])
         ->name('api.v1.app.pilot-limits.show');
+
+    // Regions a project may run in
+    Route::get('/regions', [RegionController::class, 'index'])
+        ->name('api.v1.app.regions.index');
 
     // Project routes
     Route::get('projects/domain-preview', DomainPreviewController::class)

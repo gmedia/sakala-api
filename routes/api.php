@@ -17,3 +17,4 @@ Route::prefix('v1')
     });
 
 require __DIR__.'/agent.php';
+require __DIR__.'/edge.php';

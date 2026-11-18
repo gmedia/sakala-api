@@ -121,6 +121,24 @@ class PilotRuntimeLimitService
     }
 
     /**
+     * The region the project must run in: its own `region`, else its
+     * workspace profile's `default_region`, else null for any region. Only
+     * placement of a project without a workload reads it
+     * (AgentNodeSchedulerService). This is the only place that decides.
+     */
+    public function regionFor(Project $project): ?string
+    {
+        if ($project->region !== null) {
+            return $project->region;
+        }
+
+        $workspace = $project->workspace;
+        $profile = $workspace?->limit_profile_id === null ? null : $workspace->limitProfile;
+
+        return $profile?->default_region;
+    }
+
+    /**
      * Resolve effective runtime limits from the requested resources and the
      * caps of the workspace that owns the project. The default never exceeds
      * the cap, so a profile with a small cap still deploys without a request.

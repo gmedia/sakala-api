@@ -42,6 +42,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $start_command
  * @property string|null $root_directory
  * @property int $replicas Containers the next deployment runs, behind the node's router. Applies from the next deployment.
+ * @property string|null $region Region the project runs in; null follows the workspace profile's default_region (PilotRuntimeLimitService::regionFor()).
  * @property CarbonImmutable|null $config_changed_at
  * @property bool $auto_deploy
  * @property string|null $active_deployment_id
@@ -75,6 +76,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'start_command',
     'root_directory',
     'replicas',
+    'region',
     'config_changed_at',
     'auto_deploy',
     'active_deployment_id',

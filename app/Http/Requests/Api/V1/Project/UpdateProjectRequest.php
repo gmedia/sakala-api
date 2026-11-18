@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Project;
 
+use App\Actions\Project\GetAvailableRegionsAction;
 use App\Data\Project\UpdateProjectData;
 use App\Http\Requests\Concerns\ValidatesBuildConfiguration;
 use App\Models\Project;
+use App\Rules\RegionSlug;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -66,6 +68,24 @@ final class UpdateProjectRequest extends FormRequest
                     }
                 },
             ],
+            /**
+             * Region the project runs in, one of `GET app/regions`; `null` follows the workspace's default region, or
+             * any region without one. Applies to the next placement on a node: a project that already runs stays on its node.
+             */
+            'region' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:'.RegionSlug::MAX_LENGTH,
+                new RegionSlug,
+                // A closure, so the documented schema does not list the
+                // regions of whichever nodes existed while generating it.
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    if (is_string($value) && ! in_array($value, app(GetAvailableRegionsAction::class)->handle(), true)) {
+                        $fail("Region {$value} belum punya node. Pilih salah satu region yang tersedia.");
+                    }
+                },
+            ],
         ];
     }
 
@@ -98,6 +118,9 @@ final class UpdateProjectRequest extends FormRequest
         /** @var string|null $branch */
         $branch = $this->validated('branch');
 
+        /** @var string|null $region */
+        $region = $this->validated('region');
+
         return new UpdateProjectData(
             name: $name,
             thumbnailUrl: $thumbnailUrl,
@@ -106,6 +129,8 @@ final class UpdateProjectRequest extends FormRequest
             buildConfiguration: $this->buildConfiguration(),
             autoDeploy: array_key_exists('auto_deploy', $validated) ? $this->boolean('auto_deploy') : null,
             replicas: array_key_exists('replicas', $validated) ? $this->integer('replicas') : null,
+            region: $region,
+            regionProvided: array_key_exists('region', $validated),
         );
     }
 }

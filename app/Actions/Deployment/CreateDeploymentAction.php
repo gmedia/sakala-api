@@ -227,16 +227,17 @@ final class CreateDeploymentAction
                 // only ever materialised for one authenticated node. With no
                 // eligible node the command waits unassigned for a later
                 // assignment sweep or heartbeat.
-                // Only a node that runs every replica is selected: an older
-                // one would run one container and report success. Without one
-                // the command waits, unless no node could ever take it.
+                // Only a node of the project's region that runs every replica
+                // is selected: an older one would run one container and report
+                // success. Without one the command waits, unless no node could
+                // ever take it.
                 $node = $this->scheduler->selectNodeFor(
                     AgentCommandType::DeployProject,
                     $lockedProject,
                     $replicas,
                 );
 
-                $this->scheduler->ensureReplicasCanRun($lockedProject, $node, $replicas);
+                $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas);
 
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,

@@ -75,6 +75,11 @@ final class ProjectResource extends JsonResource
              * Null when nothing serves or the node has not reported yet.
              */
             'replicas_ready' => $this->resource->servingReplicasReady(),
+            /**
+             * Region the project runs in, one of `GET app/regions`; `null` follows the workspace's default region, or
+             * any region without one. Placement reads it only while the project has no workload on a node.
+             */
+            'region' => $this->resource->region,
             /** @var string|null */
             'build_command' => $this->resource->build_command,
             /** @var string|null */
