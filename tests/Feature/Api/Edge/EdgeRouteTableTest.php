@@ -139,18 +139,18 @@ test('using a token records when, at most once a minute', function (): void {
     $token = edgeToken();
 
     getEdgeRoutes($this, $token)->assertOk();
-    $first = EdgeToken::query()->sole()->last_used_at;
+    $first = EdgeToken::query()->sole()->last_seen_at;
 
     $this->travel(30)->seconds();
     getEdgeRoutes($this, $token)->assertOk();
 
     expect($first)->not->toBeNull()
-        ->and(EdgeToken::query()->sole()->last_used_at->equalTo($first))->toBeTrue();
+        ->and(EdgeToken::query()->sole()->last_seen_at->equalTo($first))->toBeTrue();
 
     $this->travel(31)->seconds();
     getEdgeRoutes($this, $token)->assertOk();
 
-    expect(EdgeToken::query()->sole()->last_used_at->greaterThan($first))->toBeTrue();
+    expect(EdgeToken::query()->sole()->last_seen_at->greaterThan($first))->toBeTrue();
 });
 
 test('the route table is rate limited per client', function (): void {

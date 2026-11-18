@@ -84,6 +84,7 @@ Region dan alamat Edge sebuah node dilaporkan agent lewat heartbeat (lihat [Agen
 
 - `SAKALA_EDGE_ROUTES_CACHE_SECONDS`: berapa detik `GET /api/edge/v1/routes` memakai ulang tabel route yang sudah disusun; sekaligus batas basinya route. Default `5`, `0` menyusun ulang di setiap request.
 - `SAKALA_EDGE_RATE_LIMIT`: request per menit per alamat klien ke route Edge, dihitung sebelum autentikasi. Default `120`.
+- `SAKALA_EDGE_STALE_AFTER_SECONDS`: berapa detik sebuah Edge boleh tidak mengambil tabel route, melaporkan status selain `ok`, atau tertinggal revisi sebelum `edge:check-health` mengirim email ke semua admin. Default `300`; kosong juga berarti default, dan nilai di bawah `1` dibulatkan ke `1`. Lihat [Pemantauan](EDGE_API.md#pemantauan).
 - Token setiap instance Edge dibuat dengan `php artisan edge:token {name} --reason=...`, yang mencetak `SAKALA_EDGE_TOKEN=...` sekali. Jalankan lagi untuk mengganti token, atau dengan `--revoke` untuk mencabutnya. Kontraknya ada di [EDGE_API.md](EDGE_API.md).
 
 ## Deployments

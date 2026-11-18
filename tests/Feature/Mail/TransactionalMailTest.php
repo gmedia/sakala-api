@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use App\Actions\Auth\DeleteAccountAction;
+use App\Actions\Edge\GetEdgeRouteTableAction;
 use App\Enums\UserRole;
+use App\Models\EdgeToken;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\WorkspaceInvitation;
@@ -19,6 +21,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\Mailer\SentMessage;
 use Symfony\Component\Mime\Address;
@@ -269,6 +272,68 @@ test('a suspension reaches the owner with the reason, the contact, and a link to
     expectWellFormedMail($email, MAIL_CONSOLE."/projects/{$project->id}", [(string) $owner->password]);
 });
 
+test('an unhealthy Edge reaches every admin with why, what still works, and what to check, then its recovery', function (): void {
+    $this->travelTo('2026-11-18 07:30:00');
+    config(['sakala.edge.routes_cache_seconds' => 0, 'sakala.edge.stale_after_seconds' => 300]);
+    User::factory()->create(['role' => UserRole::Admin, 'email' => 'admin@example.test']);
+    User::factory()->create(['role' => UserRole::Admin, 'email' => 'admin2@example.test']);
+    User::factory()->create(['email' => 'rani@example.test']);
+    $current = app(GetEdgeRouteTableAction::class)->handle()->revision;
+    $applied = str_repeat('a', 64);
+    $edge = EdgeToken::query()->create([
+        'name' => 'edge-jkt-1',
+        'token_hash' => EdgeToken::hash(Str::random(EdgeToken::TOKEN_LENGTH)),
+        'token_prefix' => 'edgeprefix12',
+    ]);
+    $edge->forceFill([
+        'last_seen_at' => now()->subMinutes(10),
+        'last_applied_revision' => $applied,
+        'last_status' => 'below_expected_minimum',
+        'status_since' => now()->subMinutes(20),
+        'revision_mismatch_since' => now()->subMinutes(15),
+    ])->save();
+
+    $this->artisan('edge:check-health')->assertSuccessful();
+
+    expect(array_filter(deliveredMail(), fn (Email $email): bool => $email->getTo()[0]->getAddress() === 'rani@example.test'))->toBe([]);
+    onlyMailTo('admin2@example.test');
+    $email = onlyMailTo('admin@example.test');
+    $text = (string) $email->getTextBody();
+
+    expect($email->getSubject())->toBe('Sakala Edge edge-jkt-1 tidak sehat')
+        ->and(primaryLink($email))->toBeNull()
+        // The earliest crossing: the status, failing since 07:10 UTC, plus five minutes.
+        ->and($text)->toContain('Sejak 18 November 2026 pukul 14.15 WIB')
+        ->and($text)->toContain('Tidak mengambil tabel route sejak 18 November 2026 pukul 14.20 WIB.')
+        ->and($text)->toContain('Gagal menerapkan tabel route dengan kode `below_expected_minimum`.')
+        ->and($text)->toContain('Tertinggal revisi: menyajikan `'.substr($applied, 0, 12).'…`, sedangkan API di `'.substr($current, 0, 12).'…`.')
+        ->and($text)->toContain('proyek yang sudah berjalan tetap dilayani dari salinan route terakhir')
+        ->and($text)->toContain('deployment baru dan perubahan route')
+        ->and($text)->toContain('`systemctl status sakala-edge`')
+        ->and($text)->toContain('`cat /var/lib/sakala-edge/status.json`')
+        ->and($text)->toContain('`journalctl -u sakala-edge`');
+    expectWellFormedMail($email, null, [$edge->token_hash, 'edgeprefix12', $applied, $current]);
+
+    Mail::mailer('array')->getSymfonyTransport()->flush();
+    $this->travel(40)->minutes();
+    $edge->forceFill([
+        'last_seen_at' => now(),
+        'last_applied_revision' => $current,
+        'last_status' => 'ok',
+        'status_since' => now(),
+    ])->save();
+
+    $this->artisan('edge:check-health')->assertSuccessful();
+
+    onlyMailTo('admin2@example.test');
+    $recovered = onlyMailTo('admin@example.test');
+
+    expect($recovered->getSubject())->toBe('Sakala Edge edge-jkt-1 sehat kembali')
+        ->and(primaryLink($recovered))->toBeNull()
+        ->and((string) $recovered->getTextBody())->toContain('sehat kembali sejak 18 November 2026 pukul 15.10 WIB, setelah tidak sehat selama 55 menit');
+    expectWellFormedMail($recovered, null, [$edge->token_hash, 'edgeprefix12']);
+});
+
 test('deleting the account confirms it to the old address, with nothing to click', function (): void {
     $user = User::factory()->create(['email' => 'rani@example.test']);
 
@@ -306,7 +371,8 @@ test('every notification with a mail version is in the preview catalog', functio
 // below keeps it equal to the catalog.
 const MAIL_NAMES = [
     'verify-email', 'reset-password', 'existing-account', 'email-change-confirm', 'email-change-requested',
-    'email-change-applied', 'workspace-invitation', 'project-suspended', 'account-deleted',
+    'email-change-applied', 'workspace-invitation', 'project-suspended', 'edge-unhealthy', 'edge-recovered',
+    'account-deleted',
 ];
 
 dataset('catalog', MAIL_NAMES);
