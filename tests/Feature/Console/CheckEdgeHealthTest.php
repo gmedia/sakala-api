@@ -46,7 +46,7 @@ function checkedEdge(array $attributes = []): EdgeToken
     ]);
 
     $token->forceFill([
-        'last_seen_at' => now(),
+        'last_used_at' => now(),
         'last_version' => '1.0.0',
         'last_applied_revision' => edgeCheckRevision(),
         'last_status' => EdgeToken::STATUS_OK,
@@ -65,7 +65,7 @@ function checkEdgeHealth(object $test): void
 test('an Edge that becomes unhealthy is audited and emailed to every admin exactly once', function (): void {
     $admins = User::factory()->count(2)->create(['role' => UserRole::Admin]);
     $user = User::factory()->create(['role' => UserRole::User]);
-    $edge = checkedEdge(['name' => 'edge-jkt-1', 'last_seen_at' => now()->subMinutes(10)]);
+    $edge = checkedEdge(['name' => 'edge-jkt-1', 'last_used_at' => now()->subMinutes(10)]);
 
     $this->artisan('edge:check-health')
         ->expectsOutputToContain('Checked 1 Edge instance(s): 1 became unhealthy, 0 recovered.')
@@ -79,7 +79,7 @@ test('an Edge that becomes unhealthy is audited and emailed to every admin exact
     Notification::assertSentTo($admins->first(), function (EdgeUnhealthyNotification $notification) use ($edge): bool {
         return $notification->edgeName === 'edge-jkt-1'
             && $notification->unhealthySince->equalTo(now()->subMinutes(5))
-            && $notification->lastSeenAt?->equalTo($edge->last_seen_at) === true
+            && $notification->lastSeenAt?->equalTo($edge->last_used_at) === true
             && $notification->currentRevision === edgeCheckRevision();
     });
 
@@ -112,12 +112,12 @@ test('an Edge that becomes unhealthy is audited and emailed to every admin exact
 
 test('a recovery is audited and emailed once, with how long the Edge was unhealthy', function (): void {
     $admin = User::factory()->create(['role' => UserRole::Admin]);
-    $edge = checkedEdge(['last_seen_at' => now()->subMinutes(10)]);
+    $edge = checkedEdge(['last_used_at' => now()->subMinutes(10)]);
     checkEdgeHealth($this);
     $since = $edge->fresh()->unhealthy_since;
 
     $this->travel(30)->minutes();
-    $edge->forceFill(['last_seen_at' => now()])->save();
+    $edge->forceFill(['last_used_at' => now()])->save();
     checkEdgeHealth($this);
 
     Notification::assertSentToTimes($admin, EdgeRecoveredNotification::class, 1);
@@ -145,12 +145,12 @@ test('a recovery is audited and emailed once, with how long the Edge was unhealt
 
 test('a change of reasons while still unhealthy sends nothing', function (): void {
     $admin = User::factory()->create(['role' => UserRole::Admin]);
-    $edge = checkedEdge(['last_seen_at' => now()->subMinutes(10)]);
+    $edge = checkedEdge(['last_used_at' => now()->subMinutes(10)]);
     checkEdgeHealth($this);
     $since = $edge->fresh()->unhealthy_since;
 
     // Seen again, but failing for longer than the threshold.
-    $edge->forceFill(['last_seen_at' => now(), 'last_status' => 'empty_table', 'status_since' => now()->subMinutes(20)])->save();
+    $edge->forceFill(['last_used_at' => now(), 'last_status' => 'empty_table', 'status_since' => now()->subMinutes(20)])->save();
     $this->travel(1)->minutes();
     checkEdgeHealth($this);
 
@@ -171,7 +171,7 @@ test('a revision mismatch is tracked by the check and alerts only when it lasts 
         ->and($edge->fresh()->unhealthy_since)->toBeNull();
 
     $this->travel(300)->seconds();
-    $edge->forceFill(['last_seen_at' => now()])->save();
+    $edge->forceFill(['last_used_at' => now()])->save();
     checkEdgeHealth($this);
 
     expect($edge->fresh()->revision_mismatch_since?->equalTo($first))->toBeTrue();
@@ -191,18 +191,18 @@ test('a match in between restarts the mismatch', function (): void {
     checkEdgeHealth($this);
 
     $this->travel(200)->seconds();
-    $edge->forceFill(['last_seen_at' => now(), 'last_applied_revision' => edgeCheckRevision()])->save();
+    $edge->forceFill(['last_used_at' => now(), 'last_applied_revision' => edgeCheckRevision()])->save();
     checkEdgeHealth($this);
 
     expect($edge->fresh()->revision_mismatch_since)->toBeNull();
 
     $this->travel(60)->seconds();
-    $edge->forceFill(['last_seen_at' => now(), 'last_applied_revision' => EDGE_CHECK_OLDER])->save();
+    $edge->forceFill(['last_used_at' => now(), 'last_applied_revision' => EDGE_CHECK_OLDER])->save();
     checkEdgeHealth($this);
     $restarted = now()->toImmutable();
 
     $this->travel(200)->seconds();
-    $edge->forceFill(['last_seen_at' => now()])->save();
+    $edge->forceFill(['last_used_at' => now()])->save();
     checkEdgeHealth($this);
 
     expect($edge->fresh()->revision_mismatch_since?->equalTo($restarted))->toBeTrue()
@@ -216,7 +216,7 @@ test('an Edge that never applied a table alerts after the threshold', function (
     checkEdgeHealth($this);
 
     $this->travel(301)->seconds();
-    $edge->forceFill(['last_seen_at' => now()])->save();
+    $edge->forceFill(['last_used_at' => now()])->save();
     checkEdgeHealth($this);
 
     Notification::assertSentToTimes($admin, EdgeUnhealthyNotification::class, 1);
@@ -246,9 +246,9 @@ test('an Edge already released (version only) is judged by the stale rule alone'
 
 test('revoked tokens and tokens never seen are left alone', function (): void {
     User::factory()->create(['role' => UserRole::Admin]);
-    $revoked = checkedEdge(['last_seen_at' => now()->subDay(), 'revoked_at' => now()->subHour(), 'last_applied_revision' => EDGE_CHECK_OLDER]);
-    $revokedWhileUnhealthy = checkedEdge(['last_seen_at' => now()->subDay(), 'revoked_at' => now()->subHour(), 'unhealthy_since' => now()->subDay()]);
-    $neverSeen = checkedEdge(['last_seen_at' => null, 'last_applied_revision' => null, 'last_status' => null, 'status_since' => null]);
+    $revoked = checkedEdge(['last_used_at' => now()->subDay(), 'revoked_at' => now()->subHour(), 'last_applied_revision' => EDGE_CHECK_OLDER]);
+    $revokedWhileUnhealthy = checkedEdge(['last_used_at' => now()->subDay(), 'revoked_at' => now()->subHour(), 'unhealthy_since' => now()->subDay()]);
+    $neverSeen = checkedEdge(['last_used_at' => null, 'last_applied_revision' => null, 'last_status' => null, 'status_since' => null]);
     $before = [$revoked->fresh()->toArray(), $revokedWhileUnhealthy->fresh()->toArray(), $neverSeen->fresh()->toArray()];
 
     $this->artisan('edge:check-health')
@@ -263,7 +263,7 @@ test('revoked tokens and tokens never seen are left alone', function (): void {
 test('without email delivery the state and audit still change, and no mail is sent', function (): void {
     config(['sakala.email_delivery_enabled' => false]);
     User::factory()->create(['role' => UserRole::Admin]);
-    $edge = checkedEdge(['last_seen_at' => now()->subMinutes(10)]);
+    $edge = checkedEdge(['last_used_at' => now()->subMinutes(10)]);
 
     checkEdgeHealth($this);
 

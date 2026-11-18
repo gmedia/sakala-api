@@ -67,7 +67,7 @@ test('a request records the version, applied revision, and status the Edge sent'
 
     $row = EdgeToken::query()->sole();
 
-    expect($row->last_seen_at?->equalTo(now()))->toBeTrue()
+    expect($row->last_used_at?->equalTo(now()))->toBeTrue()
         ->and($row->last_version)->toBe('1.2.3')
         ->and($row->last_applied_revision)->toBe(EDGE_CONTACT_REVISION)
         ->and($row->last_status)->toBe('ok')
@@ -108,7 +108,7 @@ test('a missing header is recorded as unknown', function (string $header, string
     $row = EdgeToken::query()->sole();
 
     expect($row->getAttribute($column))->toBeNull()
-        ->and($row->last_seen_at)->not->toBeNull();
+        ->and($row->last_used_at)->not->toBeNull();
 })->with([
     'user agent' => ['User-Agent', 'last_version'],
     'applied revision' => [EdgeContactData::APPLIED_REVISION_HEADER, 'last_applied_revision'],
@@ -164,13 +164,13 @@ test('a 304 answer records the contact too', function (): void {
     $row = EdgeToken::query()->sole();
 
     expect($row->last_applied_revision)->toBe($revision)
-        ->and($row->last_seen_at?->equalTo(now()))->toBeTrue();
+        ->and($row->last_used_at?->equalTo(now()))->toBeTrue();
 });
 
 test('an unchanged report within a minute writes nothing; a change or a minute later writes', function (): void {
     $token = edgeContactToken();
     pollEdgeRoutes($this, $token, edgeContactHeaders())->assertOk();
-    $first = EdgeToken::query()->sole()->last_seen_at;
+    $first = EdgeToken::query()->sole()->last_used_at;
 
     $this->travel(30)->seconds();
     DB::enableQueryLog();
@@ -179,24 +179,24 @@ test('an unchanged report within a minute writes nothing; a change or a minute l
     DB::disableQueryLog();
 
     expect($writes)->toBeEmpty()
-        ->and(EdgeToken::query()->sole()->last_seen_at?->equalTo($first))->toBeTrue();
+        ->and(EdgeToken::query()->sole()->last_used_at?->equalTo($first))->toBeTrue();
 
     $this->travel(5)->seconds();
     pollEdgeRoutes($this, $token, edgeContactHeaders([EdgeContactData::STATUS_HEADER => 'empty_table']))->assertOk();
     $changed = EdgeToken::query()->sole();
 
     expect($changed->last_status)->toBe('empty_table')
-        ->and($changed->last_seen_at?->equalTo(now()))->toBeTrue();
+        ->and($changed->last_used_at?->equalTo(now()))->toBeTrue();
 
     $this->travel(60)->seconds();
     pollEdgeRoutes($this, $token, edgeContactHeaders([EdgeContactData::STATUS_HEADER => 'empty_table']))->assertOk();
 
-    expect(EdgeToken::query()->sole()->last_seen_at?->equalTo($changed->last_seen_at))->toBeTrue();
+    expect(EdgeToken::query()->sole()->last_used_at?->equalTo($changed->last_used_at))->toBeTrue();
 
     $this->travel(1)->seconds();
     pollEdgeRoutes($this, $token, edgeContactHeaders([EdgeContactData::STATUS_HEADER => 'empty_table']))->assertOk();
 
-    expect(EdgeToken::query()->sole()->last_seen_at?->equalTo(now()))->toBeTrue();
+    expect(EdgeToken::query()->sole()->last_used_at?->equalTo(now()))->toBeTrue();
 });
 
 test('a changed version or applied revision is written at once', function (array $change): void {
@@ -206,7 +206,7 @@ test('a changed version or applied revision is written at once', function (array
 
     pollEdgeRoutes($this, $token, edgeContactHeaders($change))->assertOk();
 
-    expect(EdgeToken::query()->sole()->last_seen_at?->equalTo(now()))->toBeTrue();
+    expect(EdgeToken::query()->sole()->last_used_at?->equalTo(now()))->toBeTrue();
 })->with([
     'version' => [['User-Agent' => 'sakala-edge/1.2.4']],
     'revision' => [[EdgeContactData::APPLIED_REVISION_HEADER => str_repeat('a', 64)]],
@@ -251,6 +251,6 @@ test('a revoked or unknown token records nothing', function (): void {
 
     $row = EdgeToken::query()->sole();
 
-    expect($row->last_seen_at)->toBeNull()
+    expect($row->last_used_at)->toBeNull()
         ->and($row->last_version)->toBeNull();
 });

@@ -38,7 +38,7 @@ test('admins see every Edge ordered by name, with what it reported and its healt
     $current = app(GetEdgeRouteTableAction::class)->handle()->revision;
     $older = str_repeat('a', 64);
     $healthy = adminEdge('edge-sgp-1', [
-        'last_seen_at' => now(),
+        'last_used_at' => now(),
         'last_version' => '1.0.0',
         'last_applied_revision' => $current,
         'last_status' => 'ok',
@@ -46,7 +46,7 @@ test('admins see every Edge ordered by name, with what it reported and its healt
         'token_prefix' => 'prefixsecret',
     ]);
     adminEdge('edge-jkt-1', [
-        'last_seen_at' => now()->subMinutes(10),
+        'last_used_at' => now()->subMinutes(10),
         'last_version' => '0.9.1',
         'last_applied_revision' => $older,
         'last_status' => 'empty_table',
@@ -54,7 +54,7 @@ test('admins see every Edge ordered by name, with what it reported and its healt
         'revision_mismatch_since' => now()->subMinutes(12),
     ]);
     adminEdge('edge-new', []);
-    adminEdge('edge-old', ['last_seen_at' => now()->subDays(3), 'revoked_at' => now()->subDays(2)]);
+    adminEdge('edge-old', ['last_used_at' => now()->subDays(3), 'revoked_at' => now()->subDays(2)]);
 
     $response = $this->actingAs(adminApiAdmin(), 'web')->getJson(ADMIN_EDGES_URL)->assertOk();
 

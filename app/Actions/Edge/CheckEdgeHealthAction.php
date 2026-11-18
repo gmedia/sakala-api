@@ -47,7 +47,7 @@ final class CheckEdgeHealthAction
         $currentRevision = $this->routeTable->handle()->revision;
         $ids = EdgeToken::query()
             ->whereNull('revoked_at')
-            ->whereNotNull('last_seen_at')
+            ->whereNotNull('last_used_at')
             ->orderBy('name')
             ->pluck('id');
         $checked = 0;
@@ -79,7 +79,7 @@ final class CheckEdgeHealthAction
         return DB::transaction(function () use ($id, $currentRevision): ?EdgeHealthTransition {
             $token = EdgeToken::query()->lockForUpdate()->find($id);
 
-            if ($token === null || $token->isRevoked() || $token->last_seen_at === null) {
+            if ($token === null || $token->isRevoked() || $token->last_used_at === null) {
                 return null;
             }
 
@@ -122,7 +122,7 @@ final class CheckEdgeHealthAction
             'status' => $token->last_status,
             'applied_revision' => $token->last_applied_revision,
             'current_revision' => $currentRevision,
-            'last_seen_at' => $token->last_seen_at?->toISOString(),
+            'last_seen_at' => $token->last_used_at?->toISOString(),
             'version' => $token->last_version,
         ]);
 
@@ -130,7 +130,7 @@ final class CheckEdgeHealthAction
             edgeName: $token->name,
             unhealthySince: $since,
             reasons: $health->reasons,
-            lastSeenAt: $token->last_seen_at,
+            lastSeenAt: $token->last_used_at,
             status: $token->last_status,
             appliedRevision: $token->last_applied_revision,
             currentRevision: $currentRevision,

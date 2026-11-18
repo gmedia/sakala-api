@@ -20,7 +20,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $name Which Edge instance holds it, for example `edge-jkt-1`.
  * @property string $token_hash
  * @property string $token_prefix The first characters of the token, to recognise it in logs and configuration.
- * @property CarbonImmutable|null $last_seen_at Last authenticated request, written at most once per LAST_SEEN_RESOLUTION_SECONDS unless a reported value changed.
+ * @property CarbonImmutable|null $last_used_at The last authenticated request (exposed as `last_seen_at` by the admin API), written at most once per LAST_USED_RESOLUTION_SECONDS unless a reported value changed.
  * @property string|null $last_version The sakala-edge version from `User-Agent`; null when unknown.
  * @property string|null $last_applied_revision The revision the Edge serves (64 lowercase hex) or `none`; null when unknown.
  * @property string|null $last_status `ok` or the code sakala-edge failed to apply the table with; null when unknown.
@@ -31,7 +31,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
-#[Fillable(['name', 'token_hash', 'token_prefix', 'last_seen_at', 'revoked_at'])]
+#[Fillable(['name', 'token_hash', 'token_prefix', 'last_used_at', 'revoked_at'])]
 #[Hidden(['token_hash'])]
 class EdgeToken extends Model
 {
@@ -48,7 +48,7 @@ class EdgeToken extends Model
      * The Edge polls every few seconds; recording each poll would write on
      * every request. A changed version, revision, or status is written at once.
      */
-    public const LAST_SEEN_RESOLUTION_SECONDS = 60;
+    public const LAST_USED_RESOLUTION_SECONDS = 60;
 
     /** `last_status` when the Edge applied the last table it fetched. */
     public const STATUS_OK = 'ok';
@@ -71,7 +71,7 @@ class EdgeToken extends Model
     protected function casts(): array
     {
         return [
-            'last_seen_at' => 'immutable_datetime',
+            'last_used_at' => 'immutable_datetime',
             'status_since' => 'immutable_datetime',
             'revision_mismatch_since' => 'immutable_datetime',
             'unhealthy_since' => 'immutable_datetime',

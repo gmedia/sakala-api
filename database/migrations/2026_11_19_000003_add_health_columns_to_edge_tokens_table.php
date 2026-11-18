@@ -9,8 +9,11 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Edge health monitoring (docs/EDGE_API.md#pemantauan).
  *
- * - `last_used_at` becomes `last_seen_at`: the same "at most once a minute"
- *   timestamp, now written together with what the Edge reported.
+ * - `last_used_at` keeps its name and serves as the last-seen timestamp (the
+ *   admin API calls it `last_seen_at`): the same "at most once a minute"
+ *   write, now together with what the Edge reported. It is not renamed so
+ *   that API containers still running the previous release keep working
+ *   during a rolling deploy.
  * - `last_version`, `last_applied_revision`, `last_status`: the headers of
  *   the last recorded request, null when the Edge sent none or a malformed
  *   one (older Edge versions send none).
@@ -29,11 +32,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('edge_tokens', function (Blueprint $table): void {
-            $table->renameColumn('last_used_at', 'last_seen_at');
-        });
-
-        Schema::table('edge_tokens', function (Blueprint $table): void {
-            $table->string('last_version', 64)->nullable()->after('last_seen_at');
+            $table->string('last_version', 64)->nullable()->after('last_used_at');
             $table->string('last_applied_revision', 64)->nullable()->after('last_version');
             $table->string('last_status', 64)->nullable()->after('last_applied_revision');
             $table->timestamp('status_since')->nullable()->after('last_status');
@@ -53,10 +52,6 @@ return new class extends Migration
                 'revision_mismatch_since',
                 'unhealthy_since',
             ]);
-        });
-
-        Schema::table('edge_tokens', function (Blueprint $table): void {
-            $table->renameColumn('last_seen_at', 'last_used_at');
         });
     }
 };

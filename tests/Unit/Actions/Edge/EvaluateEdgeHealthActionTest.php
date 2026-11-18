@@ -21,7 +21,7 @@ function evaluatedEdge(array $attributes = []): EdgeToken
 {
     return (new EdgeToken)->forceFill([
         'name' => 'edge-jkt-1',
-        'last_seen_at' => now(),
+        'last_used_at' => now(),
         'last_version' => '1.0.0',
         'last_applied_revision' => EDGE_HEALTH_CURRENT,
         'last_status' => EdgeToken::STATUS_OK,
@@ -46,9 +46,9 @@ test('an Edge that fetches, applies, and serves the current revision is healthy'
 });
 
 test('stale: not seen for exactly the threshold is healthy, one second more is not', function (): void {
-    expect(edgeHealthOf(evaluatedEdge(['last_seen_at' => now()->subSeconds(EDGE_HEALTH_THRESHOLD)]))->healthy)->toBeTrue();
+    expect(edgeHealthOf(evaluatedEdge(['last_used_at' => now()->subSeconds(EDGE_HEALTH_THRESHOLD)]))->healthy)->toBeTrue();
 
-    $health = edgeHealthOf(evaluatedEdge(['last_seen_at' => now()->subSeconds(EDGE_HEALTH_THRESHOLD + 1)]));
+    $health = edgeHealthOf(evaluatedEdge(['last_used_at' => now()->subSeconds(EDGE_HEALTH_THRESHOLD + 1)]));
 
     expect($health->healthy)->toBeFalse()
         ->and($health->reasons)->toBe([EdgeHealthReason::Stale])
@@ -98,14 +98,14 @@ test('an unknown applied revision leaves only the stale rule (an Edge too old to
 
     expect(edgeHealthOf(evaluatedEdge($old))->healthy)->toBeTrue();
 
-    $stale = edgeHealthOf(evaluatedEdge([...$old, 'last_seen_at' => now()->subSeconds(EDGE_HEALTH_THRESHOLD + 1)]));
+    $stale = edgeHealthOf(evaluatedEdge([...$old, 'last_used_at' => now()->subSeconds(EDGE_HEALTH_THRESHOLD + 1)]));
 
     expect($stale->reasons)->toBe([EdgeHealthReason::Stale]);
 });
 
 test('several conditions are all listed, and unhealthy_since is the earliest crossing', function (): void {
     $health = edgeHealthOf(evaluatedEdge([
-        'last_seen_at' => now()->subMinutes(10),
+        'last_used_at' => now()->subMinutes(10),
         'last_status' => 'empty_table',
         'status_since' => now()->subMinutes(30),
         'last_applied_revision' => EDGE_HEALTH_OLDER,
@@ -123,14 +123,14 @@ test('revoked tokens and tokens never seen are unknown, never unhealthy', functi
         ->and($health->reasons)->toBe([])
         ->and($health->unhealthySince)->toBeNull();
 })->with([
-    'revoked' => [['revoked_at' => now()->subDay(), 'last_seen_at' => now()->subDay()]],
-    'never seen' => [['last_seen_at' => null, 'last_applied_revision' => null, 'last_status' => null]],
+    'revoked' => [['revoked_at' => now()->subDay(), 'last_used_at' => now()->subDay()]],
+    'never seen' => [['last_used_at' => null, 'last_applied_revision' => null, 'last_status' => null]],
 ]);
 
 test('the threshold follows the configuration', function (): void {
     config(['sakala.edge.stale_after_seconds' => 60]);
 
-    expect(edgeHealthOf(evaluatedEdge(['last_seen_at' => now()->subSeconds(61)]))->reasons)->toBe([EdgeHealthReason::Stale]);
+    expect(edgeHealthOf(evaluatedEdge(['last_used_at' => now()->subSeconds(61)]))->reasons)->toBe([EdgeHealthReason::Stale]);
 });
 
 test('the threshold defaults to 300 seconds, also when the env is empty', function (?string $env, int $expected): void {

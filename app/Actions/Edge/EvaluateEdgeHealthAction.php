@@ -16,7 +16,7 @@ use Carbon\CarbonImmutable;
  * An Edge is unhealthy when any condition has held, continuously, for longer
  * than `sakala.edge.stale_after_seconds`:
  *
- * - stale: not seen since `last_seen_at`;
+ * - stale: not seen since `last_used_at`;
  * - status: a known status other than `ok`, since `status_since`;
  * - revision behind: a known applied revision (`none` included) other than
  *   the current one, since `revision_mismatch_since`, which only
@@ -32,7 +32,7 @@ final class EvaluateEdgeHealthAction
 
     public function handle(EdgeToken $token, string $currentRevision, ?CarbonImmutable $now = null): EdgeHealthData
     {
-        if ($token->isRevoked() || $token->last_seen_at === null) {
+        if ($token->isRevoked() || $token->last_used_at === null) {
             return EdgeHealthData::unknown();
         }
 
@@ -71,7 +71,7 @@ final class EvaluateEdgeHealthAction
     private function conditions(EdgeToken $token, string $currentRevision, CarbonImmutable $now): array
     {
         /** @var CarbonImmutable $lastSeenAt */
-        $lastSeenAt = $token->last_seen_at;
+        $lastSeenAt = $token->last_used_at;
         $conditions = [[EdgeHealthReason::Stale, $lastSeenAt]];
 
         if ($token->last_status !== null && $token->last_status !== EdgeToken::STATUS_OK) {

@@ -286,7 +286,7 @@ test('an unhealthy Edge reaches every admin with why, what still works, and what
         'token_prefix' => 'edgeprefix12',
     ]);
     $edge->forceFill([
-        'last_seen_at' => now()->subMinutes(10),
+        'last_used_at' => now()->subMinutes(10),
         'last_applied_revision' => $applied,
         'last_status' => 'below_expected_minimum',
         'status_since' => now()->subMinutes(20),
@@ -317,7 +317,7 @@ test('an unhealthy Edge reaches every admin with why, what still works, and what
     Mail::mailer('array')->getSymfonyTransport()->flush();
     $this->travel(40)->minutes();
     $edge->forceFill([
-        'last_seen_at' => now(),
+        'last_used_at' => now(),
         'last_applied_revision' => $current,
         'last_status' => 'ok',
         'status_since' => now(),

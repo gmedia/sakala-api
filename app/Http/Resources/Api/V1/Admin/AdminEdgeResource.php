@@ -27,7 +27,7 @@ final class AdminEdgeResource extends JsonResource
             /** The Edge instance, as given to `edge:token`. */
             'name' => $token->name,
             /** The last authenticated request, recorded at most once a minute while nothing changes; null when never seen. */
-            'last_seen_at' => $token->last_seen_at?->toAtomString(),
+            'last_seen_at' => $token->last_used_at?->toAtomString(),
             /** The sakala-edge version from `User-Agent`; null when unknown. */
             'last_version' => $token->last_version,
             /** The revision the Edge serves (64 lowercase hex), `none` before its first apply, or null when unknown. */

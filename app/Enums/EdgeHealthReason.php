@@ -11,7 +11,7 @@ namespace App\Enums;
  */
 enum EdgeHealthReason: string
 {
-    /** The Edge has not fetched the route table (`last_seen_at` is older than the threshold). */
+    /** The Edge has not fetched the route table (`last_used_at` is older than the threshold). */
     case Stale = 'stale';
 
     /** The Edge reports a status other than `ok`, the code sakala-edge failed to apply the table with. */

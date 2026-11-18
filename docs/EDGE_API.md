@@ -23,7 +23,7 @@ memeriksa bentuk dan aturan di bawah; nilai pada contoh hanya ilustrasi.
   API hanya menyimpan HMAC-nya (`APP_KEY`), jadi token yang hilang diganti, tidak
   dipulihkan. Setiap perubahan dicatat sebagai audit event `edge_token.issued`,
   `edge_token.rotated`, atau `edge_token.revoked` (actor `system`/`cli`, tanpa token).
-- Setiap request yang lolos autentikasi dicatat di token: `last_seen_at` dan isi
+- Setiap request yang lolos autentikasi dicatat di token: `last_used_at` dan isi
   header Edge di bawah, paling sering sekali per menit kecuali ada nilai yang berubah.
   Lihat [Pemantauan](#pemantauan).
 
@@ -182,29 +182,29 @@ Setiap request yang lolos autentikasi (jawaban `200` maupun `304`) dicatat di ba
 
 | Kolom | Isi |
 | --- | --- |
-| `last_seen_at` | Kapan request terakhir dicatat. |
+| `last_used_at` | Kapan request terakhir dicatat. API admin menampilkannya sebagai `last_seen_at`. |
 | `last_version` | Versi dari `User-Agent`, atau `null`. |
 | `last_applied_revision` | Nilai `Sakala-Edge-Applied-Revision` (`none` ikut disimpan), atau `null`. |
 | `last_status` | Nilai `Sakala-Edge-Status`, atau `null`. |
 | `status_since` | Kapan `last_status` terakhir berganti nilai, termasuk dari dan ke `null`. |
 
 Edge polling setiap beberapa detik, jadi baris hanya ditulis bila salah satu nilai
-berubah, atau bila penulisan terakhir (`last_seen_at`) sudah lebih dari 60 detik
-(`EdgeToken::LAST_SEEN_RESOLUTION_SECONDS`). Nilai yang tidak dikirim di request
+berubah, atau bila penulisan terakhir (`last_used_at`) sudah lebih dari 60 detik
+(`EdgeToken::LAST_USED_RESOLUTION_SECONDS`). Nilai yang tidak dikirim di request
 terakhir menjadi `null`, karena yang dicatat adalah keadaan Edge menurut request
 terakhirnya.
 
 ### Kapan Edge dianggap tidak sehat
 
 Ambangnya `SAKALA_EDGE_STALE_AFTER_SECONDS` (default 300). Hanya token yang tidak
-dicabut dan pernah terlihat (`last_seen_at` terisi) yang dinilai; selain itu
+dicabut dan pernah terlihat (`last_used_at` terisi) yang dinilai; selain itu
 keadaannya "tidak diketahui" dan tidak pernah memicu peringatan. Edge tidak sehat bila
 salah satu kondisi ini berlangsung terus-menerus **lebih lama** dari ambang (tepat
 sama dengan ambang masih sehat):
 
 | Alasan | Kondisi | Dihitung sejak |
 | --- | --- | --- |
-| `stale` | Edge tidak mengambil tabel route. | `last_seen_at` |
+| `stale` | Edge tidak mengambil tabel route. | `last_used_at` |
 | `status` | `last_status` diketahui dan bukan `ok`. | `status_since` |
 | `revision_behind` | `last_applied_revision` diketahui (termasuk `none`) dan berbeda dari revisi tabel sekarang. | `revision_mismatch_since` |
 
@@ -285,7 +285,7 @@ berikutnya (paling lambat satu menit).
 | Field | Tipe | Null | Keterangan |
 | --- | --- | --- | --- |
 | `name` | string | tidak | Nama instance Edge, seperti pada `edge:token {name}`. |
-| `last_seen_at` | string RFC 3339 | ya | Request terakhir yang dicatat; `null` bila belum pernah terlihat. |
+| `last_seen_at` | string RFC 3339 | ya | Request terakhir yang dicatat (kolom `edge_tokens.last_used_at`); `null` bila belum pernah terlihat. |
 | `last_version` | string | ya | Versi sakala-edge dari `User-Agent`; `null` bila tidak diketahui. |
 | `applied_revision` | string | ya | Revisi yang disajikan Edge (64 hex) atau `none`; `null` bila tidak diketahui. |
 | `current_revision` | string, 64 hex | tidak | Revisi tabel route sekarang; sama di setiap item. |
