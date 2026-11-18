@@ -406,8 +406,9 @@ test('a failure is a 5xx and is not cached, never an empty 200', function (): vo
     edgeProject(edgeNode());
     $token = edgeToken();
 
-    // A query of the build fails (the table it reads is gone).
-    Schema::drop('agent_commands');
+    // A query of the build fails: the table it reads is gone. Renamed, not
+    // dropped, because PostgreSQL refuses to drop a table others reference.
+    Schema::rename('agent_commands', 'agent_commands_unavailable');
 
     $response = getEdgeRoutes($this, $token);
 
