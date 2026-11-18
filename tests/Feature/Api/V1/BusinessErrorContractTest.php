@@ -132,6 +132,23 @@ test('another user learns nothing about a suspended project', function (): void 
         ->and($response->json('message'))->not->toContain('ditangguhkan');
 });
 
+test('fields sent by the console carry a label instead of the raw column name', function (): void {
+    $user = User::factory()->create(['role' => UserRole::User]);
+    $project = Project::factory()->for($user)->create(['branch' => 'main']);
+
+    // `resources.cpu_millis` has no label before this change and would read
+    // "Kolom resources.cpu_millis harus minimal 1."
+    $response = $this->actingAs($user, 'web')->postJson(
+        "/api/v1/app/projects/{$project->id}/deployments",
+        ['branch' => 'main', 'resources' => ['cpu_millis' => 0]],
+    )->assertUnprocessable();
+
+    // The key itself contains a dot, so read it as an array rather than through
+    // `json()` dot-notation, which would treat it as a nested path.
+    expect($response->json('errors')['resources.cpu_millis'][0])
+        ->toBe('Kolom CPU harus minimal 1.');
+});
+
 test('console validation errors are Indonesian and use the field label', function (): void {
     $user = User::factory()->create(['role' => UserRole::User]);
 

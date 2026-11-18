@@ -170,7 +170,11 @@ return [
     'ulid' => 'Kolom :attribute harus berupa ULID.',
     'uuid' => 'Kolom :attribute harus berupa UUID.',
 
-    'custom' => [],
+    'custom' => [
+        'slug' => [
+            'regex' => 'Slug hanya boleh berisi huruf kecil, angka, dan tanda hubung di antaranya, misalnya tim-gmedia.',
+        ],
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -196,13 +200,19 @@ return [
         'email' => 'email',
         'github_installation_id' => 'akun GitHub',
         'github_repository_id' => 'repository GitHub',
+        'is_secret' => 'status rahasia',
         'key' => 'nama variabel',
         'message' => 'pesan',
         'name' => 'nama',
         'password' => 'kata sandi',
         'password_confirmation' => 'konfirmasi kata sandi',
         'project_id' => 'proyek',
+        'resources.cpu_millis' => 'CPU',
+        'resources.memory_mb' => 'memori',
+        'resources.pids_limit' => 'batas proses',
         'root_directory' => 'direktori root',
+        'skip' => 'lewati',
+        'slug' => 'slug',
         'start_command' => 'perintah start',
         'token' => 'token',
         'repository.installation_id' => 'akun GitHub',
@@ -215,6 +225,7 @@ return [
         'thumbnail_url' => 'URL thumbnail',
         'username' => 'username',
         'value' => 'nilai variabel',
+        'workspace_id' => 'workspace',
     ],
 
 ];
