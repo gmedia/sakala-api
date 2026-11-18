@@ -173,6 +173,16 @@ memakai item terakhir. Biayanya satu query baca dan paling banyak satu query tul
 per heartbeat, dan laporan yang sama tidak menulis apa pun. Deployment yang tidak
 tercantum menyimpan laporan terakhirnya.
 
+Node ber-capability `replicas` juga mengirim
+`metadata.workloads.maximum_replicas_per_project` di setiap heartbeat: replika
+terbanyak per project yang ia jalankan (`SAKALA_MAX_REPLICAS_PER_PROJECT`, integer 1
+sampai 64), atau `null` bila driver-nya tidak bisa menjalankan replika. Nilai di luar
+itu menolak heartbeat `422`. API menyimpannya bersama metadata node dan memakainya
+saat memilih node untuk `DeployProject` dengan `replicas` lebih dari 1: node harus
+punya capability `replicas` dan maksimumnya paling sedikit sebanyak replika yang
+diminta. Node ber-capability yang tidak mengirim field ini dianggap sanggup berapa
+pun.
+
 `ready < desired` tidak pernah mengubah `runtime_status`: project dengan sebagian
 replika mati tetap melayani lewat replika yang sehat. Agent hanya mencantumkan
 deployment di `crashed_details` bila semua replikanya crash, dan hanya daftar itu
@@ -351,12 +361,15 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
 - `replicas` adalah field opsional tambahan (revisi protocol tetap 4): jumlah
   container yang dijalankan untuk deployment ini di node yang sama, di belakang
   router node. API hanya mengirimnya bila nilainya lebih dari 1, dan hanya ke node
-  yang mengiklankan capability `replicas`; tanpa field ini agent menjalankan satu
-  container. Bila project meminta lebih dari 1 tetapi node target tidak punya
-  capability itu, deployment ditolak saat dibuat dengan `409
-  PROJECT_REPLICAS_UNSUPPORTED`, karena agent lama akan mengabaikan field ini dan
-  diam-diam menjalankan satu container. Command yang belum punya target menunggu
-  node yang punya capability itu. Nilainya adalah `replicas` project saat deployment
+  yang mengiklankan capability `replicas` dengan
+  `maximum_replicas_per_project` yang cukup; tanpa field ini agent menjalankan satu
+  container. Agent lama akan mengabaikan field ini dan diam-diam menjalankan satu
+  container, jadi deployment ditolak saat dibuat dengan `409
+  PROJECT_REPLICAS_UNSUPPORTED` bila tidak ada node yang bisa menjalankannya: node
+  tempat project berjalan (apa pun statusnya) tidak sanggup, atau, untuk project
+  yang belum pernah berjalan, tidak ada node aktif yang sanggup. Bila node yang
+  sanggup hanya sedang offline, command menunggu node itu. Agent yang tetap menolak
+  karena batasnya lebih kecil gagal dengan `runtime_replicas_exceeded`. Nilainya adalah `replicas` project saat deployment
   dibuat, dibatasi `max_replicas` workspace, dan disimpan di `deployments.replicas`.
   Wake dan restart menjalankan semua replika yang disimpan node, bukan nilai baru.
 - `container_port` adalah `effective_port` project saat deployment dibuat:
@@ -720,7 +733,7 @@ dilihat console (`failure.category`):
 | `route` | tidak | `runtime_routing_failed` |
 | `timeout` | ya | `runtime_timeout` |
 | `timeout` | tidak | `command_lease_expired` (control plane) |
-| `resource` | ya | `runtime_app_out_of_memory` |
+| `resource` | ya | `runtime_app_out_of_memory`, `runtime_replicas_exceeded` (replika melebihi batas node; kurangi di pengaturan proyek) |
 | `resource` | tidak | `runtime_capacity_exceeded`, `runtime_disk_pressure` |
 | `node` | tidak | `runtime_preflight_failed`, `runtime_dependency_failed`, `invalid_runtime_configuration`, `invalid_runtime_command`, `unsupported_runtime_command`, `runtime_cancelled`, serta kode lain yang belum dikenali dan berawalan `runtime_registry` atau `runtime_network` (node gagal menjangkau registry image atau jaringan) |
 | `scheduling` | tidak | `command_expired` (control plane) |

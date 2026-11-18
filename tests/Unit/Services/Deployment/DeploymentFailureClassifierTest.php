@@ -108,6 +108,16 @@ test('new runtime failure codes map to stable categories', function (
     ['runtime_port_conflict', DeploymentFailureCategory::Start],
 ]);
 
+test('too many replicas for the node is fixed in the project settings', function () {
+    $failure = app(DeploymentFailureClassifier::class)->classify('runtime_replicas_exceeded');
+
+    expect($failure->category)->toBe(DeploymentFailureCategory::Resource)
+        ->and($failure->userFixable)->toBeTrue()
+        ->and($failure->summary)->toContain('replika')
+        ->and($failure->recoveryHint)->toContain('pengaturan proyek')
+        ->and($failure->recoveryHint)->toContain('kurangi jumlah replika');
+});
+
 test('the not listening hint tells the student to listen on 0.0.0.0 with PORT and that Sakala sets PORT', function (string $errorCode) {
     $failure = app(DeploymentFailureClassifier::class)->classify($errorCode);
 

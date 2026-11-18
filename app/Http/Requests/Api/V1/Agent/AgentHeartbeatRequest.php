@@ -9,6 +9,8 @@ use App\Data\Agent\CrashedWorkloadsData;
 use App\Data\Agent\WorkloadReplicasData;
 use App\Data\Agent\WorkloadTrafficData;
 use App\Enums\AgentNodeStatus;
+use App\Models\AgentNode;
+use App\Models\Project;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -106,6 +108,9 @@ final class AgentHeartbeatRequest extends FormRequest
             // per deployment that runs replicas. Bounded and strict like
             // traffic. Partial readiness is not a crash; only crashed_details
             // changes runtime state.
+            // Sent by agents with the `replicas` capability on every
+            // heartbeat; null when the node's driver cannot run replicas.
+            'metadata.workloads.'.AgentNode::MAXIMUM_REPLICAS_METADATA_KEY => ['sometimes', 'nullable', 'integer', 'between:'.Project::DEFAULT_REPLICAS.','.AgentNode::MAXIMUM_REPLICAS_REPORT_CEILING],
             'metadata.workloads.replicas' => ['sometimes', 'array', 'max:'.self::MAX_REPLICA_ITEMS],
             'metadata.workloads.replicas.*' => ['required', 'array'],
             'metadata.workloads.replicas.*.project_id' => ['required', 'uuid'],

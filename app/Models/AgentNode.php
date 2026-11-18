@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $registered_at
  * @property CarbonImmutable|null $last_seen_at
  * @property array<int, string>|null $capabilities
+ * @property array<string, mixed>|null $metadata The last heartbeat's metadata, as reported.
  */
 #[Fillable([
     'agent_id',
@@ -68,12 +69,70 @@ class AgentNode extends Model
     public const REPLICAS_CAPABILITY = 'replicas';
 
     /**
+     * Key under the heartbeat's `metadata.workloads` where an agent with
+     * REPLICAS_CAPABILITY reports the most replicas it runs per project
+     * (`SAKALA_MAX_REPLICAS_PER_PROJECT`), or null when its driver cannot run
+     * replicas.
+     */
+    public const MAXIMUM_REPLICAS_METADATA_KEY = 'maximum_replicas_per_project';
+
+    /** Upper bound of that report, the agent's own ceiling. */
+    public const MAXIMUM_REPLICAS_REPORT_CEILING = 64;
+
+    /**
      * Whether a deployment of `$replicas` containers may be sent to this node:
-     * one always, more only when it advertises REPLICAS_CAPABILITY.
+     * one always; more only when it advertises REPLICAS_CAPABILITY and its
+     * reported maximum allows that many. A capable node that does not report a
+     * maximum is trusted with any count.
      */
     public function supportsReplicas(int $replicas): bool
     {
-        return $replicas <= Project::DEFAULT_REPLICAS || $this->hasCapability(self::REPLICAS_CAPABILITY);
+        if ($replicas <= Project::DEFAULT_REPLICAS) {
+            return true;
+        }
+
+        if (! $this->hasCapability(self::REPLICAS_CAPABILITY)) {
+            return false;
+        }
+
+        if (! $this->reportsMaximumReplicas()) {
+            return true;
+        }
+
+        $maximum = $this->maximumReplicasPerProject();
+
+        return $maximum !== null && $maximum >= $replicas;
+    }
+
+    /**
+     * The most replicas per project the node's last heartbeat reported. Null
+     * when it reported that it cannot run replicas, when it does not report a
+     * maximum at all (see reportsMaximumReplicas()), and for a node without
+     * REPLICAS_CAPABILITY.
+     */
+    public function maximumReplicasPerProject(): ?int
+    {
+        if (! $this->hasCapability(self::REPLICAS_CAPABILITY)) {
+            return null;
+        }
+
+        $maximum = $this->workloadMetadata()[self::MAXIMUM_REPLICAS_METADATA_KEY] ?? null;
+
+        return is_int($maximum) ? $maximum : null;
+    }
+
+    /** Whether the node's last heartbeat carried a replica maximum, null included. */
+    private function reportsMaximumReplicas(): bool
+    {
+        return array_key_exists(self::MAXIMUM_REPLICAS_METADATA_KEY, $this->workloadMetadata());
+    }
+
+    /** @return array<string, mixed> */
+    private function workloadMetadata(): array
+    {
+        $workloads = $this->metadata['workloads'] ?? null;
+
+        return is_array($workloads) ? $workloads : [];
     }
 
     /** Whether the node's last heartbeat advertised `$capability`. */

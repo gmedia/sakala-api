@@ -191,6 +191,43 @@ test('malformed replicas reject the whole heartbeat', function (callable $mutate
     }, 'metadata.detail_counts.replicas'],
 ]);
 
+test('the node maximum per project is kept with the node metadata and used for scheduling', function (?int $maximum, bool $runsThree): void {
+    $node = idleSleepNode();
+    $payload = replicasPayload([]);
+    $payload['metadata']['workloads'][AgentNode::MAXIMUM_REPLICAS_METADATA_KEY] = $maximum;
+
+    $this->withHeaders(idleSleepHeaders($node))
+        ->postJson('/api/agent/v1/heartbeat', $payload)
+        ->assertOk();
+
+    $node->refresh();
+
+    expect($node->metadata['workloads'])->toHaveKey(AgentNode::MAXIMUM_REPLICAS_METADATA_KEY)
+        ->and($node->maximumReplicasPerProject())->toBe($maximum)
+        ->and($node->supportsReplicas(3))->toBe($runsThree)
+        ->and($node->supportsReplicas(1))->toBeTrue();
+})->with([
+    'room for three' => [4, true],
+    'exactly three' => [3, true],
+    'too few' => [2, false],
+    'cannot run replicas' => [null, false],
+]);
+
+test('a node maximum outside one and the agent ceiling rejects the heartbeat', function (mixed $maximum): void {
+    $node = idleSleepNode();
+    $payload = replicasPayload([]);
+    $payload['metadata']['workloads'][AgentNode::MAXIMUM_REPLICAS_METADATA_KEY] = $maximum;
+
+    $this->withHeaders(idleSleepHeaders($node))
+        ->postJson('/api/agent/v1/heartbeat', $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['metadata.workloads.'.AgentNode::MAXIMUM_REPLICAS_METADATA_KEY]);
+})->with([
+    'zero' => [0],
+    'above the ceiling' => [AgentNode::MAXIMUM_REPLICAS_REPORT_CEILING + 1],
+    'text' => ['four'],
+]);
+
 test('a replica list longer than the bound is refused', function (): void {
     $node = idleSleepNode();
     $item = replicaEntry('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 2, 2);

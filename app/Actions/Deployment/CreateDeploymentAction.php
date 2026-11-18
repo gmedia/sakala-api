@@ -16,7 +16,6 @@ use App\Enums\UsageSignalType;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
-use App\Exceptions\Runtime\ProjectReplicasUnsupportedException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
@@ -228,17 +227,16 @@ final class CreateDeploymentAction
                 // only ever materialised for one authenticated node. With no
                 // eligible node the command waits unassigned for a later
                 // assignment sweep or heartbeat.
+                // Only a node that runs every replica is selected: an older
+                // one would run one container and report success. Without one
+                // the command waits, unless no node could ever take it.
                 $node = $this->scheduler->selectNodeFor(
                     AgentCommandType::DeployProject,
                     $lockedProject,
+                    $replicas,
                 );
 
-                // An older node would run one container and report success.
-                // Without a node yet, the command waits for one that can run
-                // every replica (AssignPendingCommandsAction).
-                if ($node !== null && ! $node->supportsReplicas($replicas)) {
-                    throw new ProjectReplicasUnsupportedException($replicas);
-                }
+                $this->scheduler->ensureReplicasCanRun($lockedProject, $node, $replicas);
 
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,

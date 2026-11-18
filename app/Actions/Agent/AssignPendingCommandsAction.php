@@ -61,15 +61,11 @@ final class AssignPendingCommandsAction
                     return 0;
                 }
 
-                $node = $this->scheduler->selectNodeFor($command->type, $command->project);
-
-                if ($node === null || ($onlyFor !== null && $node->id !== $onlyFor->id)) {
-                    return 0;
-                }
-
                 // A deployment of several replicas waits for a node that runs
                 // them all; an older one would quietly run one.
-                if (! $node->supportsReplicas($command->requestedReplicas())) {
+                $node = $this->scheduler->selectNodeFor($command->type, $command->project, $command->requestedReplicas());
+
+                if ($node === null || ($onlyFor !== null && $node->id !== $onlyFor->id)) {
                     return 0;
                 }
 

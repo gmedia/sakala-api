@@ -34,7 +34,11 @@ beforeEach(function (): void {
 });
 
 /** A node that builds, runs, and sleeps projects, and runs replicas unless told otherwise. */
-function replicaNode(bool $replicas = true, array $overrides = []): AgentNode
+/**
+ * `$maximum` is what the node reports as `maximum_replicas_per_project`;
+ * `false` leaves the key out, as a node that does not report one.
+ */
+function replicaNode(bool $replicas = true, array $overrides = [], int|false|null $maximum = false): AgentNode
 {
     return AgentNode::factory()->create([
         'auth_status' => AgentAuthStatus::Active,
@@ -50,7 +54,10 @@ function replicaNode(bool $replicas = true, array $overrides = []): AgentNode
             SleepIdleProjectsAction::CAPABILITY,
             ...($replicas ? [AgentNode::REPLICAS_CAPABILITY] : []),
         ],
-        'metadata' => ['workloads' => ['traffic' => []]],
+        'metadata' => ['workloads' => [
+            'traffic' => [],
+            ...($maximum === false ? [] : [AgentNode::MAXIMUM_REPLICAS_METADATA_KEY => $maximum]),
+        ]],
         ...$overrides,
     ]);
 }
@@ -254,9 +261,11 @@ test('a lowered profile maximum applies from the next deployment', function (): 
         ->and($project->fresh()->replicas)->toBe(4);
 });
 
-test('without a node, a deployment with replicas waits for one that runs them all', function (): void {
+test('without a node online, a deployment with replicas waits for one that runs them all', function (): void {
     [$owner, $team] = replicaWorkspace();
     $project = Project::factory()->inWorkspace($team, $owner)->create(['branch' => 'main', 'replicas' => 3]);
+    // A capable node that is only offline for now: the deployment may wait for it.
+    $offline = replicaNode(overrides: ['status' => AgentNodeStatus::Offline, 'last_seen_at' => now()->subHour()]);
 
     $id = deployReplicas($this, $owner, $project)->assertCreated()->json('data.id');
     $command = deployCommandOf($id);
@@ -264,18 +273,72 @@ test('without a node, a deployment with replicas waits for one that runs them al
     expect($command->agent_node_id)->toBeNull()
         ->and($command->payload['replicas'])->toBe(3);
 
-    $older = replicaNode(replicas: false);
+    replicaNode(replicas: false);
+    replicaNode(maximum: 2);
 
     expect(app(AssignPendingCommandsAction::class)->handle())->toBe(0)
         ->and($command->fresh()->agent_node_id)->toBeNull();
 
-    // Once the older node is gone, a capable one takes it.
-    $older->update(['status' => AgentNodeStatus::Offline]);
-    $capable = replicaNode();
+    $offline->update(['status' => AgentNodeStatus::Ready, 'last_seen_at' => now()]);
 
     expect(app(AssignPendingCommandsAction::class)->handle())->toBe(1)
-        ->and($command->fresh()->agent_node_id)->toBe($capable->id)
-        ->and(Deployment::query()->findOrFail($id)->agent_node_id)->toBe($capable->id);
+        ->and($command->fresh()->agent_node_id)->toBe($offline->id)
+        ->and(Deployment::query()->findOrFail($id)->agent_node_id)->toBe($offline->id);
+});
+
+test('a new project only goes to a node whose maximum covers its replicas', function (): void {
+    [$owner, $team] = replicaWorkspace();
+    replicaNode(maximum: 2);
+    $roomy = replicaNode(maximum: 4);
+    $project = Project::factory()->inWorkspace($team, $owner)->create(['branch' => 'main', 'replicas' => 3]);
+
+    $id = deployReplicas($this, $owner, $project)->assertCreated()->json('data.id');
+
+    expect(deployCommandOf($id)->agent_node_id)->toBe($roomy->id);
+});
+
+test('a deployment no node could ever run is refused up front', function (array $nodes, ?int $nodeMaximum): void {
+    [$owner, $team] = replicaWorkspace();
+    foreach ($nodes as $node) {
+        $node();
+    }
+    $project = Project::factory()->inWorkspace($team, $owner)->create(['branch' => 'main', 'replicas' => 3]);
+
+    $response = deployReplicas($this, $owner, $project)
+        ->assertConflict()
+        ->assertJsonPath('code', 'PROJECT_REPLICAS_UNSUPPORTED')
+        ->assertJsonPath('replicas', 3)
+        ->assertJsonPath('node_maximum', $nodeMaximum);
+
+    expect(Deployment::query()->where('project_id', $project->id)->exists())->toBeFalse();
+
+    if ($nodeMaximum !== null) {
+        expect($response->json('message'))->toContain("paling banyak menjalankan {$nodeMaximum} replika");
+    }
+})->with([
+    'no node at all' => [[], null],
+    'only older nodes' => [[fn () => replicaNode(replicas: false)], null],
+    'a driver that cannot run replicas' => [[fn () => replicaNode(maximum: null)], null],
+    'maximums too low' => [[fn () => replicaNode(maximum: 2), fn () => replicaNode(maximum: 1)], 2],
+]);
+
+test('the node a project runs on must cover its replicas, even when another node could', function (): void {
+    $node = replicaNode(maximum: 2);
+    replicaNode(maximum: 8);
+    [$owner, $team] = replicaWorkspace();
+    [$project] = servingWithReplicas($node, $team, $owner, 1, ['replicas' => 3]);
+
+    deployReplicas($this, $owner, $project)
+        ->assertConflict()
+        ->assertJsonPath('code', 'PROJECT_REPLICAS_UNSUPPORTED')
+        ->assertJsonPath('node_maximum', 2);
+
+    $node->update(['metadata' => ['workloads' => [AgentNode::MAXIMUM_REPLICAS_METADATA_KEY => 3]]]);
+
+    $id = deployReplicas($this, $owner, $project)->assertCreated()->json('data.id');
+
+    expect(deployCommandOf($id)->agent_node_id)->toBe($node->id)
+        ->and(deployCommandOf($id)->payload['replicas'])->toBe(3);
 });
 
 // ─── Workspace container limit ───────────────────────────────────────────────
