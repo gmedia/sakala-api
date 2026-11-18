@@ -21,7 +21,7 @@ final class UpdateProjectAction
         }
 
         // Only a real change to what the next deployment receives needs a redeploy.
-        if ($project->isDirty(array_keys($data->buildConfiguration))) {
+        if ($project->isDirty(array_keys($data->runtimeConfiguration()))) {
             $project->config_changed_at = now()->toImmutable();
         }
 

@@ -223,6 +223,13 @@ final class DeploymentFailureClassifier
                 'Batas memory proyek tertulis di detail kegagalan. Kurangi pemakaian memory aplikasi, misalnya jumlah worker atau ukuran cache, lalu deploy ulang.',
             ),
 
+            'runtime_replicas_exceeded' => $this->userFixable(
+                $errorCode,
+                Category::Resource,
+                'Jumlah replika proyek ini melebihi batas replika server yang menjalankannya.',
+                'Buka pengaturan proyek, kurangi jumlah replika sampai batas yang tertulis di detail kegagalan, lalu deploy ulang.',
+            ),
+
             'runtime_capacity_exceeded' => $this->platform(
                 $errorCode,
                 Category::Resource,

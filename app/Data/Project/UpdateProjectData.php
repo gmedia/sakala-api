@@ -14,6 +14,8 @@ final readonly class UpdateProjectData
         /** @var array<string, int|string|null> Only the fields the request sent. */
         public array $buildConfiguration = [],
         public ?bool $autoDeploy = null,
+        /** Applies from the next deployment. */
+        public ?int $replicas = null,
     ) {}
 
     /**
@@ -36,6 +38,20 @@ final readonly class UpdateProjectData
             $data['auto_deploy'] = $this->autoDeploy;
         }
 
-        return [...$data, ...$this->buildConfiguration];
+        return [...$data, ...$this->runtimeConfiguration()];
+    }
+
+    /**
+     * What the next deployment receives and the serving one does not have
+     * until then: the build configuration and the replica count.
+     *
+     * @return array<string, int|string|null>
+     */
+    public function runtimeConfiguration(): array
+    {
+        return [
+            ...$this->buildConfiguration,
+            ...($this->replicas === null ? [] : ['replicas' => $this->replicas]),
+        ];
     }
 }

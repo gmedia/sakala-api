@@ -41,6 +41,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $build_command
  * @property string|null $start_command
  * @property string|null $root_directory
+ * @property int $replicas Containers the next deployment runs, behind the node's router. Applies from the next deployment.
  * @property CarbonImmutable|null $config_changed_at
  * @property bool $auto_deploy
  * @property string|null $active_deployment_id
@@ -73,6 +74,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'build_command',
     'start_command',
     'root_directory',
+    'replicas',
     'config_changed_at',
     'auto_deploy',
     'active_deployment_id',
@@ -93,6 +95,28 @@ class Project extends Model
 
     /** Attribute that withIdleSleepBlocked() adds. */
     public const IDLE_SLEEP_BLOCKED_ATTRIBUTE = 'idle_sleep_blocked';
+
+    /**
+     * Replicas of a project unless its owner asks for more, and the fewest it
+     * runs. Also the most a workspace allows when its profile sets no
+     * `max_replicas`.
+     */
+    public const DEFAULT_REPLICAS = 1;
+
+    /** Attributes that scopeHoldingContainers() adds. */
+    public const SERVING_REPLICAS_ATTRIBUTE = 'serving_replicas';
+
+    public const DEPLOYING_REPLICAS_ATTRIBUTE = 'deploying_replicas';
+
+    /**
+     * The column default, so a project answered right after it is created
+     * sends 1 instead of null.
+     *
+     * @var array<string, int>
+     */
+    protected $attributes = [
+        'replicas' => self::DEFAULT_REPLICAS,
+    ];
 
     /**
      * The port the agent routes to and hands to the workload as `PORT`.
@@ -120,15 +144,63 @@ class Project extends Model
      */
     public function servingPort(): ?int
     {
-        if (
-            $this->active_deployment_id === null
-            || $this->runtime_status === RuntimeStatus::Crashed
-            || $this->runtime_status === RuntimeStatus::Sleeping
-        ) {
+        return $this->liveDeployment()?->container_port;
+    }
+
+    /**
+     * Replicas the deployment that serves right now runs: what its node
+     * reported, or what it was asked for until the node reports. Null when
+     * nothing serves, like servingPort().
+     */
+    public function servingReplicas(): ?int
+    {
+        $deployment = $this->liveDeployment();
+
+        return $deployment === null ? null : ($deployment->replicas_desired ?? $deployment->replicas);
+    }
+
+    /**
+     * Replicas of the serving deployment that pass the router's health check,
+     * from the node's heartbeat. Null when nothing serves or the node has not
+     * reported yet (older agents never do).
+     */
+    public function servingReplicasReady(): ?int
+    {
+        return $this->liveDeployment()?->replicas_ready;
+    }
+
+    /**
+     * Whether the project holds running container slots: it has an active
+     * deployment that is not asleep. The same test as scopeServing().
+     */
+    public function isServing(): bool
+    {
+        return $this->active_deployment_id !== null && $this->runtime_status !== RuntimeStatus::Sleeping;
+    }
+
+    /**
+     * Running containers the project holds for its workspace's limit, from a
+     * query that used scopeHoldingContainers(): the replicas of its serving
+     * deployment, or of a deployment in progress when that one runs more, since
+     * that is what the project runs once it succeeds. A rolling deployment
+     * briefly runs both sets on the node; the workspace limit counts the
+     * steady state.
+     */
+    public function heldContainers(): int
+    {
+        $serving = $this->isServing() ? (int) $this->getAttribute(self::SERVING_REPLICAS_ATTRIBUTE) : 0;
+
+        return max($serving, (int) $this->getAttribute(self::DEPLOYING_REPLICAS_ATTRIBUTE));
+    }
+
+    /** The active deployment while it serves traffic: not crashed, not asleep. */
+    private function liveDeployment(): ?Deployment
+    {
+        if (! $this->isServing() || $this->runtime_status === RuntimeStatus::Crashed) {
             return null;
         }
 
-        return $this->activeDeployment?->container_port;
+        return $this->activeDeployment;
     }
 
     /**
@@ -252,6 +324,7 @@ class Project extends Model
             'runtime_status' => RuntimeStatus::class,
             'detected_port' => 'integer',
             'configured_port' => 'integer',
+            'replicas' => 'integer',
             'config_changed_at' => 'immutable_datetime',
             'auto_deploy' => 'boolean',
             'inspection' => 'array',
@@ -276,6 +349,42 @@ class Project extends Model
         return $query
             ->whereNotNull('active_deployment_id')
             ->where('runtime_status', '!=', RuntimeStatus::Sleeping);
+    }
+
+    /**
+     * Scope a query to projects that hold running container slots or are being
+     * deployed and will, so two deployments racing for the last slot cannot
+     * both pass, with what heldContainers() reads: the replicas of the active
+     * deployment and the most replicas of a deployment in progress. One query
+     * for the whole workspace.
+     *
+     * @param  Builder<Project>  $query
+     * @return Builder<Project>
+     */
+    public function scopeHoldingContainers(Builder $query): Builder
+    {
+        return $query
+            ->where(fn (Builder $holding) => $holding
+                ->where(fn (Builder $serving) => $serving->serving())
+                ->orWhereHas('deployments', self::activeDeploymentsOf(...)))
+            ->addSelect([
+                self::SERVING_REPLICAS_ATTRIBUTE => Deployment::query()
+                    ->select('replicas')
+                    ->whereColumn('deployments.id', 'projects.active_deployment_id')
+                    ->limit(1),
+            ])
+            ->withMax(['deployments as '.self::DEPLOYING_REPLICAS_ATTRIBUTE => self::activeDeploymentsOf(...)], 'replicas');
+    }
+
+    /**
+     * Deployments in progress, for the subqueries of scopeHoldingContainers().
+     *
+     * @param  Builder<Deployment>  $deployments
+     * @return Builder<Deployment>
+     */
+    private static function activeDeploymentsOf(Builder $deployments): Builder
+    {
+        return $deployments->active();
     }
 
     /**

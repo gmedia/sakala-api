@@ -217,6 +217,8 @@ final class CreateDeploymentAction
                     $lockedProject->workspace,
                 );
 
+                $replicas = $this->runtimeLimitService->replicasFor($lockedProject);
+
                 $sequence = (int) $lockedProject->deployments()->max('sequence') + 1;
 
                 $created = true;
@@ -225,10 +227,16 @@ final class CreateDeploymentAction
                 // only ever materialised for one authenticated node. With no
                 // eligible node the command waits unassigned for a later
                 // assignment sweep or heartbeat.
+                // Only a node that runs every replica is selected: an older
+                // one would run one container and report success. Without one
+                // the command waits, unless no node could ever take it.
                 $node = $this->scheduler->selectNodeFor(
                     AgentCommandType::DeployProject,
                     $lockedProject,
+                    $replicas,
                 );
+
+                $this->scheduler->ensureReplicasCanRun($lockedProject, $node, $replicas);
 
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,
@@ -243,6 +251,8 @@ final class CreateDeploymentAction
                     'commit_message' => $this->commitSubject($commit['message']),
                     // Fixed at creation: a later port change only affects the next deployment.
                     'container_port' => $lockedProject->effectivePort(),
+                    // Fixed at creation too: a later change applies from the next deployment.
+                    'replicas' => $replicas,
                     'requested_resources' => $data->requested_resources?->toArray(),
                     'effective_resources' => $effectiveLimits->toArray(),
                 ]);
@@ -277,6 +287,9 @@ final class CreateDeploymentAction
                         'start_command' => $lockedProject->start_command,
                         'root_directory' => $lockedProject->root_directory,
                     ], static fn (?string $value): bool => $value !== null),
+                    // Optional addition to protocol revision 4, only above one,
+                    // and only to a node with the `replicas` capability.
+                    ...($replicas > Project::DEFAULT_REPLICAS ? ['replicas' => $replicas] : []),
                 ];
 
                 AgentCommand::create([

@@ -41,7 +41,10 @@ final class PilotLimitsResource extends JsonResource
                 'current_projects_count' => $this->resource->current_projects_count,
                 'current_active_deployments_count' => $this->resource->current_active_deployments_count,
                 'max_active_containers' => $this->resource->max_active_containers,
+                /** Replicas of the projects that serve or are being deployed; sleeping projects do not count. */
                 'current_active_containers_count' => $this->resource->current_active_containers_count,
+                /** Most replicas per project, from the workspace's limit profile; 1 without one. */
+                'max_replicas' => $limits->max_replicas,
             ],
             'runtime_defaults' => [
                 /** @var int */

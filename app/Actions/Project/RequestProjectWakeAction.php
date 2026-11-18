@@ -72,7 +72,7 @@ final class RequestProjectWakeAction
                 return $open;
             }
 
-            $this->limits->checkWakeLimit($locked, exposeUsage: $user !== null);
+            $this->limits->checkWakeLimit($locked, $deployment, exposeUsage: $user !== null);
 
             // A visitor is not identified: no address or user agent is kept.
             return $this->createWakeCommand->handle(

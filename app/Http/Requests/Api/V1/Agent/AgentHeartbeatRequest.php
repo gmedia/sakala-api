@@ -6,8 +6,11 @@ namespace App\Http\Requests\Api\V1\Agent;
 
 use App\Data\Agent\AgentHeartbeatData;
 use App\Data\Agent\CrashedWorkloadsData;
+use App\Data\Agent\WorkloadReplicasData;
 use App\Data\Agent\WorkloadTrafficData;
 use App\Enums\AgentNodeStatus;
+use App\Models\AgentNode;
+use App\Models\Project;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -15,6 +18,16 @@ use Illuminate\Validation\Rule;
 final class AgentHeartbeatRequest extends FormRequest
 {
     public const MAX_TRAFFIC_ITEMS = 500;
+
+    /** Same bound as traffic: one item per running workload at most. */
+    public const MAX_REPLICA_ITEMS = 500;
+
+    /**
+     * Bound of one reported replica count. Real counts stay far below
+     * (LimitProfile::MAX_REPLICAS_CEILING); this only keeps the smallint
+     * columns safe without rejecting a heartbeat over a near miss.
+     */
+    public const MAX_REPORTED_REPLICAS = 1000;
 
     /** @return array<string, mixed> */
     public function rules(): array
@@ -55,6 +68,8 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.detail_counts.crashed_details' => ['required_with:metadata.workloads.crashed_details', 'integer', 'min:0'],
             // Additive within protocol revision 4, sent with `traffic` (idle sleep).
             'metadata.detail_counts.traffic' => ['sometimes', 'integer', 'min:0'],
+            // Additive within protocol revision 4, sent with `replicas`.
+            'metadata.detail_counts.replicas' => ['sometimes', 'integer', 'min:0'],
 
             'metadata.resources' => ['required', 'array'],
             'metadata.resources.cpu_total' => ['present', 'nullable', 'integer', 'min:1'],
@@ -89,6 +104,19 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.workloads.traffic.*.project_id' => ['required', 'uuid'],
             'metadata.workloads.traffic.*.deployment_id' => ['required', 'uuid'],
             'metadata.workloads.traffic.*.last_request_at' => ['required', 'date'],
+            // Optional, from nodes with the `replicas` capability: one item
+            // per deployment that runs replicas. Bounded and strict like
+            // traffic. Partial readiness is not a crash; only crashed_details
+            // changes runtime state.
+            // Sent by agents with the `replicas` capability on every
+            // heartbeat; null when the node's driver cannot run replicas.
+            'metadata.workloads.'.AgentNode::MAXIMUM_REPLICAS_METADATA_KEY => ['sometimes', 'nullable', 'integer', 'between:'.Project::DEFAULT_REPLICAS.','.AgentNode::MAXIMUM_REPLICAS_REPORT_CEILING],
+            'metadata.workloads.replicas' => ['sometimes', 'array', 'max:'.self::MAX_REPLICA_ITEMS],
+            'metadata.workloads.replicas.*' => ['required', 'array'],
+            'metadata.workloads.replicas.*.project_id' => ['required', 'uuid'],
+            'metadata.workloads.replicas.*.deployment_id' => ['required', 'uuid'],
+            'metadata.workloads.replicas.*.desired' => ['required', 'integer', 'min:1', 'max:'.self::MAX_REPORTED_REPLICAS],
+            'metadata.workloads.replicas.*.ready' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_REPLICAS],
 
             'metadata.disk_pressure' => ['required', 'array'],
             'metadata.disk_pressure.state' => ['required', 'string', 'max:50'],
@@ -146,7 +174,16 @@ final class AgentHeartbeatRequest extends FormRequest
             sentAt: CarbonImmutable::parse($this->validated('sent_at')),
             crashedWorkloads: $this->crashedWorkloads(),
             workloadTraffic: $this->workloadTraffic(),
+            workloadReplicas: $this->workloadReplicas(),
         );
+    }
+
+    private function workloadReplicas(): ?WorkloadReplicasData
+    {
+        /** @var list<array{project_id: string, deployment_id: string, desired: int, ready: int}>|null $details */
+        $details = $this->validated('metadata.workloads.replicas');
+
+        return $details === null ? null : WorkloadReplicasData::fromReport($details);
     }
 
     private function workloadTraffic(): ?WorkloadTrafficData

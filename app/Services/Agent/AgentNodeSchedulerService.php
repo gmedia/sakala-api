@@ -9,6 +9,7 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\DeploymentStatus;
+use App\Exceptions\Runtime\ProjectReplicasUnsupportedException;
 use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\Project;
@@ -29,11 +30,15 @@ final class AgentNodeSchedulerService
     /**
      * Return the node that should execute a command of the given type for the
      * project, or null when no node can take it right now (the command then
-     * stays unassigned until a later sweep or heartbeat assigns it).
+     * stays unassigned until a later sweep or heartbeat assigns it). A
+     * deployment of several `$replicas` only goes to a node that runs them all
+     * (AgentNode::supportsReplicas()).
      */
-    public function selectNodeFor(AgentCommandType $type, ?Project $project = null): ?AgentNode
+    public function selectNodeFor(AgentCommandType $type, ?Project $project = null, int $replicas = Project::DEFAULT_REPLICAS): ?AgentNode
     {
-        $candidates = $this->eligibleNodes($type);
+        $candidates = $this->eligibleNodes($type)
+            ->filter(static fn (AgentNode $node): bool => $node->supportsReplicas($replicas))
+            ->values();
 
         // Routes, images, and containers are node-local: a project that is
         // already served by a node must stay there so stop/finalization
@@ -42,12 +47,7 @@ final class AgentNodeSchedulerService
         // would leave the old workload running unreachable, so cross-node
         // migration is deliberately not implicit.
         if ($project !== null) {
-            $currentNodeId = Deployment::query()
-                ->where('project_id', $project->id)
-                ->where('status', DeploymentStatus::Succeeded)
-                ->whereNotNull('agent_node_id')
-                ->orderByDesc('sequence')
-                ->value('agent_node_id');
+            $currentNodeId = $this->currentNodeIdOf($project);
 
             if ($currentNodeId !== null) {
                 return $candidates->firstWhere('id', $currentNodeId);
@@ -64,6 +64,61 @@ final class AgentNodeSchedulerService
                 ['last_seen_at', 'desc'],
             ])
             ->first();
+    }
+
+    /**
+     * Refuse a deployment of `$replicas` that no node could ever run, so it is
+     * not queued forever: the selected node, or else the node the project is
+     * pinned to whatever its state, or else every node that is allowed work,
+     * must run them all. A pinned or known node that only needs to come back
+     * online is fine; the deployment waits for it.
+     *
+     * @throws ProjectReplicasUnsupportedException
+     */
+    public function ensureReplicasCanRun(Project $project, ?AgentNode $selected, int $replicas): void
+    {
+        if ($replicas <= Project::DEFAULT_REPLICAS || $selected !== null) {
+            return;
+        }
+
+        $currentNodeId = $this->currentNodeIdOf($project);
+
+        /** @var Collection<int, AgentNode> $nodes */
+        $nodes = AgentNode::query()
+            ->when(
+                $currentNodeId !== null,
+                fn ($query) => $query->whereKey($currentNodeId),
+                fn ($query) => $query
+                    ->where('auth_status', AgentAuthStatus::Active)
+                    ->where('desired_state', AgentNodeDesiredState::Active),
+            )
+            ->get();
+
+        if ($nodes->contains(static fn (AgentNode $node): bool => $node->supportsReplicas($replicas))) {
+            return;
+        }
+
+        throw new ProjectReplicasUnsupportedException(
+            $replicas,
+            $nodes->map(static fn (AgentNode $node): ?int => $node->maximumReplicasPerProject())->filter()->max(),
+        );
+    }
+
+    /**
+     * The node that served the project's latest successful deployment, where
+     * its routes, images, and containers live.
+     */
+    private function currentNodeIdOf(Project $project): ?string
+    {
+        /** @var string|null $nodeId */
+        $nodeId = Deployment::query()
+            ->where('project_id', $project->id)
+            ->where('status', DeploymentStatus::Succeeded)
+            ->whereNotNull('agent_node_id')
+            ->orderByDesc('sequence')
+            ->value('agent_node_id');
+
+        return $nodeId;
     }
 
     /**

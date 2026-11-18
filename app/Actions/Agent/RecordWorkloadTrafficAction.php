@@ -8,8 +8,8 @@ use App\Data\Agent\WorkloadTrafficData;
 use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Support\Database\CaseUpdate;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Move `projects.last_request_at` forward from a heartbeat's traffic list. Only
@@ -48,45 +48,10 @@ final class RecordWorkloadTrafficAction
             }
         }
 
-        if ($advanced === []) {
-            return;
-        }
-
-        $this->write($advanced);
-    }
-
-    /**
-     * One UPDATE with a CASE per project. PostgreSQL types a bound parameter in
-     * a CASE as text, which a timestamptz column refuses without a cast.
-     *
-     * @param  array<string, string>  $lastRequestAtByProjectId
-     */
-    private function write(array $lastRequestAtByProjectId): void
-    {
-        $value = DB::connection()->getDriverName() === 'pgsql' ? 'CAST(? AS timestamptz)' : '?';
-        $cases = [];
-        $bindings = [];
-
-        foreach ($lastRequestAtByProjectId as $projectId => $lastRequestAt) {
-            $cases[] = "WHEN ? THEN {$value}";
-            $bindings[] = $projectId;
-            $bindings[] = $lastRequestAt;
-        }
-
-        $ids = array_keys($lastRequestAtByProjectId);
-        $grammar = DB::connection()->getQueryGrammar();
-
-        DB::update(
-            sprintf(
-                'update %s set %s = case %s %s end where %s in (%s)',
-                $grammar->wrapTable('projects'),
-                $grammar->wrap('last_request_at'),
-                $grammar->wrap('id'),
-                implode(' ', $cases),
-                $grammar->wrap('id'),
-                $grammar->parameterize($ids),
-            ),
-            [...$bindings, ...$ids],
+        CaseUpdate::apply(
+            'projects',
+            array_map(static fn (?string $lastRequestAt): array => ['last_request_at' => $lastRequestAt], $advanced),
+            ['last_request_at' => 'timestamptz'],
         );
     }
 }

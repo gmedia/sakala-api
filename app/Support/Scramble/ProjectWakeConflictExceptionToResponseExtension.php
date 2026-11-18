@@ -38,9 +38,10 @@ final class ProjectWakeConflictExceptionToResponseExtension extends ExceptionToR
             ->addProperty('message', (new StringType)->setDescription('Error overview, in Indonesian.'))
             ->addProperty('code', (new StringType)
                 ->enum(['PROJECT_WAKE_LIMIT_EXCEEDED', 'PROJECT_NOT_SLEEPING', 'PROJECT_SUSPENDED'])
-                ->setDescription('`PROJECT_WAKE_LIMIT_EXCEEDED`: the workspace already runs as many projects as it may. `PROJECT_NOT_SLEEPING`: only a sleeping project can be woken. `PROJECT_SUSPENDED`: an admin suspended the project. The public wake only answers `PROJECT_WAKE_LIMIT_EXCEEDED`.'))
-            ->addProperty('limit', (new IntegerType)->setDescription('The workspace limit of running projects. Only with `PROJECT_WAKE_LIMIT_EXCEEDED`, and never on the public wake.'))
-            ->addProperty('current', (new IntegerType)->setDescription('Projects the workspace runs now. Same presence as `limit`.'))
+                ->setDescription('`PROJECT_WAKE_LIMIT_EXCEEDED`: the replicas of the project would take the workspace past its limit of running containers. `PROJECT_NOT_SLEEPING`: only a sleeping project can be woken. `PROJECT_SUSPENDED`: an admin suspended the project. The public wake only answers `PROJECT_WAKE_LIMIT_EXCEEDED`.'))
+            ->addProperty('limit', (new IntegerType)->setDescription('The workspace limit of running containers. Only with `PROJECT_WAKE_LIMIT_EXCEEDED`, and never on the public wake.'))
+            ->addProperty('current', (new IntegerType)->setDescription('Containers the other projects of the workspace run now, every replica counted. Same presence as `limit`.'))
+            ->addProperty('requested', (new IntegerType)->setDescription('Containers the wake would start: every replica of the sleeping deployment. Same presence as `limit`.'))
             ->addProperty('runtime_status', (new StringType)->setDescription('The current `runtime_status`. Only with `PROJECT_NOT_SLEEPING`.'))
             ->setRequired(['message', 'code']);
 
