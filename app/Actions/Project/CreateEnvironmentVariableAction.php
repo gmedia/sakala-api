@@ -14,14 +14,21 @@ final class CreateEnvironmentVariableAction
     public function handle(EnvironmentVariableData $data): EnvironmentVariable
     {
         return DB::transaction(function () use ($data): EnvironmentVariable {
+            // The project row first, so concurrent variable changes recompute
+            // the environment fingerprint one at a time.
+            /** @var Project $project */
+            $project = Project::query()->whereKey($data->projectId)->lockForUpdate()->firstOrFail();
+
             $variable = EnvironmentVariable::create([
-                'project_id' => $data->projectId,
+                'project_id' => $project->id,
                 'key' => $data->key,
                 'encrypted_value' => $data->value,
                 'is_secret' => $data->isSecret,
             ]);
 
-            Project::query()->whereKey($data->projectId)->update(['config_changed_at' => now()]);
+            $project->refreshEnvironmentFingerprint();
+            $project->config_changed_at = now()->toImmutable();
+            $project->save();
 
             return $variable;
         });
