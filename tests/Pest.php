@@ -60,6 +60,7 @@ require_once __DIR__.'/Support/AgentHeartbeatPayload.php';
 require_once __DIR__.'/Support/AgentProtocolFixtures.php';
 require_once __DIR__.'/Support/IdleSleepFixtures.php';
 require_once __DIR__.'/Support/PgsqlConcurrency.php';
+require_once __DIR__.'/Support/ProjectMetricFixtures.php';
 require_once __DIR__.'/Support/WorkspaceFixtures.php';
 /*
 |--------------------------------------------------------------------------

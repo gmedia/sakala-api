@@ -4,6 +4,12 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- **Basic per-project metrics (part of #128).** Heartbeats may carry `metadata.workloads.metrics` (agent revision 4, additive, from nodes with the new `workload-metrics` capability): one sample per replica with `project_id`, `deployment_id`, `replica`, `sampled_at`, `cpu_percent` (percent of one core, may exceed 100), `memory_bytes`, `memory_limit_bytes` (`null` for no limit), and `restart_count` (cumulative), plus `metadata.detail_counts.metrics`. At most 500 items; a malformed item rejects the heartbeat `422` like the other lists. Samples are kept only for a project's active deployment on the reporting node, the same rule as `traffic`; samples for other or unknown projects and deployments, and samples older than 10 minutes, are ignored without failing the heartbeat. The list is not copied into `agent_nodes.metadata`.
+- Samples merge per replica per minute into `project_metric_minutes` (sample count, sum and maximum of CPU and memory, latest memory limit, highest restart count) with one upsert per heartbeat; a sample at or before the stored `last_sampled_at` of its minute is not counted again. `projects:roll-up-metrics`, scheduled every five minutes on one server, recomputes the previous and current hour into `project_metric_hours` (with restarts per hour, counter resets included) and prunes minute rows after `SAKALA_METRICS_MINUTE_RETENTION_HOURS` (default 24) and hourly rows after `SAKALA_METRICS_HOURLY_RETENTION_DAYS` (default 30). Both tables are indexed on `(project_id, bucket)` and cascade with their deployment. Row volume for 100 containers: about 144,000 minute rows and 72,000 hourly rows. See `docs/DATABASE.md#metrik-project`.
+- `GET app/projects/{project}/metrics?range=1h|6h|24h|7d|30d` (default `1h`; same rights as viewing the project) answers `range`, `step_seconds`, and `series` with `cpu_percent` and `memory_bytes` (`{t, avg, max}`, summed across replicas), `memory_limit_bytes` (summed limit of the latest data, or `null`), `replicas` and `restarts` (`{t, count}`). 1h, 6h, and 24h read minute rows in 60, 300, and 900 second steps; 7d and 30d read hourly rows in 3600 and 14400 second steps. A step without data has no point, so gaps stay gaps; no data gives empty arrays. `per_replica=1` adds `series.per_replica`, the same series per replica index. See `docs/API_CONVENTIONS.md#metrik`.
+
 ## [0.7.0] - 2026-11-18
 
 ### Added

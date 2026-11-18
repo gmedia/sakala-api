@@ -34,6 +34,8 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `workspace_invitations` | Undangan: email (huruf kecil), peran, `status` (`pending`, `accepted`, `declined`, `revoked`), hash SHA-256 token, pengundang, masa berlaku, dan `closed_at`. Diterima, ditolak, dicabut, atau diganti berarti barisnya ditutup, bukan dihapus, supaya tautannya bisa menjelaskan kenapa tidak berlaku. `workspaces:prune-invitations` menghapus setiap baris setelah `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS` lewat dari masa berlakunya. |
 | `limit_profiles` | Profil batas yang bisa dipakai ulang: jumlah project, container berjalan, deployment berjalan, memory dan CPU per project, `max_builds_per_hour` (deployment per 60 menit, `null` mengikuti `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR`), `idle_sleep_minutes` (`null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` tidak pernah tidur), dan `max_replicas` (`null` berarti 1 replika per project). Tidak bisa dihapus selama dipakai workspace. |
 | `legal_acceptances` | Versi dokumen yang disetujui atau diketahui tiap user, dengan waktunya. Append-only, unik per user, dokumen, dan versi; index itu juga melayani pembacaan per user. Ikut terhapus bersama user. |
+| `project_metric_minutes` | Pemakaian CPU, memory, dan restart satu replika satu deployment selama satu menit, dari heartbeat. Disimpan `SAKALA_METRICS_MINUTE_RETENTION_HOURS`. Lihat [Metrik Project](#metrik-project). |
+| `project_metric_hours` | Rollup per jam dari `project_metric_minutes`, ditambah `restarts` per jam. Disimpan `SAKALA_METRICS_HOURLY_RETENTION_DAYS`. |
 | `usage_signal_records` | Sinyal agregat penggunaan dan abuse (deployment attempts, agent failures, rejected limits, dll.) untuk observabilitas pilot. Append-only, diproses secara berkala oleh scheduler. |
 
 Project dimiliki workspace (`projects.workspace_id`), dan `projects.user_id` adalah pembuatnya. Keduanya nullable hanya untuk project yang sudah dihapus dan menunggu purge setelah akun atau timnya hilang; foreign key keduanya `RESTRICT`, jadi project hidup menahan penghapusan workspace dan user. Migrasi `move_projects_into_workspaces` membuat workspace pribadi untuk setiap user yang sudah ada (slug sama dengan username) dalam batch per 500 user, lalu memindahkan project dengan satu `UPDATE`; rollback ditolak setelah ada tim. Project dari GitHub App menyimpan installation UUID dan repository ID; project URL publik tidak memerlukan installation. Lihat [Workspace](API_CONVENTIONS.md#workspace).
@@ -67,7 +69,8 @@ Index dibuat dari query path yang sudah diketahui:
 - timeline/log: `(deployment_id, occurred_at|recorded_at)`;
 - report retry: unique `(agent_command_id, idempotency_key)` pada event, log, dan command report;
 - timeline command tanpa deployment: unique `(agent_command_id, sequence)` dan `(agent_command_id, occurred_at)` pada `agent_command_reports`;
-- audit actor/subject: `(type, id, created_at)`.
+- audit actor/subject: `(type, id, created_at)`;
+- metrik project: unique `(deployment_id, replica, bucket)` sebagai kunci upsert heartbeat, yang sekaligus melayani cascade saat deployment dihapus; `(project_id, bucket)` untuk `GET app/projects/{project}/metrics`; `(bucket)` untuk rollup dan prune lintas project. Ketiganya ada di `project_metric_minutes` dan `project_metric_hours`.
 
 ### Pilot validation metrics
 
@@ -162,6 +165,23 @@ Kolom token OAuth dan environment value memakai encrypted cast Laravel bila mema
 Log/event disimpan di database untuk MVP. Record report bersifat append-only (`updated_at` tidak ada); tidak ada endpoint update/delete dari API publik atau machine agent. Agent melakukan redaction sebelum pengiriman dan API mengulang redaction pada message serta metadata sebagai defense-in-depth sebelum persistensi dan broadcast.
 
 Kebijakan retensi log fase pilot didefinisikan secara lengkap di [Pilot Log Retention Policy](LOG_RETENTION.md). Selama fase pilot, durasi retensi default adalah 7 hari (`SAKALA_LOG_RETENTION_DAYS=7`). Pembersihan data log dan event dijalankan oleh scheduler harian atau manual melalui `php artisan pilot:prune-logs` yang menargetkan deployment berstatus terminal (`succeeded`, `failed`, `cancelled`) berdasarkan `finished_at`/`cancelled_at`, dengan fallback `created_at` untuk record legacy. Query pembersihan memanfaatkan index timestamp terminal pada tabel `deployments` dan foreign key `deployment_id` pada `deployment_logs` serta `deployment_events`. Jangan membuat pencarian tanpa batas atas; endpoint timeline/log harus memakai cursor pagination dan urutan sequence. Evaluasi partitioning PostgreSQL atau object storage akan dilakukan sebelum transisi ke volume produksi.
+
+## Metrik Project
+
+Migrasi `2026_11_19_000005` membuat `project_metric_minutes` dan `project_metric_hours` (#128). Keduanya punya kolom yang sama: `project_id` dan `deployment_id` (FK `cascadeOnDelete`, jadi `projects:purge-deleted` membersihkannya lewat penghapusan deployment), `replica` (smallint), `bucket` (timestamptz, awal menit atau jam dalam UTC), `sample_count`, `cpu_percent_sum` dan `cpu_percent_max` (double), `memory_bytes_sum` dan `memory_bytes_max` (bigint), `memory_limit_bytes` (bigint nullable, dari sampel terbaru, `null` berarti tanpa batas), `restart_count` (counter kumulatif: tertinggi di menit itu, atau milik menit terakhir di jam itu), dan `last_sampled_at`. `project_metric_hours` menambah `restarts`, jumlah restart di jam itu. ID-nya bigint karena tabel ini internal dan tidak pernah diekspos.
+
+Rata-rata disimpan sebagai jumlah dan `sample_count`, bukan sebagai rata-rata, supaya beberapa sampel di menit yang sama bisa digabung dengan tepat. Heartbeat menggabungkan sampelnya di PHP per replika per menit, membaca `last_sampled_at` baris yang sudah ada untuk membuang sampel yang sudah dihitung, lalu menulis satu `INSERT ... ON CONFLICT (deployment_id, replica, bucket) DO UPDATE` yang menjumlahkan count dan sum serta mengambil `greatest()` (`max()` di SQLite) untuk maksimum. Heartbeat satu node sudah diserialisasi oleh row lock `agent_nodes`, dan hanya node yang menjalankan deployment aktif yang boleh menulis barisnya, jadi baca-lalu-upsert itu tidak berebut dengan dirinya sendiri.
+
+`projects:roll-up-metrics` berjalan setiap 5 menit di satu server tanpa tumpang tindih. Setiap kali, ia menghitung ulang jam sebelumnya dan jam berjalan dari baris per menit lalu menimpa baris jamnya, jadi perintah ini idempoten dan sampel yang terlambat (paling tua 10 menit) tetap masuk ke jamnya. Setelah scheduler mati, ia mulai dari baris jam terakhir, tetapi tidak pernah lebih jauh dari jam terlama yang baris menitnya masih utuh, supaya jam yang sebagian baris menitnya sudah dihapus tidak ditimpa dengan angka yang kurang. Baris per menit satu jam sebelumnya dibaca sebagai pembanding counter restart. Setelah itu ia menghapus baris menit yang lebih tua dari `SAKALA_METRICS_MINUTE_RETENTION_HOURS` dan baris jam yang lebih tua dari `SAKALA_METRICS_HOURLY_RETENTION_DAYS`, per 500 baris.
+
+Perkiraan volume untuk 100 container (replika) yang berjalan terus:
+
+| | Baris per container | Total 100 container | Ukuran kira-kira |
+| --- | --- | --- | --- |
+| `project_metric_minutes` (24 jam) | 1.440 | 144.000 | sekitar 40 MB termasuk index |
+| `project_metric_hours` (30 hari) | 720 | 72.000 | sekitar 20 MB termasuk index |
+
+Ukuran dihitung sekitar 130 byte per baris di heap ditambah sekitar 130 byte untuk empat index (primary key dan tiga index di atas). Dengan heartbeat 10 detik, setiap baris menit ditulis sekali lalu diperbarui sekitar lima kali, jadi 100 container menghasilkan sekitar 10 penulisan baris per detik, ditambah prune sekitar 500 baris menit setiap 5 menit. Kolom yang diperbarui tidak masuk index mana pun, jadi PostgreSQL bisa memakai HOT update bila halaman masih punya ruang. Satu `GET` metrik membaca paling banyak 1.450 baris per replika (24 jam ditambah 10 menit pembanding) atau 720 baris jam per replika.
 
 ## Admin Console
 

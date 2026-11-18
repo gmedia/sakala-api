@@ -183,6 +183,41 @@ punya capability `replicas` dan maksimumnya paling sedikit sebanyak replika yang
 diminta. Node ber-capability yang tidak mengirim field ini dianggap sanggup berapa
 pun.
 
+`metadata.workloads.metrics` juga tambahan opsional di dalam revision 4, dikirim
+node ber-capability `workload-metrics`. Isinya sampel pemakaian resource container
+yang berjalan, satu item per replika per sampel. Batasnya 500 item, dan seperti
+`traffic`, seluruh heartbeat ditolak `422` bila ada item yang bentuknya tidak sesuai:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `project_id` | UUID, wajib | Project pemilik workload. |
+| `deployment_id` | UUID, wajib | Deployment pemilik container. |
+| `replica` | integer 0 sampai 999, wajib | Indeks replika di deployment itu, mulai dari 0. |
+| `sampled_at` | RFC 3339, wajib | Kapan sampel diambil. Disimpan dengan presisi detik. |
+| `cpu_percent` | angka ≥ 0, wajib | Persen dari satu core, jadi container yang memakai dua core penuh melapor 200. Paling besar 102400. |
+| `memory_bytes` | integer ≥ 0, wajib | Memory yang dipakai container, dalam byte. Paling besar 1 PiB. |
+| `memory_limit_bytes` | integer ≥ 0 atau `null`, wajib ada | Batas memory container dalam byte, `null` bila tanpa batas. Paling besar 1 PiB. |
+| `restart_count` | integer ≥ 0, wajib | Jumlah restart kumulatif container itu, seperti `RestartCount` Docker. Boleh mulai dari 0 lagi saat container dibuat ulang. |
+
+`metadata.detail_counts.metrics` (integer ≥ 0, opsional) menyimpan jumlah sebelum
+dipotong. API hanya menyimpan sampel untuk deployment yang menjadi
+`active_deployment_id` project-nya, berjalan di node pelapor, dan `project_id`-nya
+cocok, sama dengan aturan `traffic`. Sampel untuk project atau deployment lain,
+termasuk ID yang tidak dikenal dan deployment yang sudah tergantikan, diabaikan
+tanpa menolak heartbeat. Sampel yang lebih tua dari 10 menit dari jam API juga
+diabaikan, dan waktu di depan jam API disimpan sebagai waktu sekarang.
+
+Sampel digabung per replika per menit ke `project_metric_minutes`: jumlah sampel,
+jumlah dan maksimum `cpu_percent` serta `memory_bytes`, `memory_limit_bytes` dari
+sampel terbaru, dan `restart_count` tertinggi. Sampel yang `sampled_at`-nya sama
+atau lebih tua dari sampel terakhir yang sudah tersimpan untuk replika dan menit
+itu tidak dihitung lagi, jadi node boleh mengirim ulang sampel terakhirnya kalau
+belum mengambil yang baru. Biayanya satu query baca project, satu query baca baris
+menit, dan satu upsert per heartbeat, berapa pun panjang daftarnya. Daftar ini
+tidak ikut disimpan di `agent_nodes.metadata`, tetapi `detail_counts.metrics`
+tetap tersimpan. Hasilnya dibaca Console lewat
+[Metrik](API_CONVENTIONS.md#metrik).
+
 `metadata.runtime` juga tambahan opsional di dalam revision 4, untuk Sakala Edge
 dan region (ADR-019). Kedua kuncinya opsional dan boleh `null`; nilai yang tidak
 sesuai menolak seluruh heartbeat `422`, seperti daftar di atas:
@@ -848,3 +883,11 @@ tidak mengirim `release_command` ke node tanpa capability `release-command`):
 7. Iklankan capability `release-command`, jalankan `release_command` sesuai
    [DeployProject](#deployproject), dan gagalkan command dengan
    `release_command_failed` atau `release_command_timeout`.
+
+Tambahan untuk metrik project (opsional; node tanpa capability ini tidak
+mengirimnya dan grafiknya kosong):
+
+8. Iklankan capability `workload-metrics` dan kirim
+   `metadata.workloads.metrics` beserta `metadata.detail_counts.metrics` di setiap
+   heartbeat, satu sampel terbaru per replika yang berjalan, dengan aturan di
+   bagian Heartbeat.

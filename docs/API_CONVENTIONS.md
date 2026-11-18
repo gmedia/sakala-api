@@ -305,6 +305,48 @@ Kedua endpoint membuat `WakeProject` untuk node dan deployment yang menyimpan co
 
 Sleep karena sepi berbeda dari suspend. Sleep yang masih berjalan tidak menahan suspend atau unsuspend admin. Men-suspend project yang sedang tidur membuat `SleepProject` dengan alasan suspend seperti biasa; setelah selesai `runtime_status` menjadi `stopped` dan `active_deployment_id` kosong, sama seperti suspend lain, dan bangun ditolak sejak suspend diterima.
 
+### Metrik
+
+`GET /api/v1/app/projects/{project}/metrics?range=1h` mengembalikan pemakaian CPU, memory, replika, dan restart sebuah project, dengan hak yang sama seperti melihat project: owner, member, dan viewer workspace, serta admin. Selain itu `403`. Query:
+
+| Query | Nilai | Keterangan |
+| --- | --- | --- |
+| `range` | `1h`, `6h`, `24h`, `7d`, `30d` | Opsional, default `1h`. Nilai lain `422` pada `range`. |
+| `per_replica` | `1` atau `0` | Opsional. `1` menambahkan `series.per_replica`. Nilai lain `422`. |
+
+Datanya datang dari heartbeat node ber-capability `workload-metrics` (lihat [Agent API](AGENT_API.md#heartbeat)). Node tanpa capability itu tidak pernah mengirim sampel, jadi grafiknya kosong; response tidak membedakan "node belum mendukung" dari "belum ada data".
+
+| Range | `step_seconds` | Sumber | Jumlah titik paling banyak |
+| --- | --- | --- | --- |
+| `1h` | 60 | baris per menit | 60 |
+| `6h` | 300 | baris per menit | 72 |
+| `24h` | 900 | baris per menit | 96 |
+| `7d` | 3600 | rollup per jam | 168 |
+| `30d` | 14400 | rollup per jam | 180 |
+
+Titik terakhir adalah step yang sedang berjalan, jadi nilainya masih bisa berubah. Step disejajarkan ke kelipatan `step_seconds` sejak Unix epoch dalam UTC, misalnya step 4 jam dimulai pukul 00.00, 04.00, dan seterusnya UTC (07.00, 11.00 WIB). Rollup per jam diperbarui `projects:roll-up-metrics` setiap 5 menit, jadi `7d` dan `30d` bisa tertinggal sampai 5 menit dari `1h`.
+
+Isi `data`:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `range` | string | Range yang diminta. |
+| `step_seconds` | integer | Lebar satu titik dalam detik. |
+| `series.cpu_percent` | array `{t, avg, max}` | Persen dari satu core, dijumlah dari semua replika, jadi bisa lebih dari 100. `avg` dan `max` berupa angka dengan paling banyak 2 desimal. |
+| `series.memory_bytes` | array `{t, avg, max}` | Memory terpakai dalam byte, dijumlah dari semua replika. `avg` dan `max` berupa integer. |
+| `series.memory_limit_bytes` | integer atau `null` | Jumlah batas memory replika pada data terbaru di range itu. `null` bila belum ada data atau ada replika tanpa batas. Satu angka, bukan deret. |
+| `series.replicas` | array `{t, count}` | Replika yang melapor pada step itu: terbanyak dalam satu menit (satu jam untuk `7d` dan `30d`). |
+| `series.restarts` | array `{t, count}` | Restart container pada step itu, dijumlah dari semua replika. |
+| `series.per_replica` | array, hanya bila `per_replica=1` | Satu item per indeks replika, urut dari yang terkecil: `{replica, cpu_percent, memory_bytes, restarts}` dengan bentuk deret yang sama. |
+
+`t` adalah awal step dalam ISO 8601 UTC. Semua deret memakai `t` yang sama dan berurutan dari yang terlama. Step tanpa data tidak punya titik sama sekali, bukan nol, jadi dua `t` berurutan yang jaraknya lebih dari `step_seconds` berarti ada celah dan grafik sebaiknya memutus garisnya di situ. Tanpa data, semua deret berupa array kosong.
+
+Cara menghitungnya: setiap baris menyimpan satu replika satu deployment selama satu menit (atau satu jam). Untuk setiap menit (atau jam), rata-rata dan maksimum semua replika dijumlahkan. Maksimum gabungan itu batas atas, karena replika jarang memuncak di menit yang sama. Untuk step yang lebih panjang dari satu menit (atau satu jam), `avg` adalah rata-rata dari total per menit (atau per jam) yang ada datanya, dan `max` adalah total terbesar. Restart dihitung per replika dari counter kumulatifnya: selisih antara dua pembacaan berurutan, dan bila counter turun (container dibuat ulang) pembacaan barunya dihitung dari nol. Pembacaan pertama sebuah replika tidak menambah apa pun; untuk range dari baris per menit, API membaca 10 menit sebelum range sebagai pembanding supaya restart di menit pertama ikut terhitung.
+
+Hanya deployment aktif yang dicatat (aturan yang sama dengan trafik), jadi selama deploy bergulir hanya versi yang sedang melayani yang terlihat. Replika deployment baru memakai indeks yang sama dengan replika yang ia gantikan di `per_replica`.
+
+Retensi: baris per menit disimpan `SAKALA_METRICS_MINUTE_RETENTION_HOURS` (default 24, paling kecil 2) dan rollup per jam `SAKALA_METRICS_HOURLY_RETENTION_DAYS` (default 30). Nilai yang lebih kecil dari panjang range membuat awal range kosong. Lihat [Database](DATABASE.md#metrik-project) untuk tabel dan perkiraan volumenya.
+
 ### Inspeksi
 
 `POST /api/v1/app/projects/{project}/inspection` (owner atau member workspace; dibatasi `SAKALA_INSPECTION_RATE_LIMIT` per menit) menjawab `202` dengan `ProjectResource`. Hasilnya menyusul lewat `preview_status`. Inspeksi yang sedang berjalan atau sudah selesai untuk commit yang sama dipakai ulang; yang gagal, kedaluwarsa, atau dibatalkan dicoba lagi. Project yang ditangguhkan dijawab `409 PROJECT_SUSPENDED`.

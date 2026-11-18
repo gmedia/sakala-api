@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\Profile\ProfileController;
 use App\Http\Controllers\Api\V1\Project\DomainPreviewController;
 use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
+use App\Http\Controllers\Api\V1\Project\ProjectMetricsController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
 use App\Http\Controllers\Api\V1\Runtime\RegionController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceController;
@@ -52,6 +53,8 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
         ->name('api.v1.app.projects.inspection');
     Route::post('projects/{project}/wake', [ProjectController::class, 'wake'])
         ->name('api.v1.app.projects.wake');
+    Route::get('projects/{project}/metrics', ProjectMetricsController::class)
+        ->name('api.v1.app.projects.metrics');
 
     // Environment variable routes
     Route::scopeBindings()->group(function (): void {
