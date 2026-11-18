@@ -65,7 +65,7 @@ final class CreatePushDeploymentsAction
         $message = is_string($headCommit['message'] ?? null) ? $headCommit['message'] : null;
 
         $projects = Project::query()
-            ->with(['user', 'workspace'])
+            ->with(['user', 'workspace', 'workspace.personalUser', 'githubInstallation'])
             ->where('auto_deploy', true)
             ->where('github_repository_id', $repository['id'])
             ->where('branch', $branch)

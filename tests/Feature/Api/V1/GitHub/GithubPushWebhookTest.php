@@ -319,3 +319,27 @@ test('a push to a team project on an installation nobody in the team is linked t
     expect(Deployment::query()->where('project_id', $project->id)->exists())->toBeFalse()
         ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->sole()->metadata['reason'])->toBe('repository_access_revoked');
 });
+
+test('a push matching projects in several personal workspaces deploys each as its own owner', function (): void {
+    $first = pushProject();
+    $second = pushProject();
+
+    sendPush($this, pushPayload())->assertOk()->assertJsonPath('duplicate', false);
+
+    expect(Deployment::query()->where('project_id', $first->id)->sole()->requested_by)->toBe($first->user_id)
+        ->and(Deployment::query()->where('project_id', $second->id)->sole()->requested_by)->toBe($second->user_id);
+});
+
+test('a push matching a personal and a team project deploys each as the right actor', function (): void {
+    $personal = pushProject();
+    $teamProject = pushProject();
+    $teamCreator = $teamProject->user;
+    $teamProject->githubInstallation->users()->attach($teamCreator, ['last_verified_at' => now()]);
+    $team = teamWorkspace(User::factory()->create(), [[$teamCreator, WorkspaceRole::Member]]);
+    $teamProject->update(['workspace_id' => $team->id]);
+
+    sendPush($this, pushPayload())->assertOk()->assertJsonPath('duplicate', false);
+
+    expect(Deployment::query()->where('project_id', $personal->id)->sole()->requested_by)->toBe($personal->user_id)
+        ->and(Deployment::query()->where('project_id', $teamProject->id)->sole()->requested_by)->toBe($teamCreator->id);
+});
