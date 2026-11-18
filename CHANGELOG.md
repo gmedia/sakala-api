@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-19
+
 ### Added
 
 - **Basic per-project metrics (part of #128).** Heartbeats may carry `metadata.workloads.metrics` (agent revision 4, additive, from nodes with the new `workload-metrics` capability): one sample per replica with `project_id`, `deployment_id`, `replica`, `sampled_at`, `cpu_percent` (percent of one core, may exceed 100), `memory_bytes`, `memory_limit_bytes` (`null` for no limit), and `restart_count` (cumulative), plus `metadata.detail_counts.metrics`. At most 500 items; a malformed item rejects the heartbeat `422` like the other lists. Samples are kept only for a project's active deployment on the reporting node, the same rule as `traffic`; samples for other or unknown projects and deployments, and samples older than 10 minutes, are ignored without failing the heartbeat. The list is not copied into `agent_nodes.metadata`.
@@ -252,7 +254,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/gmedia/sakala-api/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/gmedia/sakala-api/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/gmedia/sakala-api/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gmedia/sakala-api/compare/v0.4.2...v0.5.0
