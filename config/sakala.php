@@ -144,6 +144,16 @@ return [
         'repeat_failure_threshold' => (int) env('SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD', 3),
     ],
 
+    'metrics' => [
+        // Per-project CPU, memory, and restart metrics from heartbeats (#128).
+        // Minute rows serve the 1h, 6h, and 24h ranges, so keeping them less
+        // than 24 hours leaves the start of the 24h range empty. The roll-up
+        // needs the previous hour of minute rows, hence the floor of 2.
+        'minute_retention_hours' => max(2, (int) env('SAKALA_METRICS_MINUTE_RETENTION_HOURS', 24)),
+        // Hourly rows serve the 7d and 30d ranges.
+        'hourly_retention_days' => max(1, (int) env('SAKALA_METRICS_HOURLY_RETENTION_DAYS', 30)),
+    ],
+
     'workspaces' => [
         // Teams one user may own; users.max_owned_teams overrides it per user.
         'max_owned_teams_per_user' => (int) env('SAKALA_MAX_OWNED_TEAMS_PER_USER', 2),

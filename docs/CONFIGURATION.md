@@ -102,6 +102,8 @@ Region dan alamat Edge sebuah node dilaporkan agent lewat heartbeat (lihat [Agen
 - `SAKALA_LOG_RETENTION_DAYS`: durasi retensi log pilot dalam hari (default: `7`). Lihat [Pilot Log Retention Policy](LOG_RETENTION.md). Cleanup otomatis berjalan melalui scheduler harian ketika runtime menjalankan Laravel scheduler.
 - `SAKALA_USAGE_SIGNALS_RETENTION_DAYS`: umur sinyal penggunaan (usage signals) dalam hari sebelum dihapus (default `30`).
 - `SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD`: jumlah kegagalan build runtime (`runtime_build_failed`) untuk project yang sama dalam satu jendela pengumpulan sebelum sinyal kegagalan berulang dicatat (default `3`).
+- `SAKALA_METRICS_MINUTE_RETENTION_HOURS`: berapa jam baris metrik project per menit disimpan sebelum `projects:roll-up-metrics` menghapusnya (default `24`, paling kecil `2` karena rollup butuh jam sebelumnya). Range `1h`, `6h`, dan `24h` dibaca dari baris ini, jadi nilai di bawah 24 membuat awal range `24h` kosong. Lihat [Metrik](API_CONVENTIONS.md#metrik).
+- `SAKALA_METRICS_HOURLY_RETENTION_DAYS`: berapa hari rollup metrik per jam disimpan (default `30`, paling kecil `1`). Range `7d` dan `30d` dibaca dari baris ini.
 
 ## Database dan Infrastruktur
 
