@@ -16,6 +16,11 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 - The admin workspace detail `quota.limits.max_builds_per_hour` is the effective limit (profile value, else the global setting; `null` means no limit) instead of the raw profile value. The limit profile resource keeps the raw value, where `null` follows the global setting.
 
+### Fixed
+
+- `redeploy_required` no longer turns on for every `PATCH app/projects/{project}`. A request without build fields or `replicas` used to mark the configuration changed whatever it changed, so renaming a project, or changing `thumbnail_url`, `auto_deploy`, or `region`, asked for a redeploy. The hint is now `true` only when the serving deployment was created with another deploy-relevant configuration: `branch`, the effective port (a port found by inspection counts while none is configured), `build_command`, `start_command`, `root_directory`, `replicas`, or environment variable keys and values. Changing a value back, or deleting a variable and adding it again with the same value, turns it off again; `is_secret` never counts. `branch` and a newly detected port, which were missed before, now count.
+- Deployments store `config_fingerprint`, the deploy-relevant configuration they were created with, and projects store `environment_fingerprint`, an HMAC keyed with `APP_KEY` over their variables, recomputed under the project row lock by every variable change. Neither is exposed. Deployments created before this release keep the timestamp comparison until the next deployment, and a project gets its environment fingerprint at its next deployment, so no backfill is needed. Rotating `APP_KEY` shows one needless redeploy hint per project.
+
 ## [0.6.0] - 2026-11-18
 
 ### Changed

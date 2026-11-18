@@ -88,7 +88,12 @@ final class ProjectResource extends JsonResource
             'root_directory' => $this->resource->root_directory,
             /** @var bool */
             'auto_deploy' => (bool) $this->resource->auto_deploy,
-            /** @var bool */
+            /**
+             * True while the serving deployment was created with another deploy-relevant configuration: branch, port,
+             * build configuration, replicas, or environment variables. Changing a value back makes it false again.
+             *
+             * @var bool
+             */
             'redeploy_required' => $this->resource->requiresRedeploy(),
             /** @var string|null */
             'active_deployment_id' => $this->resource->active_deployment_id,

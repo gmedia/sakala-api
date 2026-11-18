@@ -248,6 +248,13 @@ final class CreateDeploymentAction
 
                 $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas);
 
+                // A project from before environment fingerprints gets one now,
+                // under the lock, so it and this deployment agree from here on.
+                if ($lockedProject->environment_fingerprint === null) {
+                    $lockedProject->refreshEnvironmentFingerprint();
+                    $lockedProject->save();
+                }
+
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,
                     'requested_by' => $user->id,
@@ -263,6 +270,9 @@ final class CreateDeploymentAction
                     'container_port' => $lockedProject->effectivePort(),
                     // Fixed at creation too: a later change applies from the next deployment.
                     'replicas' => $replicas,
+                    // What `redeploy_required` compares with the project later,
+                    // taken from the same locked row as the payload below.
+                    'config_fingerprint' => $lockedProject->deploymentConfigFingerprint(),
                     'requested_resources' => $data->requested_resources?->toArray(),
                     'effective_resources' => $effectiveLimits->toArray(),
                 ]);
