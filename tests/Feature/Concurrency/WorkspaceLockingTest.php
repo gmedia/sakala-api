@@ -9,6 +9,7 @@ use App\Data\Project\CreateProjectData;
 use App\Enums\GithubRepositorySource;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
+use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\ProjectLimitExceededException;
 use App\Models\Deployment;
 use App\Models\LimitProfile;
@@ -77,6 +78,33 @@ test('two members deploying different projects of one team are serialized by the
 
     expect(fn () => $action->handle($projectB, $second, new CreateDeploymentData(branch: 'main')))
         ->toThrow(ActiveDeploymentLimitExceededException::class);
+
+    expect(Deployment::query()->count())->toBe(1);
+});
+
+test('two members deploying different projects of one team are serialized for the build rate limit', function (): void {
+    $first = User::factory()->create();
+    $second = User::factory()->create();
+    $profile = LimitProfile::factory()->create([
+        'max_builds_per_hour' => 1,
+        'max_active_deployments' => 10,
+        'max_active_containers' => 10,
+    ]);
+    $team = teamWorkspace($first, [[$second, WorkspaceRole::Member]], ['limit_profile_id' => $profile->id]);
+    $projectA = Project::factory()->inWorkspace($team, $first)->create(['branch' => 'main']);
+    $projectB = Project::factory()->inWorkspace($team, $second)->create(['branch' => 'main']);
+    $action = app(CreateDeploymentAction::class);
+
+    // Only the build rate limit is in reach, and only the workspace row is shared.
+    $blocked = whileTransactionHoldsLocks(
+        holdLocks: fn () => $action->handle($projectA, $first, new CreateDeploymentData(branch: 'main')),
+        contend: fn () => $action->handle($projectB, $second, new CreateDeploymentData(branch: 'main')),
+    );
+
+    expect(lockTimeoutTable($blocked))->toBe('workspaces');
+
+    expect(fn () => $action->handle($projectB, $second, new CreateDeploymentData(branch: 'main')))
+        ->toThrow(BuildRateLimitExceededException::class);
 
     expect(Deployment::query()->count())->toBe(1);
 });
