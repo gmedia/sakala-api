@@ -32,7 +32,7 @@ final class BuildRateLimitExceededException extends RuntimeException
         public readonly int $retryAfterSeconds,
     ) {
         parent::__construct(sprintf(
-            'Workspace ini sudah menjalankan %d build dalam %d menit terakhir, dan itu batasnya. Coba deploy lagi %s.',
+            'Workspace ini sudah menjalankan %d build dalam %d menit terakhir, dan itu batasnya. Coba deploy %s.',
             $limit,
             intdiv(PilotRuntimeLimitService::BUILD_RATE_WINDOW_SECONDS, self::SECONDS_PER_MINUTE),
             $this->retryHint(),

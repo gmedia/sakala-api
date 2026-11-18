@@ -189,7 +189,7 @@ test('the build rate limit holds, and the skip says when to deploy again', funct
     $notification = $project->user->notifications()->sole();
 
     expect($notification->data['category'])->toBe('project_issue')
-        ->and($notification->data['message'])->toBe("{$project->name}: Workspace ini sudah mencapai batas 1 build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push lagi sekitar 12 menit lagi.");
+        ->and($notification->data['message'])->toBe("{$project->name}: Workspace ini sudah mencapai batas 1 build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push ulang sekitar 12 menit lagi.");
 });
 
 test('auto_deploy is opt in and owner controlled', function (): void {

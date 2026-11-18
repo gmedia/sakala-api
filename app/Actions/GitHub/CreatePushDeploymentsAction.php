@@ -109,7 +109,7 @@ final class CreatePushDeploymentsAction
         } catch (ActiveContainerLimitExceededException) {
             $this->skip($project, 'active_container_limit', $commit, 'Workspace ini sudah menjalankan proyek sebanyak batasnya, jadi push terbaru tidak di-deploy.');
         } catch (BuildRateLimitExceededException $e) {
-            $this->skip($project, self::SKIP_BUILD_RATE_LIMIT, $commit, "Workspace ini sudah mencapai batas {$e->limit} build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push lagi {$e->retryHint()}.");
+            $this->skip($project, self::SKIP_BUILD_RATE_LIMIT, $commit, "Workspace ini sudah mencapai batas {$e->limit} build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push ulang {$e->retryHint()}.");
         } catch (RepositoryAccessRevokedException) {
             $this->skip($project, 'repository_access_revoked', $commit, 'Pembuat proyek tidak lagi punya akses ke repository ini di GitHub atau sudah keluar dari workspace, jadi push terbaru tidak di-deploy.');
         } catch (ProjectSuspendedException) {

@@ -79,7 +79,7 @@ test('a workspace builds up to its limit and the next deployment is refused with
         ->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'main'])
         ->assertUnprocessable()
         ->assertExactJson([
-            'message' => 'Workspace ini sudah menjalankan 3 build dalam 60 menit terakhir, dan itu batasnya. Coba deploy lagi sekitar 30 menit lagi.',
+            'message' => 'Workspace ini sudah menjalankan 3 build dalam 60 menit terakhir, dan itu batasnya. Coba deploy sekitar 30 menit lagi.',
             'code' => 'BUILD_RATE_LIMIT_EXCEEDED',
             'limit' => 3,
             'current' => 3,
@@ -116,7 +116,7 @@ test('a build one second inside the window frees its slot in one second', functi
         $this->fail('The build rate limit did not hold.');
     } catch (BuildRateLimitExceededException $e) {
         expect($e->retryAfterSeconds)->toBe(1)
-            ->and($e->getMessage())->toEndWith('Coba deploy lagi sekitar 1 detik lagi.');
+            ->and($e->getMessage())->toEndWith('Coba deploy sekitar 1 detik lagi.');
     }
 });
 
