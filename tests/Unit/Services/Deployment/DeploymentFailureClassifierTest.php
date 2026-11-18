@@ -205,6 +205,8 @@ test('user fixable failures never read as a platform fault', function (string $e
     'runtime_root_directory_invalid',
     'runtime_health_check_failed',
     'runtime_timeout',
+    'release_command_failed',
+    'release_command_timeout',
 ]);
 
 test('platform faults say so, ask for a redeploy, and never ask the student to fix config', function (string $errorCode) {
@@ -262,7 +264,7 @@ test('hints never point at settings the student cannot edit', function (string $
 
 test('failure category values stay stable for consumers', function () {
     expect(array_map(static fn (DeploymentFailureCategory $case): string => $case->value, DeploymentFailureCategory::cases()))
-        ->toBe(['checkout', 'build', 'start', 'health', 'route', 'timeout', 'resource', 'node', 'scheduling', 'unknown']);
+        ->toBe(['checkout', 'build', 'release', 'start', 'health', 'route', 'timeout', 'resource', 'node', 'scheduling', 'unknown']);
 });
 
 test('an invalid root directory points at the project setting', function () {
@@ -272,3 +274,17 @@ test('an invalid root directory points at the project setting', function () {
         ->and($failure->recoveryHint)->toContain('direktori root')
         ->and($failure->recoveryHint)->toContain('pengaturan proyek');
 });
+
+test('a failed or slow release command is the project\'s to fix and leaves the previous version serving', function (string $errorCode, string $summary) {
+    $failure = app(DeploymentFailureClassifier::class)->classify($errorCode);
+
+    expect($failure->code)->toBe($errorCode)
+        ->and($failure->category)->toBe(DeploymentFailureCategory::Release)
+        ->and($failure->userFixable)->toBeTrue()
+        ->and($failure->summary)->toContain($summary)
+        ->and($failure->summary)->toContain('Versi sebelumnya, kalau ada, tetap melayani')
+        ->and($failure->recoveryHint)->toContain('log deployment bagian rilis');
+})->with([
+    ['release_command_failed', 'Perintah rilis keluar dengan kode selain 0'],
+    ['release_command_timeout', 'Perintah rilis melewati batas waktu'],
+]);

@@ -11,6 +11,7 @@ use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\DeploymentStatus;
 use App\Exceptions\Runtime\ProjectRegionUnavailableException;
+use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectReplicasUnsupportedException;
 use App\Models\AgentNode;
 use App\Models\Deployment;
@@ -43,16 +44,21 @@ final class AgentNodeSchedulerService
      * stays unassigned until a later sweep or heartbeat assigns it). The
      * primary node of placementFor().
      */
-    public function selectNodeFor(AgentCommandType $type, ?Project $project = null, int $replicas = Project::DEFAULT_REPLICAS): ?AgentNode
-    {
-        return $this->placementFor($type, $project, $replicas)->primaryNode();
+    public function selectNodeFor(
+        AgentCommandType $type,
+        ?Project $project = null,
+        int $replicas = Project::DEFAULT_REPLICAS,
+        bool $releaseCommand = false,
+    ): ?AgentNode {
+        return $this->placementFor($type, $project, $replicas, $releaseCommand)->primaryNode();
     }
 
     /**
      * Where a command of the given type for the project runs, in this order:
      *
-     * 1. Only eligible nodes (eligibleNodes()) that run every replica
-     *    (AgentNode::supportsReplicas()).
+     * 1. Only eligible nodes (eligibleNodes()) that run every replica and,
+     *    for a deployment with a release command, run that too
+     *    (AgentNode::canRunDeployment()).
      * 2. A project already served by a node stays there, whatever its region
      *    and capacity, or waits for it (see below).
      * 3. Otherwise only nodes of the project's region
@@ -64,10 +70,14 @@ final class AgentNodeSchedulerService
      * upstreams), spread replicas over the eligible nodes of the region here;
      * ReplicaPlacementData already carries several assignments.
      */
-    public function placementFor(AgentCommandType $type, ?Project $project = null, int $replicas = Project::DEFAULT_REPLICAS): ReplicaPlacementData
-    {
+    public function placementFor(
+        AgentCommandType $type,
+        ?Project $project = null,
+        int $replicas = Project::DEFAULT_REPLICAS,
+        bool $releaseCommand = false,
+    ): ReplicaPlacementData {
         $candidates = $this->eligibleNodes($type)
-            ->filter(static fn (AgentNode $node): bool => $node->supportsReplicas($replicas))
+            ->filter(static fn (AgentNode $node): bool => $node->canRunDeployment($replicas, $releaseCommand))
             ->values();
 
         if ($project !== null) {
@@ -99,13 +109,15 @@ final class AgentNodeSchedulerService
      * forever. Nothing to check when a node was selected. Otherwise the node
      * the project is pinned to, whatever its state, or else every node of the
      * project's region that is allowed work, must exist and run all
-     * `$replicas`. A pinned or known node that only needs to come back online
-     * is fine; the deployment waits for it.
+     * `$replicas` and, when `$releaseCommand`, the release command. A pinned
+     * or known node that only needs to come back online is fine; the
+     * deployment waits for it.
      *
      * @throws ProjectRegionUnavailableException
      * @throws ProjectReplicasUnsupportedException
+     * @throws ProjectReleaseCommandUnsupportedException
      */
-    public function ensurePlaceable(Project $project, ?AgentNode $selected, int $replicas): void
+    public function ensurePlaceable(Project $project, ?AgentNode $selected, int $replicas, bool $releaseCommand = false): void
     {
         if ($selected !== null) {
             return;
@@ -114,7 +126,7 @@ final class AgentNodeSchedulerService
         $currentNodeId = $this->currentNodeIdOf($project);
         $region = $currentNodeId === null ? $this->limits->regionFor($project) : null;
 
-        if ($region === null && $replicas <= Project::DEFAULT_REPLICAS) {
+        if ($region === null && $replicas <= Project::DEFAULT_REPLICAS && ! $releaseCommand) {
             return;
         }
 
@@ -135,14 +147,21 @@ final class AgentNodeSchedulerService
             throw new ProjectRegionUnavailableException($region);
         }
 
-        if ($nodes->contains(static fn (AgentNode $node): bool => $node->supportsReplicas($replicas))) {
+        if ($nodes->contains(static fn (AgentNode $node): bool => $node->canRunDeployment($replicas, $releaseCommand))) {
             return;
         }
 
-        throw new ProjectReplicasUnsupportedException(
-            $replicas,
-            $nodes->map(static fn (AgentNode $node): ?int => $node->maximumReplicasPerProject())->filter()->max(),
-        );
+        // Replicas first: their answer says how many would fit. Only when some
+        // node runs them all is the release command what is missing.
+        if ($replicas > Project::DEFAULT_REPLICAS
+            && ! $nodes->contains(static fn (AgentNode $node): bool => $node->supportsReplicas($replicas))) {
+            throw new ProjectReplicasUnsupportedException(
+                $replicas,
+                $nodes->map(static fn (AgentNode $node): ?int => $node->maximumReplicasPerProject())->filter()->max(),
+            );
+        }
+
+        throw new ProjectReleaseCommandUnsupportedException;
     }
 
     /**

@@ -236,17 +236,21 @@ final class CreateDeploymentAction
                 // only ever materialised for one authenticated node. With no
                 // eligible node the command waits unassigned for a later
                 // assignment sweep or heartbeat.
-                // Only a node of the project's region that runs every replica
-                // is selected: an older one would run one container and report
-                // success. Without one the command waits, unless no node could
-                // ever take it.
+                // Only a node of the project's region that runs every replica,
+                // and the release command when there is one, is selected: an
+                // older one would run one container, or skip the release
+                // command, and report success. Without one the command waits,
+                // unless no node could ever take it.
+                $releaseCommand = $lockedProject->hasReleaseCommand();
+
                 $node = $this->scheduler->selectNodeFor(
                     AgentCommandType::DeployProject,
                     $lockedProject,
                     $replicas,
+                    $releaseCommand,
                 );
 
-                $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas);
+                $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas, $releaseCommand);
 
                 // A project from before environment fingerprints gets one now,
                 // under the lock, so it and this deployment agree from here on.
@@ -301,12 +305,15 @@ final class CreateDeploymentAction
                     'resources' => $effectiveLimits->toResourcesArray(),
                     'timeouts' => $effectiveLimits->timeouts->toArray(),
                     'log_bounds' => $effectiveLimits->log_bounds->toArray(),
-                    // Optional additions to protocol revision 4; absent unless set.
+                    // Optional additions to protocol revision 4; absent unless
+                    // set. `release_command` only goes to a node with the
+                    // `release-command` capability (selected above).
                     ...array_filter([
                         'build_command' => $lockedProject->build_command,
                         'start_command' => $lockedProject->start_command,
+                        'release_command' => $lockedProject->release_command,
                         'root_directory' => $lockedProject->root_directory,
-                    ], static fn (?string $value): bool => $value !== null),
+                    ], static fn (?string $value): bool => $value !== null && $value !== ''),
                     // Optional addition to protocol revision 4, only above one,
                     // and only to a node with the `replicas` capability.
                     ...($replicas > Project::DEFAULT_REPLICAS ? ['replicas' => $replicas] : []),

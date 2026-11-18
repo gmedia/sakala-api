@@ -76,6 +76,14 @@ class AgentNode extends Model
     public const REPLICAS_CAPABILITY = 'replicas';
 
     /**
+     * Capability of a node that runs a project's `release_command` once per
+     * deployment before the new version takes traffic. Agents without it would
+     * ignore the payload field and skip the command, so such a deployment is
+     * only placed on nodes that advertise it.
+     */
+    public const RELEASE_COMMAND_CAPABILITY = 'release-command';
+
+    /**
      * Key under the heartbeat's `metadata.workloads` where an agent with
      * REPLICAS_CAPABILITY reports the most replicas it runs per project
      * (`SAKALA_MAX_REPLICAS_PER_PROJECT`), or null when its driver cannot run
@@ -228,6 +236,17 @@ class AgentNode extends Model
         $workloads = $this->metadata['workloads'] ?? null;
 
         return is_array($workloads) ? $workloads : [];
+    }
+
+    /**
+     * Whether a deployment may be sent to this node: one with `$replicas`
+     * containers (supportsReplicas()) and, when `$releaseCommand`, a release
+     * command to run first (RELEASE_COMMAND_CAPABILITY).
+     */
+    public function canRunDeployment(int $replicas, bool $releaseCommand): bool
+    {
+        return $this->supportsReplicas($replicas)
+            && (! $releaseCommand || $this->hasCapability(self::RELEASE_COMMAND_CAPABILITY));
     }
 
     /** Whether the node's last heartbeat advertised `$capability`. */

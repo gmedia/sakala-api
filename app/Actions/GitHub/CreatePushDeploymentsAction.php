@@ -13,6 +13,7 @@ use App\Enums\WorkspaceRole;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
+use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Models\AuditEvent;
@@ -34,6 +35,9 @@ final class CreatePushDeploymentsAction
 
     /** Audit reason of a push skipped by the workspace's build rate limit. */
     private const SKIP_BUILD_RATE_LIMIT = 'build_rate_limit';
+
+    /** Audit reason of a push skipped because no node runs the project's release command. */
+    private const SKIP_RELEASE_COMMAND_UNSUPPORTED = 'release_command_unsupported';
 
     public function __construct(
         private readonly CreateDeploymentAction $createDeployment,
@@ -114,6 +118,8 @@ final class CreatePushDeploymentsAction
             $this->skip($project, 'repository_access_revoked', $commit, 'Pembuat proyek tidak lagi punya akses ke repository ini di GitHub atau sudah keluar dari workspace, jadi push terbaru tidak di-deploy.');
         } catch (ProjectSuspendedException) {
             $this->skip($project, 'project_suspended', $commit, 'Proyek ini sedang ditangguhkan, jadi push terbaru tidak di-deploy.');
+        } catch (ProjectReleaseCommandUnsupportedException) {
+            $this->skip($project, self::SKIP_RELEASE_COMMAND_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung perintah rilis, jadi push terbaru tidak di-deploy. Kosongkan perintah rilis di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
         }
     }
 

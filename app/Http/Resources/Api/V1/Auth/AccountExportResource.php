@@ -94,6 +94,7 @@ final class AccountExportResource extends JsonResource
                 'runtime_status' => $project->runtime_status->value,
                 'build_command' => $project->build_command,
                 'start_command' => $project->start_command,
+                'release_command' => $project->release_command,
                 'root_directory' => $project->root_directory,
                 'configured_port' => $project->configured_port,
                 'auto_deploy' => $project->auto_deploy,

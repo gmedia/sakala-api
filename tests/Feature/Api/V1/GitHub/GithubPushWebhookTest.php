@@ -158,6 +158,16 @@ test('a suspended project is skipped, audited, and the owner is told', function 
         ->and($project->user->notifications()->sole()->data['category'])->toBe('project_issue');
 });
 
+test('a project with a release command no node runs is skipped, audited, and the owner is told', function (): void {
+    $project = pushProject(['release_command' => 'php artisan migrate --force']);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0)
+        ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe('release_command_unsupported')
+        ->and($project->user->notifications()->sole()->data['message'])->toContain('perintah rilis');
+});
+
 test('the active deployment limit holds, and the webhook still succeeds', function (): void {
     config(['sakala.pilot_limits.max_active_deployments_per_project' => 1]);
     $project = pushProject();

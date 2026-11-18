@@ -84,6 +84,12 @@ final class ProjectResource extends JsonResource
             'build_command' => $this->resource->build_command,
             /** @var string|null */
             'start_command' => $this->resource->start_command,
+            /**
+             * Run once per deployment before the new version takes traffic, for example database migrations.
+             *
+             * @var string|null
+             */
+            'release_command' => $this->resource->release_command,
             /** @var string|null */
             'root_directory' => $this->resource->root_directory,
             /** @var bool */

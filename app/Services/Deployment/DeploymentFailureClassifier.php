@@ -140,6 +140,20 @@ final class DeploymentFailureClassifier
                 'Buka pengaturan proyek, lalu isi direktori root dengan folder yang ada di branch ini, misalnya apps/web, atau kosongkan untuk memakai root repository. Setelah itu deploy ulang.',
             ),
 
+            'release_command_failed' => $this->userFixable(
+                $errorCode,
+                Category::Release,
+                'Perintah rilis keluar dengan kode selain 0, jadi versi baru tidak dijalankan. Kode keluarnya tertulis di detail kegagalan. Versi sebelumnya, kalau ada, tetap melayani.',
+                'Buka log deployment bagian rilis untuk melihat error-nya, misalnya migrasi database yang gagal. Perbaiki di repository atau ubah perintah rilis di pengaturan proyek, lalu deploy ulang.',
+            ),
+
+            'release_command_timeout' => $this->userFixable(
+                $errorCode,
+                Category::Release,
+                'Perintah rilis melewati batas waktu, jadi versi baru tidak dijalankan. Versi sebelumnya, kalau ada, tetap melayani.',
+                'Buka log deployment bagian rilis untuk melihat langkah yang lambat. Pastikan perintah rilis selesai sendiri, tidak menunggu input, dan tidak menjalankan server. Perbaiki, lalu deploy ulang.',
+            ),
+
             'runtime_app_crashed' => $this->userFixable(
                 $errorCode,
                 Category::Start,
