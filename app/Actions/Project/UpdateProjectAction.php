@@ -11,17 +11,18 @@ final class UpdateProjectAction
 {
     public function handle(Project $project, UpdateProjectData $data): Project
     {
-        $attributes = $data->toDatabaseArray();
+        $fingerprintBefore = $project->deploymentConfigFingerprint();
 
-        $project->fill($attributes);
+        $project->fill($data->toDatabaseArray());
 
         // The detected port belongs to the directory that was inspected.
         if ($project->isDirty('root_directory')) {
             $project->detected_port = null;
         }
 
-        // Only a real change to what the next deployment receives needs a redeploy.
-        if ($project->isDirty(array_keys($data->buildConfiguration))) {
+        // Only a real change to what the next deployment receives needs a
+        // redeploy; the fingerprint is the one definition of that.
+        if ($project->deploymentConfigFingerprint() !== $fingerprintBefore) {
             $project->config_changed_at = now()->toImmutable();
         }
 

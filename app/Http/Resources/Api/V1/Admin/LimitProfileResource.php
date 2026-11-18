@@ -32,9 +32,21 @@ final class LimitProfileResource extends JsonResource
             /** Per project. */
             'max_cpu_millis' => $profile->max_cpu_millis,
             /**
-             * Reserved for the build rate limit; not enforced yet.
+             * Deployments the workspace may create per rolling hour; every deployment builds. `null` follows the
+             * global `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR`.
              */
             'max_builds_per_hour' => $profile->max_builds_per_hour,
+            /**
+             * Minutes without a request before a project sleeps. `0` never sleeps; `null` follows the global
+             * `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`.
+             */
+            'idle_sleep_minutes' => $profile->idle_sleep_minutes,
+            /**
+             * Most replicas per project. `null` allows one, so replicas stay off.
+             */
+            'max_replicas' => $profile->max_replicas,
+            /** Region the workspace's projects run in unless a project sets its own; `null` for any region. */
+            'default_region' => $profile->default_region,
             /**
              * Workspaces running under this profile. A profile is deleted only at zero.
              *

@@ -2,15 +2,18 @@
 
 declare(strict_types=1);
 
+use App\Enums\AgentCommandStatus;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -69,6 +72,60 @@ test('project detail shows control requests with reasons and never environment v
 
     expect($body)->not->toContain('super-secret-value')->not->toContain('API_SECRET')
         ->and(AuditEvent::query()->where('action', 'project.suspend_requested')->sole()->metadata['reason'])->toBe('Laporan phishing');
+});
+
+test('admins see and filter the projects idle sleep gave up on', function (): void {
+    $node = idleSleepNode();
+    [$blocked, $deployment] = idleSleepProject($node);
+    idleSleepCommand($blocked, $deployment, AgentCommandStatus::Failed, [
+        'failed_at' => now(),
+        'error_code' => AgentCommand::WORKLOAD_NOT_FOUND_ERROR,
+    ]);
+    [$retrying, $retryingDeployment] = idleSleepProject($node);
+    idleSleepCommand($retrying, $retryingDeployment, AgentCommandStatus::Failed, [
+        'failed_at' => now(),
+        'error_code' => 'runtime_unavailable',
+    ]);
+    [$awake] = idleSleepProject($node);
+
+    $flags = collect($this->actingAs($this->admin, 'web')->getJson('/api/v1/admin/projects')->assertOk()->json('data'))
+        ->pluck('idle_sleep_blocked', 'id')
+        ->sortKeys()
+        ->all();
+
+    expect($flags)->toBe(collect([$blocked->id => true, $retrying->id => false, $awake->id => false])->sortKeys()->all());
+
+    $this->actingAs($this->admin, 'web')->getJson('/api/v1/admin/projects?idle_sleep_blocked=1')
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $blocked->id)
+        ->assertJsonPath('data.0.idle_sleep_blocked', true);
+    $this->actingAs($this->admin, 'web')->getJson('/api/v1/admin/projects?idle_sleep_blocked=0')->assertJsonCount(2, 'data');
+    $this->actingAs($this->admin, 'web')->getJson('/api/v1/admin/projects?idle_sleep_blocked=maybe')->assertUnprocessable();
+
+    $this->actingAs($this->admin, 'web')->getJson("/api/v1/admin/projects/{$blocked->id}")
+        ->assertJsonPath('data.project.idle_sleep_blocked', true);
+    $this->actingAs($this->admin, 'web')->getJson("/api/v1/admin/projects/{$retrying->id}")
+        ->assertJsonPath('data.project.idle_sleep_blocked', false);
+});
+
+test('the idle sleep flag costs the project list one query, however long the page', function (): void {
+    $node = idleSleepNode();
+    $queriesFor = function (int $projects) use ($node): int {
+        foreach (range(1, $projects) as $ignored) {
+            [$project, $deployment] = idleSleepProject($node);
+            idleSleepCommand($project, $deployment, AgentCommandStatus::Failed, ['failed_at' => now(), 'error_code' => AgentCommand::WORKLOAD_NOT_FOUND_ERROR]);
+        }
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->actingAs($this->admin, 'web')->getJson('/api/v1/admin/projects')->assertOk();
+        DB::disableQueryLog();
+
+        return count(DB::getQueryLog());
+    };
+
+    // The second call lists ten projects, the first five.
+    expect($queriesFor(5))->toBe($queriesFor(5));
 });
 
 test('every project control action requires a reason', function (string $action, array $body): void {

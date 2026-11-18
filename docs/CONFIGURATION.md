@@ -17,7 +17,8 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_PASSWORD_RESET_RATE_LIMIT`: request lupa dan reset kata sandi per menit berdasarkan email ternormalisasi dan IP (default `5`).
 - `SAKALA_ACCOUNT_SECURITY_RATE_LIMIT`: request ganti kata sandi dan email, serta membaca, menerima, dan menolak undangan workspace, per menit per user (default `5`, dihitung bersama).
 - `SAKALA_INSPECTION_RATE_LIMIT`: permintaan inspeksi ulang per menit per user (default `5`).
-- `SAKALA_FEEDBACK_RATE_LIMIT`: pengiriman feedback per menit, dihitung per user untuk pengguna yang sudah login dan per IP untuk pengguna anonim (default `5`).
+- `SAKALA_PROJECT_WAKE_RATE_LIMIT`: permintaan bangun lewat endpoint publik per menit per IP pengunjung dan slug project (default `6`). Halaman tidur memintanya setiap kali dimuat ulang, yaitu tiap 3 detik, jadi sebagian besar permintaan itu memang dijawab `429` tanpa masalah. Lihat [Tidur Otomatis](API_CONVENTIONS.md#tidur-otomatis).
+- `SAKALA_FEEDBACK_RATE_LIMIT`: pengiriman feedback per menit per user (berdasarkan IP bila belum login) (default `5`).
 - `SAKALA_ACCOUNT_EXPORT_RATE_LIMIT`: ekspor data per jam per user (default `3`).
 - `SAKALA_WORKSPACE_INVITATION_RATE_LIMIT`: undangan workspace per jam per user (default `20`), karena setiap undangan mengirim email ke alamat pilihan pengguna.
 - `SAKALA_ACCOUNT_EXPORT_MAX_ITEMS`: isi maksimal per koleksi dalam satu ekspor (default `1000`).
@@ -26,23 +27,21 @@ Konfigurasi berasal dari environment dan dibaca melalui file di `config/`. Janga
 - `SAKALA_ABUSE_EMAIL`, `SAKALA_PRIVACY_EMAIL`: kontak yang disebut di pesan ke pengguna (default `abuse@sakala.dev`, `privacy@sakala.dev`). Deployment self-hosted mengganti keduanya.
 - `SAKALA_NOTIFICATION_RETENTION_DAYS`: umur notifikasi in-app sebelum dihapus `notifications:prune` (default `90`).
 - `SAKALA_DELETED_PROJECT_RETENTION_DAYS`: berapa hari project yang dihapus disimpan sebelum `projects:purge-deleted` menghapusnya permanen (default `30`, minimal `1`). `GET /api/v1/app/pilot-limits` menyajikannya sebagai `deleted_project_retention_days`, jadi console tidak perlu menyimpan salinannya. Lihat [Menghapus Project](API_CONVENTIONS.md#menghapus-project).
+- `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`: berapa menit project yang berjalan boleh tanpa request sebelum `projects:sleep-idle` menidurkannya (default `0`, artinya mati). Nilai ini berlaku untuk workspace tanpa profil batas dan untuk profil yang `idle_sleep_minutes`-nya `null`; profil dengan nilai sendiri menang, termasuk `0` yang berarti workspace itu tidak pernah ditidurkan. Layanan hosted memakai `30` sesuai ADR-015, self-host bebas membiarkannya `0`. Hanya node dengan capability `idle-sleep` yang heartbeat terakhirnya membawa daftar trafik yang ikut. `GET /api/v1/app/pilot-limits` menyajikan nilai efektif workspace sebagai `project_idle_sleep_minutes`. Lihat [Tidur Otomatis](API_CONVENTIONS.md#tidur-otomatis).
+- `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR`: berapa deployment yang boleh dibuat satu workspace dalam 60 menit terakhir (default `20`). Setiap deployment dihitung karena setiap deployment membangun image. Nilai kosong memakai default, `0` berarti tanpa batas. Nilai ini berlaku untuk workspace tanpa profil batas, pribadi maupun tim, dan untuk profil yang `max_builds_per_hour`-nya `null`; profil dengan nilai sendiri menang. Admin yang men-deploy tidak dibatasi. `GET /api/v1/app/pilot-limits` menyajikan nilai efektif workspace sebagai `quotas.max_builds_per_hour`. Lihat [Batas Workspace](API_CONVENTIONS.md#batas-workspace).
 - `SAKALA_MAX_OWNED_TEAMS_PER_USER`: jumlah workspace tim yang boleh dimiliki satu user (default `2`). `users.max_owned_teams` menaikkannya per user.
 - `SAKALA_WORKSPACE_INVITATION_TTL_HOURS`: masa berlaku undangan workspace dalam jam (default `168`).
 - `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS`: berapa jam undangan, tertutup atau tidak, disimpan setelah masa berlakunya sebelum `workspaces:prune-invitations` menghapusnya (default `168`). Selama itu tautannya masih menjelaskan kenapa tidak berlaku. Lihat [Undangan](API_CONVENTIONS.md#undangan).
 - `SAKALA_MAX_PROJECTS_PER_USER`, `SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_USER`, `SAKALA_MAX_CONTAINER_MEMORY_MB`, `SAKALA_MAX_CONTAINER_CPU_MILLIS`: batas workspace pribadi yang tidak punya profil batas. Namanya lebih tua dari workspace; artinya per workspace. `SAKALA_MAX_ACTIVE_CONTAINERS_PER_WORKSPACE` membatasi container berjalan, dan bila kosong sama dengan jumlah project, sehingga tidak pernah membatasi.
+- `SAKALA_DEFAULT_CONTAINER_MEMORY_MB` (default `256`), `SAKALA_DEFAULT_CONTAINER_CPU_MILLIS` (default `500`), `SAKALA_DEFAULT_CONTAINER_PIDS_LIMIT` (default `128`): sumber daya default container project yang tidak punya profil batas. `SAKALA_MAX_CONTAINER_PIDS_LIMIT` (default `256`): batas atas jumlah proses (PID) per container.
 - `SAKALA_TEAM_MAX_PROJECTS` (default `2`), `SAKALA_TEAM_MAX_ACTIVE_CONTAINERS` (default `2`), `SAKALA_TEAM_MAX_ACTIVE_DEPLOYMENTS` (default `1`): batas workspace tim tanpa profil batas. Sengaja kecil dan tidak mengikuti batas pribadi, supaya membuat tim tidak menggandakan kuota; nilai kosong memakai default ini. `SAKALA_TEAM_MAX_CONTAINER_MEMORY_MB` dan `SAKALA_TEAM_MAX_CONTAINER_CPU_MILLIS` yang kosong memakai batas pribadi. Lihat [Batas Workspace](API_CONVENTIONS.md#batas-workspace).
-- `SAKALA_DEFAULT_CONTAINER_MEMORY_MB`, `SAKALA_DEFAULT_CONTAINER_CPU_MILLIS`, `SAKALA_DEFAULT_CONTAINER_PIDS_LIMIT`: sumber daya awal container proyek sebelum profil batas menimpanya, masing-masing default `256` MB, `500` millicore (setara 0,5 CPU), dan `128` PID. Nilai memori dipangkas ke batas maksimum yang berlaku, jadi menaikkannya di atas `SAKALA_MAX_CONTAINER_MEMORY_MB` tidak berefek. Console membacanya lewat `GET /api/v1/app/pilot-limits`.
-- `SAKALA_MAX_CONTAINER_PIDS_LIMIT`: batas atas jumlah PID per container (default `256`). Menaikkan nilai default atau maksimum PID tidak mengubah batas yang sudah tersimpan pada workspace, karena tiap workspace menyimpan batasnya sendiri.
-- `SAKALA_BUILD_TIMEOUT_SECONDS`: batas waktu build image proyek dalam detik (default `600`, yaitu 10 menit). Bila terlampaui, build dianggap gagal dengan `failure_code` `runtime_build_failed`; kegagalan berulang inilah yang dihitung oleh `SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD`.
-- `SAKALA_START_TIMEOUT_SECONDS`: batas waktu sejak container dibuat sampai dinyatakan berjalan, dalam detik (default `120`, yaitu 2 menit).
-- `SAKALA_COMMAND_TIMEOUT_SECONDS`: batas waktu eksekusi satu command runtime dalam detik (default `900`, yaitu 15 menit). Agent memakainya sebagai tenggat eksekusi, dan control plane mengirimkannya lewat payload command.
 - `SAKALA_API_VERSION`: versi kontrak yang ditampilkan pada OpenAPI.
 - `SCRAMBLE_ENABLED`: izinkan akses dokumentasi API di environment selain `local`.
 
 `AUTH_VERIFICATION_EXPIRE` menentukan masa berlaku signed URL verifikasi email
 dalam menit (default `60`).
 
-- `SAKALA_PROJECT_DEFAULT_DOMAIN`: domain induk project, misalnya `run.sakala.dev`.
+- `SAKALA_PROJECT_DEFAULT_DOMAIN`: domain induk project. Project baru mendapat `<slug>.<domain induk>`. Default `sakala.app` (production hosted); staging hosted memakai `staging.sakala.app`, sehingga project staging menjadi `<slug>.staging.sakala.app`. Lokal memakai `run.sakala.localhost`. Domain ini sebaiknya registrable domain terpisah dari API dan Console (ADR-016), supaya aplikasi pengguna tidak se-site dengan Sakala. Nilai yang sama harus ada di `SAKALA_PROJECT_DOMAIN_SUFFIXES` agent, dan slug `staging` dicadangkan supaya tidak ada project production yang mengambil `staging.sakala.app`. Mengganti nilai ini hanya berlaku untuk project baru; project lama dipindah dengan [`projects:move-domain`](#memindah-domain-project).
 - `SAKALA_PROJECT_URL_SCHEME`, `SAKALA_PROJECT_URL_PORT`: membentuk `public_url` project. Default `https` tanpa port; lingkungan lokal biasanya `http`, dan port diisi bila runtime tidak di 80 atau 443.
 - `SAKALA_AVATAR_STORAGE`: `local` menyimpan foto profil di `storage/app/public` (perlu `php artisan storage:link`, sudah dijalankan `composer setup`). Default `s3` memakai bucket `AWS_*`. Bila penyimpanan tidak bisa dipakai, API menjawab `503 AVATAR_STORAGE_UNAVAILABLE`.
 - `GITHUB_PUBLIC_API_TOKEN`: opsional, disarankan untuk produksi. Token GitHub baca-saja untuk repository publik. Tanpa token, GitHub membatasi 60 request per jam per IP server untuk semua user. Token ini hanya dikirim ke GitHub, tidak pernah ke agent, browser, atau log. Beri akses publik saja; API tetap menolak membaca repository private lewat alur URL publik. Bila GitHub menolak token ini (`401`, atau `403` karena kebijakan organisasi seperti batas umur fine-grained token 366 hari atau SAML SSO), pembacaan jatuh ke request anonim dan log mendapat warning berisi pesan GitHub. Pakai fine-grained token dengan masa berlaku paling lama 366 hari supaya organisasi seperti itu tetap mendapat kuota token.
@@ -51,6 +50,23 @@ dalam menit (default `60`).
 
 GitHub App harus berlangganan event `push` supaya `auto_deploy` bekerja, selain event `installation` yang sudah dipakai.
 
+### Memindah Domain Project
+
+`projects.default_domain` tersimpan per project dan dikirim ke agent saat deploy, jadi mengganti `SAKALA_PROJECT_DEFAULT_DOMAIN` tidak memindah project lama. Urutannya:
+
+1. Tambahkan domain baru ke `SAKALA_PROJECT_DOMAIN_SUFFIXES` agent dan siapkan DNS, TLS, serta route edge untuk `*.<domain baru>`.
+2. Ganti `SAKALA_PROJECT_DEFAULT_DOMAIN` ke domain baru, lalu buat ulang container API dan queue supaya project baru langsung memakainya.
+3. Jalankan `php artisan projects:move-domain <lama> <baru>` di container API. Tanpa `--force` perintah ini hanya melapor: berapa project yang akan pindah (termasuk yang sudah dihapus tapi belum di-purge), berapa yang sudah di domain baru, project dengan domain yang bukan `<slug>.<lama>`, dan project yang slug-nya kini dicadangkan.
+4. Periksa laporannya, lalu jalankan lagi dengan `--force`. Semua baris berubah dalam satu transaction, dan satu audit event `project.domains_moved` (aktor `system`, ID `projects:move-domain`) mencatat domain lama, domain baru, jumlahnya, serta ID project yang dibiarkan. Menjalankannya lagi aman: project yang sudah pindah dihitung, tidak diubah.
+5. Deploy ulang setiap project yang pindah, termasuk yang sedang tidur. Node terus melayani domain lama sampai project dideploy ulang, karena wake dan restart memakai domain yang tersimpan di container.
+
+Project dengan domain yang bukan `<slug>.<lama>` tidak pernah diubah, termasuk yang berada di bawah domain lama dengan label tambahan. Bila salah satu domain baru sudah dipakai project lain, tidak ada yang berubah dan perintah gagal.
+
+```bash
+php artisan projects:move-domain run.sakala.dev sakala.app
+php artisan projects:move-domain run.sakala.dev sakala.app --force
+```
+
 ## Agent
 
 - `SAKALA_AGENT_COMMAND_BATCH_SIZE`: jumlah maksimum command per response polling.
@@ -58,9 +74,24 @@ GitHub App harus berlangganan event `push` supaya `auto_deploy` bekerja, selain 
 - `SAKALA_AGENT_OFFLINE_AFTER_SECONDS`: node yang heartbeat terakhirnya lebih lama dari ini tidak dipilih sebagai target command baru dan ditandai `offline` oleh `agent:mark-offline-nodes`; default `60`.
 - `SAKALA_AGENT_LEASE_GRACE_SECONDS`: ditambahkan ke `command_timeout_seconds` saat claim untuk membentuk lease command; setelah lewat, `agent:expire-commands` menutup command dan deployment terkait. Default `60`.
 
+Region dan alamat Edge sebuah node dilaporkan agent lewat heartbeat (lihat [Agent API](AGENT_API.md#heartbeat)). Admin bisa menimpanya per node, dan nilai admin selalu menang:
+
+- `php artisan agent:node-region {node} {region} --reason=...` atau `--clear`;
+- `php artisan agent:node-edge-address {node} {host:port} --reason=...` atau `--clear`.
+
+`{node}` adalah ID node, agent ID, atau nama unik. Keduanya mencatat audit event.
+
+## Sakala Edge
+
+- `SAKALA_EDGE_ROUTES_CACHE_SECONDS`: berapa detik `GET /api/edge/v1/routes` memakai ulang tabel route yang sudah disusun; sekaligus batas basinya route. Default `5`, `0` menyusun ulang di setiap request.
+- `SAKALA_EDGE_RATE_LIMIT`: request per menit per alamat klien ke route Edge, dihitung sebelum autentikasi. Default `120`.
+- `SAKALA_EDGE_STALE_AFTER_SECONDS`: berapa detik sebuah Edge boleh tidak mengambil tabel route, melaporkan status selain `ok`, atau tertinggal revisi sebelum `edge:check-health` mengirim email ke semua admin. Default `300`; kosong juga berarti default, dan nilai di bawah `1` dibulatkan ke `1`. Lihat [Pemantauan](EDGE_API.md#pemantauan).
+- Token setiap instance Edge dibuat dengan `php artisan edge:token {name} --reason=...`, yang mencetak `SAKALA_EDGE_TOKEN=...` sekali. Jalankan lagi untuk mengganti token, atau dengan `--revoke` untuk mencabutnya. Kontraknya ada di [EDGE_API.md](EDGE_API.md).
+
 ## Deployments
 
 - `SAKALA_SIMULATE_DEPLOYMENTS`: `true` menjalankan `SimulatedDeploymentJob` yang memalsukan lifecycle deployment tanpa runtime node — hanya untuk pengembangan console lokal. Default `false`; jangan aktifkan bila ada agent yang terhubung karena keduanya akan menggerakkan record deployment yang sama.
+- `SAKALA_BUILD_TIMEOUT_SECONDS` (default `600`), `SAKALA_START_TIMEOUT_SECONDS` (default `120`), `SAKALA_COMMAND_TIMEOUT_SECONDS` (default `900`): batas waktu dalam detik untuk tahap build, start, dan pelaksanaan command deployment.
 
 ## Agent Reporting dan Log Retention
 
@@ -69,8 +100,10 @@ GitHub App harus berlangganan event `push` supaya `auto_deploy` bekerja, selain 
 - `SAKALA_LOG_MAX_TOTAL_BYTES`: budget kumulatif message log per command.
 - `SAKALA_LOG_MAX_REQUEST_BYTES`: batas ukuran body setiap request report, terpisah dari budget kumulatif.
 - `SAKALA_LOG_RETENTION_DAYS`: durasi retensi log pilot dalam hari (default: `7`). Lihat [Pilot Log Retention Policy](LOG_RETENTION.md). Cleanup otomatis berjalan melalui scheduler harian ketika runtime menjalankan Laravel scheduler.
-- `SAKALA_USAGE_SIGNALS_RETENTION_DAYS`: umur sinyal pemakaian dalam hari sebelum `usage:signals-prune` menghapusnya (default `30`, dihitung sejak `collected_at`). Opsi `--days` pada command menimpa nilai ini untuk satu kali jalan. Lihat [Log Retention](LOG_RETENTION.md).
-- `SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD`: jumlah kegagalan build (`failure_code` `runtime_build_failed`) dalam satu jendela koleksi yang membuat sebuah proyek dicatat sebagai sinyal kegagalan berulang (default `3`). Kategori kegagalan lain sengaja tidak dihitung.
+- `SAKALA_USAGE_SIGNALS_RETENTION_DAYS`: umur sinyal penggunaan (usage signals) dalam hari sebelum dihapus (default `30`).
+- `SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD`: jumlah kegagalan build runtime (`runtime_build_failed`) untuk project yang sama dalam satu jendela pengumpulan sebelum sinyal kegagalan berulang dicatat (default `3`).
+- `SAKALA_METRICS_MINUTE_RETENTION_HOURS`: berapa jam baris metrik project per menit disimpan sebelum `projects:roll-up-metrics` menghapusnya (default `24`, paling kecil `2` karena rollup butuh jam sebelumnya). Range `1h`, `6h`, dan `24h` dibaca dari baris ini, jadi nilai di bawah 24 membuat awal range `24h` kosong. Lihat [Metrik](API_CONVENTIONS.md#metrik).
+- `SAKALA_METRICS_HOURLY_RETENTION_DAYS`: berapa hari rollup metrik per jam disimpan (default `30`, paling kecil `1`). Range `7d` dan `30d` dibaca dari baris ini.
 
 ## Database dan Infrastruktur
 
@@ -123,7 +156,7 @@ Edge wajib menormalkan `X-Forwarded-For` menjadi satu alamat client. Bila edge m
 ## Browser Authentication
 
 - `SESSION_COOKIE`: nama cookie session. Production dan staging memakai `__Host-sakala-api-session`, yang hanya diterima browser lewat HTTPS. Nama ini memaksa `Secure`, `Path=/`, dan tanpa `Domain`, apa pun isi env lain. Lokal berjalan di HTTP, jadi memakai `sakala-api-session`.
-- `SESSION_DOMAIN`: kosongkan. Cookie session host-only di host API. Domain yang mencakup `SAKALA_PROJECT_DEFAULT_DOMAIN` selalu diabaikan untuk cookie session, supaya cookie itu tidak terkirim ke aplikasi pengguna walaupun env lama masih mengisinya.
+- `SESSION_DOMAIN`: kosongkan. Cookie session host-only di host API. Domain yang mencakup `SAKALA_PROJECT_DEFAULT_DOMAIN` selalu diabaikan untuk cookie session, supaya cookie itu tidak terkirim ke aplikasi pengguna walaupun env lama masih mengisinya. Di hosted Sakala aplikasi pengguna ada di `sakala.app`, jadi `.sakala.dev` tidak lagi mencakupnya; penjagaan ini tetap berlaku untuk instalasi self-host yang menaruh aplikasi pengguna di bawah domain API-nya.
 - `SAKALA_XSRF_COOKIE_DOMAIN`: domain untuk `XSRF-TOKEN` saja, misalnya `.sakala.dev`. Console membaca cookie ini lewat JavaScript dari host lain, jadi cookie ini perlu parent domain. Bila kosong, nilainya mengikuti `SESSION_DOMAIN`.
 - `SESSION_SECURE_COOKIE`: `true` di HTTPS. `__Host-` selalu `Secure`.
 - `SANCTUM_STATEFUL_DOMAINS`: host/port console dan API yang dianggap first-party. Jangan pernah memakai wildcard yang mencakup `SAKALA_PROJECT_DEFAULT_DOMAIN`: daftar ini adalah batas yang memisahkan Console dari aplikasi pengguna.

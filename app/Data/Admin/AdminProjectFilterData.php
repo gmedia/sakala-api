@@ -17,5 +17,6 @@ final readonly class AdminProjectFilterData
         public ?RuntimeStatus $runtimeStatus = null,
         public ?string $workspaceId = null,
         public ?bool $suspended = null,
+        public ?bool $idleSleepBlocked = null,
     ) {}
 }

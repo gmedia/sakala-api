@@ -48,7 +48,7 @@ test('a personal workspace without a profile keeps exactly the pilot limits', fu
         ->and($limits->max_active_containers)->toBe(3)
         ->and($limits->max_memory_mb)->toBe(512)
         ->and($limits->max_cpu_millis)->toBe(1000)
-        ->and($limits->max_builds_per_hour)->toBeNull()
+        ->and($limits->max_builds_per_hour)->toBe(PilotRuntimeLimitService::DEFAULT_MAX_BUILDS_PER_HOUR)
         ->and($limits->profile)->toBeNull();
 
     $this->actingAs($user, 'web')->getJson('/api/v1/app/pilot-limits')

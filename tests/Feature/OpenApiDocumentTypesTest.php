@@ -148,6 +148,44 @@ test('the OpenAPI document gives the GitHub 503 errors of the endpoints that rea
     }
 });
 
+test('the OpenAPI document describes idle sleep: the status, both wake endpoints, and their conflicts', function (): void {
+    $document = openApiDocumentForTypes();
+    $conflict = $document['components']['responses']['ProjectWakeConflict']['content']['application/json']['schema'];
+    $console = $document['paths']['/v1/app/projects/{project}/wake']['post'];
+    $public = $document['paths']['/v1/public/projects/{slug}/wake']['post'];
+
+    expect($document['components']['schemas']['RuntimeStatus']['enum'])->toContain('sleeping')
+        ->and($console['responses'][202]['content']['application/json']['schema']['properties']['data']['$ref'])->toBe('#/components/schemas/ProjectResource')
+        ->and($console['responses'][409]['$ref'])->toBe('#/components/responses/ProjectWakeConflict')
+        ->and($public['responses'])->toHaveKey(202)
+        ->and($public['responses'][409]['$ref'])->toBe('#/components/responses/ProjectWakeConflict')
+        ->and($public['security'])->toBe([])
+        ->and($conflict['properties']['code']['enum'])->toBe(['PROJECT_WAKE_LIMIT_EXCEEDED', 'PROJECT_NOT_SLEEPING', 'PROJECT_SUSPENDED'])
+        ->and($conflict['required'])->toBe(['message', 'code'])
+        ->and($document['components']['schemas']['LimitProfileResource']['properties']['idle_sleep_minutes']['type'])->toBe(['integer', 'null'])
+        ->and($document['components']['schemas']['PilotLimitsResource']['properties']['project_idle_sleep_minutes']['type'])->toBe('integer');
+});
+
+test('the OpenAPI document describes replicas on projects, limits, and the wake conflict', function (): void {
+    $document = openApiDocumentForTypes();
+    $schemas = $document['components']['schemas'];
+    $project = $schemas['ProjectResource']['properties'];
+    $update = $document['paths']['/v1/app/projects/{project}']['put']['requestBody']['content']['application/json']['schema'];
+    $updateProperties = isset($update['$ref'])
+        ? $schemas[str_replace('#/components/schemas/', '', $update['$ref'])]['properties']
+        : $update['properties'];
+    $conflict = $document['components']['responses']['ProjectWakeConflict']['content']['application/json']['schema'];
+
+    expect($project['replicas']['type'])->toBe('integer')
+        ->and($project['max_replicas']['type'])->toBe('integer')
+        ->and($project['serving_replicas']['type'])->toBe(['integer', 'null'])
+        ->and($project['replicas_ready']['type'])->toBe(['integer', 'null'])
+        ->and($updateProperties['replicas']['type'])->toBe('integer')
+        ->and($schemas['LimitProfileResource']['properties']['max_replicas']['type'])->toBe(['integer', 'null'])
+        ->and($schemas['PilotLimitsResource']['properties']['quotas']['properties']['max_replicas']['type'])->toBe('integer')
+        ->and($conflict['properties']['requested']['type'])->toBe('integer');
+});
+
 test('responses send the types the OpenAPI document gives', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();
@@ -199,4 +237,28 @@ test('empty audit metadata is sent as a JSON object', function (): void {
     $body = $this->actingAs(adminApiAdmin(), 'web')->getJson('/api/v1/admin/audit-events')->assertOk()->getContent();
 
     expect($body)->toContain('"metadata":{}');
+});
+
+test('the OpenAPI document describes regions, node placement, and the Edge route table', function (): void {
+    $document = openApiDocumentForTypes();
+    $schemas = $document['components']['schemas'];
+    $update = $document['paths']['/v1/app/projects/{project}']['put']['requestBody']['content']['application/json']['schema'];
+    $updateProperties = isset($update['$ref'])
+        ? $schemas[str_replace('#/components/schemas/', '', $update['$ref'])]['properties']
+        : $update['properties'];
+    $node = $schemas['AdminAgentResource']['properties'];
+    $routes = $document['paths']['/edge/v1/routes']['get']['responses']['200']['content']['application/json']['schema'];
+    $routeTable = isset($routes['$ref']) ? $schemas[str_replace('#/components/schemas/', '', $routes['$ref'])] : $routes;
+
+    expect($schemas['ProjectResource']['properties']['region']['type'])->toBe(['string', 'null'])
+        ->and($updateProperties['region']['type'])->toBe(['string', 'null'])
+        ->and($schemas['LimitProfileResource']['properties']['default_region']['type'])->toBe(['string', 'null'])
+        ->and($schemas['RegionResource']['properties']['slug']['type'])->toBe('string')
+        ->and($node['region']['type'])->toBe(['string', 'null'])
+        ->and($node['edge_address']['type'])->toBe(['string', 'null'])
+        ->and($schemas['AgentNodeCapacityResource']['properties']['free_workload_slots']['type'])->toBe(['integer', 'null'])
+        ->and($routeTable['properties']['expected_minimum_routes']['type'])->toBe('integer')
+        ->and($routeTable['properties']['routes']['items']['properties']['upstreams']['items']['type'])->toBe('string')
+        ->and($routeTable['properties']['skipped_routes']['items']['properties']['reason']['type'])->toBe('string')
+        ->and(untypedOpenApiProperties($routeTable, 'EdgeRouteTable'))->toBe([]);
 });

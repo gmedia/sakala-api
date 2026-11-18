@@ -38,7 +38,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(
             ProjectDomainGenerator::class,
             fn () => new ProjectDomainGenerator(
-                config('sakala.project.default_domain', 'run.sakala.dev')
+                config()->string('sakala.project.default_domain')
             )
         );
     }
@@ -143,9 +143,25 @@ class AppServiceProvider extends ServiceProvider
                 ->by((string) $identifier);
         });
 
+        // Sakala Edge instances, before authentication: per address, so a
+        // flood of bad tokens is limited as well.
+        RateLimiter::for('edge', function (Request $request): Limit {
+            return Limit::perMinute((int) config('sakala.rate_limits.edge'))
+                ->by('edge:'.(string) $request->ip());
+        });
+
         RateLimiter::for('oauth', function (Request $request): Limit {
             return Limit::perMinute((int) config('sakala.rate_limits.oauth'))
                 ->by((string) $request->ip());
+        });
+
+        // Anonymous: visitors of a sleeping project. Per IP and slug, so one
+        // visitor cannot exhaust the budget of other projects.
+        RateLimiter::for('project-wake', function (Request $request): Limit {
+            $slug = $request->route('slug');
+
+            return Limit::perMinute((int) config('sakala.rate_limits.project_wake', 6))
+                ->by('project-wake:'.(string) $request->ip().'|'.(is_string($slug) ? $slug : ''));
         });
 
         RateLimiter::for('feedback', function (Request $request): Limit {

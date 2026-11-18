@@ -14,6 +14,11 @@ final readonly class UpdateProjectData
         /** @var array<string, int|string|null> Only the fields the request sent. */
         public array $buildConfiguration = [],
         public ?bool $autoDeploy = null,
+        /** Applies from the next deployment. */
+        public ?int $replicas = null,
+        /** Null places the project in any region; only stored when $regionProvided. */
+        public ?string $region = null,
+        public bool $regionProvided = false,
     ) {}
 
     /**
@@ -26,6 +31,7 @@ final readonly class UpdateProjectData
         $data = array_filter([
             'name' => $this->name,
             'branch' => $this->branch,
+            'replicas' => $this->replicas,
         ], fn (mixed $value): bool => $value !== null);
 
         if ($this->thumbnailUrlProvided) {
@@ -34,6 +40,12 @@ final readonly class UpdateProjectData
 
         if ($this->autoDeploy !== null) {
             $data['auto_deploy'] = $this->autoDeploy;
+        }
+
+        // A region only applies to placing a project without a workload, so
+        // DeploymentConfigFingerprint leaves it out: it never asks for a redeploy.
+        if ($this->regionProvided) {
+            $data['region'] = $this->region;
         }
 
         return [...$data, ...$this->buildConfiguration];

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Mail;
 
+use App\Enums\EdgeHealthReason;
 use App\Models\User;
 use App\Notifications\Account\AccountDeletedNotification;
 use App\Notifications\Auth\ConfirmEmailChangeNotification;
@@ -11,8 +12,11 @@ use App\Notifications\Auth\EmailChangeNoticeNotification;
 use App\Notifications\Auth\ExistingAccountRegistrationNotification;
 use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
+use App\Notifications\Edge\EdgeRecoveredNotification;
+use App\Notifications\Edge\EdgeUnhealthyNotification;
 use App\Notifications\Project\ProjectSuspendedNotification;
 use App\Notifications\Workspace\WorkspaceInvitationNotification;
+use Carbon\CarbonImmutable;
 use Illuminate\Mail\Markdown;
 use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -39,6 +43,7 @@ final class MailPreviewCatalog
         $address = (new AnonymousNotifiable)->route('mail', 'rani@example.test');
         $newAddress = (new AnonymousNotifiable)->route('mail', 'rani.baru@example.test');
         $expiry = now()->addMinutes((int) config('auth.verification.expire', 60));
+        $edgeUnhealthySince = CarbonImmutable::parse('2026-11-18 07:05:00', 'UTC');
 
         return [
             'verify-email' => [
@@ -94,6 +99,24 @@ final class MailPreviewCatalog
                     'toko-saya',
                     'Halaman login yang meniru situs bank.',
                 ),
+                'notifiable' => $user,
+            ],
+            'edge-unhealthy' => [
+                'trigger' => 'edge:check-health melihat Sakala Edge menjadi tidak sehat',
+                'notification' => new EdgeUnhealthyNotification(
+                    edgeName: 'edge-jkt-1',
+                    unhealthySince: $edgeUnhealthySince,
+                    reasons: [EdgeHealthReason::Stale, EdgeHealthReason::Status, EdgeHealthReason::RevisionBehind],
+                    lastSeenAt: $edgeUnhealthySince->subMinutes(5),
+                    status: 'below_expected_minimum',
+                    appliedRevision: '5f2c0e9d4b6a7c1e3f8a2d9b0c4e6f1a7b3d5c9e2f0a8b6d4c1e7f3a9b5d2c0e',
+                    currentRevision: '9a1b3c5d7e9f0a2b4c6d8e0f1a3b5c7d9e1f3a5b7c9d0e2f4a6b8c0d2e4f6a8b',
+                ),
+                'notifiable' => $user,
+            ],
+            'edge-recovered' => [
+                'trigger' => 'edge:check-health melihat Sakala Edge sehat kembali',
+                'notification' => new EdgeRecoveredNotification('edge-jkt-1', $edgeUnhealthySince, $edgeUnhealthySince->addMinutes(65)),
                 'notifiable' => $user,
             ],
             'account-deleted' => [

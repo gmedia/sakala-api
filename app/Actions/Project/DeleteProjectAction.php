@@ -8,12 +8,12 @@ use App\Actions\Admin\CreateStopProjectCommandAction;
 use App\Actions\Deployment\CancelDeploymentAction;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
-use App\Enums\RuntimeStatus;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
+use App\Services\Runtime\ProjectWorkloadService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -32,6 +32,7 @@ final class DeleteProjectAction
     public function __construct(
         private readonly CreateStopProjectCommandAction $createStopCommand,
         private readonly CancelDeploymentAction $cancelDeployment,
+        private readonly ProjectWorkloadService $workloads,
     ) {}
 
     public function handle(Project $project, ?User $user = null): void
@@ -74,15 +75,15 @@ final class DeleteProjectAction
             ]);
     }
 
+    /**
+     * A sleeping or suspended project has no running container, but the node
+     * still keeps it, so it gets the same StopProject as a serving one.
+     */
     private function stopServingWorkload(Project $project): ?string
     {
-        if ($project->runtime_status === RuntimeStatus::Stopped || $project->active_deployment_id === null) {
-            return null;
-        }
+        $deployment = $this->workloads->retainedWorkload($project);
 
-        $deployment = Deployment::query()->find($project->active_deployment_id);
-
-        if ($deployment === null || $deployment->agent_node_id === null) {
+        if ($deployment === null) {
             return null;
         }
 

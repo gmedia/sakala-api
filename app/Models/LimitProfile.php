@@ -23,7 +23,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $max_active_deployments
  * @property int $max_memory_mb
  * @property int $max_cpu_millis
- * @property int|null $max_builds_per_hour Reserved for the build rate limit (#124); not enforced yet.
+ * @property int|null $max_builds_per_hour Deployments the workspace may create per rolling hour. Null follows the global setting (PilotRuntimeLimitService::maxBuildsPerHourFor()).
+ * @property int|null $idle_sleep_minutes Null follows the global setting, 0 never sleeps, N sleeps after N idle minutes.
+ * @property int|null $max_replicas Most replicas per project. Null allows one (Project::DEFAULT_REPLICAS), so replicas stay off unless an admin allows more.
+ * @property string|null $default_region Region the workspace's projects run in unless a project sets its own; null for any region.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -35,11 +38,24 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'max_memory_mb',
     'max_cpu_millis',
     'max_builds_per_hour',
+    'idle_sleep_minutes',
+    'max_replicas',
+    'default_region',
 ])]
 class LimitProfile extends Model
 {
     /** @use HasFactory<LimitProfileFactory> */
     use HasFactory, HasUuids;
+
+    /** Longest idle window a profile may set: one week. */
+    public const MAX_IDLE_SLEEP_MINUTES = 7 * 24 * 60;
+
+    /**
+     * Most replicas per project a profile may allow. All replicas of a project
+     * run on one node, which caps them again on its own side
+     * (`SAKALA_MAX_REPLICAS_PER_PROJECT` on the agent).
+     */
+    public const MAX_REPLICAS_CEILING = 10;
 
     /** @return HasMany<Workspace, $this> */
     public function workspaces(): HasMany
@@ -57,6 +73,8 @@ class LimitProfile extends Model
             'max_memory_mb' => 'integer',
             'max_cpu_millis' => 'integer',
             'max_builds_per_hour' => 'integer',
+            'idle_sleep_minutes' => 'integer',
+            'max_replicas' => 'integer',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

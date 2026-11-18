@@ -88,6 +88,32 @@ enum AgentCommandType: string
     }
 
     /**
+     * Commands that start, stop, or put to sleep a project's kept workload.
+     * While one is open the project is already changing.
+     */
+    public function isProjectLifecycle(): bool
+    {
+        return match ($this) {
+            self::RestartProject,
+            self::StopProject,
+            self::SleepProject,
+            self::WakeProject => true,
+            default => false,
+        };
+    }
+
+    /**
+     * @return list<self>
+     */
+    public static function projectLifecycleCases(): array
+    {
+        return array_values(array_filter(
+            self::cases(),
+            static fn (self $type): bool => $type->isProjectLifecycle(),
+        ));
+    }
+
+    /**
      * Commands the agent still processes while its lifecycle is not active.
      */
     public function isNodeLifecycle(): bool
@@ -115,7 +141,8 @@ enum AgentCommandType: string
      * Commands whose stored payload is sent to the agent. Other lifecycle
      * commands carry identity only; the API must not leak Docker names, shell
      * commands, or credentials for them. StopProject carries at most the
-     * optional `remove_images` flag that a project delete sets.
+     * optional `remove_images` flag that a project delete sets, and
+     * SleepProject at most the optional `page` a suspension sets (SleepPage).
      */
     public function carriesPayload(): bool
     {
@@ -123,6 +150,7 @@ enum AgentCommandType: string
             self::InspectProject,
             self::DeployProject,
             self::StopProject,
+            self::SleepProject,
             self::ReconcileWorkload,
             self::CleanupRuntime => true,
             default => false,

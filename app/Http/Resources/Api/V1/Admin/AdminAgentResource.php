@@ -56,6 +56,24 @@ final class AdminAgentResource extends JsonResource
              */
             'runtime_network' => $node->runtime_network,
             /**
+             * The region the node serves: `region_override`, else `reported_region`, else null (it then only takes
+             * projects without a region).
+             */
+            'region' => $node->effectiveRegion(),
+            'region_override' => $node->region_override,
+            /** From the last heartbeat (`SAKALA_AGENT_REGION`). */
+            'reported_region' => $node->reportedRegion(),
+            /**
+             * `host:port` where Sakala Edge reaches the node's runtime router: `edge_address_override`, else
+             * `reported_edge_address`. Null leaves the node's projects out of the Edge route table.
+             */
+            'edge_address' => $node->effectiveEdgeAddress(),
+            'edge_address_override' => $node->edge_address_override,
+            /** From the last heartbeat. */
+            'reported_edge_address' => $node->reportedEdgeAddress(),
+            /** Free memory and container slots from the last heartbeat, as the scheduler ranks nodes. */
+            'capacity' => new AgentNodeCapacityResource($node->capacity()),
+            /**
              * For example `docker`, `caddy`, `railpack`.
              *
              * @var list<string>

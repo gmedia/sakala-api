@@ -32,13 +32,19 @@ final class AdminProjectResource extends JsonResource
             'slug' => $project->slug,
             /** `draft`, `active`, or `suspended`. */
             'status' => $project->status->value,
-            /** `not_deployed`, `deploying`, `running`, `stopped`, `failed`, or `crashed`. */
+            /** `not_deployed`, `deploying`, `running`, `stopped`, `failed`, `crashed`, or `sleeping`. */
             'runtime_status' => $project->runtime_status->value,
             'repository_url' => $project->repository_url,
             'repository_full_name' => $project->repository_full_name,
             'branch' => $project->branch,
             'public_url' => $project->publicUrl(),
             'active_deployment_id' => $project->active_deployment_id,
+            /**
+             * Whether idle sleep gave up on the active deployment: the node
+             * reported its container missing (`runtime_workload_not_found`).
+             * A new deployment, or a wake or restart that succeeds, clears it.
+             */
+            'idle_sleep_blocked' => $project->isIdleSleepBlocked(),
             /**
              * The owning workspace.
              *

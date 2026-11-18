@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\DeploymentFailureCategory;
 use App\Enums\DeploymentStatus;
 use App\Models\AgentNode;
 use App\Models\Deployment;
@@ -93,7 +94,8 @@ test('the failure summary counts categories and codes with the previous window',
         ->assertJsonPath('data.categories.1', ['category' => 'timeout', 'count' => 1, 'previous_count' => 0])
         ->assertJsonPath('data.codes.0', ['code' => 'runtime_build_failed', 'category' => 'build', 'count' => 1]);
 
-    expect($response->json('data.categories'))->toHaveCount(10);
+    // Every category, including the ones without failures.
+    expect($response->json('data.categories'))->toHaveCount(count(DeploymentFailureCategory::cases()));
 
     $this->actingAs($this->admin, 'web')->getJson('/api/v1/admin/deployments/failure-summary?range=all')
         ->assertJsonPath('data.total', 4)

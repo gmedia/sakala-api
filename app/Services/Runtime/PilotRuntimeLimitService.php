@@ -13,9 +13,12 @@ use App\Data\Runtime\WorkspaceLimitsData;
 use App\Enums\WorkspaceType;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
+use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\ProjectLimitExceededException;
+use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
 use App\Models\Deployment;
+use App\Models\LimitProfile;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
@@ -29,6 +32,12 @@ class PilotRuntimeLimitService
 
     public const TEAM_DEFAULT_MAX_ACTIVE_DEPLOYMENTS = 1;
 
+    /** Builds per hour of a workspace that follows the global setting, when that is unset or empty. */
+    public const DEFAULT_MAX_BUILDS_PER_HOUR = 20;
+
+    /** The rolling window the build rate limit counts deployments in: one hour. */
+    public const BUILD_RATE_WINDOW_SECONDS = 3600;
+
     /**
      * The workspace's limit profile, or the default for its type. A personal
      * workspace without a profile runs under exactly the pilot limits every
@@ -41,7 +50,12 @@ class PilotRuntimeLimitService
         $profile = $workspace->limit_profile_id === null ? null : $workspace->limitProfile;
 
         if ($profile !== null) {
-            return WorkspaceLimitsData::fromProfile($profile);
+            return WorkspaceLimitsData::fromProfile(
+                $profile,
+                $this->idleSleepMinutesFor($profile),
+                $this->maxReplicasFor($profile),
+                $this->maxBuildsPerHourFor($profile),
+            );
         }
 
         $maxProjects = (int) config('sakala.pilot_limits.max_projects_per_user', 3);
@@ -51,7 +65,9 @@ class PilotRuntimeLimitService
             max_active_deployments: (int) config('sakala.pilot_limits.max_active_deployments_per_user', 2),
             max_memory_mb: (int) config('sakala.pilot_limits.resources.max_memory_mb', 512),
             max_cpu_millis: (int) config('sakala.pilot_limits.resources.max_cpu_millis', 1000),
-            max_builds_per_hour: null,
+            max_builds_per_hour: $this->maxBuildsPerHourFor(null),
+            idle_sleep_minutes: $this->idleSleepMinutesFor(null),
+            max_replicas: $this->maxReplicasFor(null),
         );
 
         if ($workspace->type === WorkspaceType::Personal) {
@@ -66,8 +82,88 @@ class PilotRuntimeLimitService
             max_active_deployments: $team('max_active_deployments', self::TEAM_DEFAULT_MAX_ACTIVE_DEPLOYMENTS),
             max_memory_mb: $team('max_memory_mb', $personal->max_memory_mb),
             max_cpu_millis: $team('max_cpu_millis', $personal->max_cpu_millis),
-            max_builds_per_hour: null,
+            max_builds_per_hour: $personal->max_builds_per_hour,
+            idle_sleep_minutes: $personal->idle_sleep_minutes,
+            max_replicas: $personal->max_replicas,
         );
+    }
+
+    /**
+     * Minutes without a request before a project of a workspace under this
+     * profile is put to sleep; 0 means never. A profile without its own value,
+     * and a workspace without a profile (personal or team), follow
+     * `sakala.project.idle_sleep_minutes`. This is the only place that decides.
+     */
+    public function idleSleepMinutesFor(?LimitProfile $profile): int
+    {
+        if ($profile?->idle_sleep_minutes !== null) {
+            return max(0, $profile->idle_sleep_minutes);
+        }
+
+        return max(0, (int) config('sakala.project.idle_sleep_minutes', 0));
+    }
+
+    /**
+     * Deployments a workspace under this profile may create in the rolling
+     * hour; null means no limit. A profile without its own value, and a
+     * workspace without a profile (personal or team), follow
+     * `sakala.project.max_builds_per_hour`: unset or empty means
+     * DEFAULT_MAX_BUILDS_PER_HOUR, and 0 turns the limit off. This is the only
+     * place that decides.
+     */
+    public function maxBuildsPerHourFor(?LimitProfile $profile): ?int
+    {
+        $limit = $profile->max_builds_per_hour
+            ?? self::configuredOr('sakala.project.max_builds_per_hour', self::DEFAULT_MAX_BUILDS_PER_HOUR);
+
+        return $limit > 0 ? $limit : null;
+    }
+
+    /**
+     * Most replicas a project of a workspace under this profile may run. A
+     * profile without its own value, and a workspace without a profile, allow
+     * one, so replicas stay off until an admin allows more. This is the only
+     * place that decides.
+     */
+    public function maxReplicasFor(?LimitProfile $profile): int
+    {
+        return max(Project::DEFAULT_REPLICAS, $profile->max_replicas ?? Project::DEFAULT_REPLICAS);
+    }
+
+    /** maxReplicasFor() the workspace's profile; one for a project without a workspace. */
+    public function maxReplicasIn(?Workspace $workspace): int
+    {
+        $profile = $workspace?->limit_profile_id === null ? null : $workspace->limitProfile;
+
+        return $this->maxReplicasFor($profile);
+    }
+
+    /**
+     * Replicas the project's next deployment runs: its setting, within what its
+     * workspace allows now. A profile whose maximum was lowered applies from the
+     * next deployment, without touching the project's setting.
+     */
+    public function replicasFor(Project $project): int
+    {
+        return max(Project::DEFAULT_REPLICAS, min($project->replicas, $this->maxReplicasIn($project->workspace)));
+    }
+
+    /**
+     * The region the project must run in: its own `region`, else its
+     * workspace profile's `default_region`, else null for any region. Only
+     * placement of a project without a workload reads it
+     * (AgentNodeSchedulerService). This is the only place that decides.
+     */
+    public function regionFor(Project $project): ?string
+    {
+        if ($project->region !== null) {
+            return $project->region;
+        }
+
+        $workspace = $project->workspace;
+        $profile = $workspace?->limit_profile_id === null ? null : $workspace->limitProfile;
+
+        return $profile?->default_region;
     }
 
     /**
@@ -210,15 +306,96 @@ class PilotRuntimeLimitService
             );
         }
 
-        // Redeploying a project that already serves replaces its container.
-        if ($project->active_deployment_id !== null) {
+        // Redeploying a project that already serves replaces its containers, so
+        // only replicas beyond the ones it runs need a free slot: going from 1
+        // to 3 needs 2. A sleeping one holds no slot, so its redeploy takes
+        // all of its replicas like a wake.
+        $required = $this->replicasFor($project);
+        $held = $project->isServing() ? ($project->activeDeployment->replicas ?? Project::DEFAULT_REPLICAS) : 0;
+
+        if ($required <= $held) {
             return;
         }
 
+        $others = $this->activeContainersIn($workspace, except: $project);
+
+        if ($others + $required > $limits->max_active_containers) {
+            throw new ActiveContainerLimitExceededException($limits->max_active_containers, $others + $held, $required);
+        }
+    }
+
+    /**
+     * Whether the workspace may start another build. Every deployment builds a
+     * fresh image, so every deployment of the workspace's projects created in
+     * the rolling window counts, whatever its status, including those of
+     * deleted projects so deleting and recreating does not reset the window.
+     * Admins acting are not limited, like checkActiveDeploymentLimit(). The
+     * caller holds the workspace row lock inside a transaction, so two
+     * deployments cannot both read the count below the limit.
+     *
+     * @throws BuildRateLimitExceededException
+     */
+    public function checkBuildRateLimit(User $actor, Project $project): void
+    {
+        if ($actor->isAdmin()) {
+            return;
+        }
+
+        $workspace = $project->workspace;
+
+        if ($workspace === null) {
+            return;
+        }
+
+        $limit = $this->limitsFor($workspace)->max_builds_per_hour;
+
+        if ($limit === null) {
+            return;
+        }
+
+        $recent = $this->buildsInWindow($workspace);
+        $current = $recent->count();
+
+        if ($current < $limit) {
+            return;
+        }
+
+        // Ordered oldest first, a slot frees when the build at index
+        // current - limit leaves the window. That is the oldest one unless an
+        // admin lowered the limit below what already ran.
+        $freeing = $recent->orderBy('created_at')->offset($current - $limit)->first(['created_at']);
+        $freesAt = $freeing?->created_at?->addSeconds(self::BUILD_RATE_WINDOW_SECONDS) ?? now();
+
+        throw new BuildRateLimitExceededException(
+            limit: $limit,
+            current: $current,
+            retryAfterSeconds: max(1, (int) ceil(now()->diffInSeconds($freesAt))),
+        );
+    }
+
+    /**
+     * Whether waking this sleeping project stays within its workspace's running
+     * container limit. A wake starts every replica of the deployment the node
+     * keeps (`$workload`), whatever the project's setting says now. Applies to
+     * everyone, admins included: a wake can come from an anonymous visitor, and
+     * the limit is what keeps a node's slots shared. The caller holds the
+     * project row lock.
+     *
+     * @throws ProjectWakeLimitExceededException
+     */
+    public function checkWakeLimit(Project $project, Deployment $workload, bool $exposeUsage = true): void
+    {
+        $workspace = $project->workspace;
+
+        if ($workspace === null) {
+            return;
+        }
+
+        $limit = $this->limitsFor($workspace)->max_active_containers;
         $containers = $this->activeContainersIn($workspace, except: $project);
 
-        if ($containers >= $limits->max_active_containers) {
-            throw new ActiveContainerLimitExceededException($limits->max_active_containers, $containers);
+        if ($containers + $workload->replicas > $limit) {
+            throw new ProjectWakeLimitExceededException($limit, $containers, $exposeUsage, $workload->replicas);
         }
     }
 
@@ -250,6 +427,20 @@ class PilotRuntimeLimitService
         return filled($value) ? (int) $value : $fallback;
     }
 
+    /**
+     * Deployments of the workspace's projects, deleted ones included, created
+     * within BUILD_RATE_WINDOW_SECONDS. Served by `deployments (project_id,
+     * created_at)`.
+     *
+     * @return Builder<Deployment>
+     */
+    private function buildsInWindow(Workspace $workspace): Builder
+    {
+        return Deployment::query()
+            ->whereIn('project_id', Project::withTrashed()->select('id')->where('workspace_id', $workspace->id))
+            ->where('created_at', '>', now()->subSeconds(self::BUILD_RATE_WINDOW_SECONDS));
+    }
+
     private function activeDeploymentsIn(Workspace $workspace): int
     {
         return Deployment::query()
@@ -259,17 +450,18 @@ class PilotRuntimeLimitService
     }
 
     /**
-     * Projects that serve, or are being deployed and will serve, so two
-     * deployments racing for the last slot cannot both pass.
+     * Running containers of the workspace: the replicas of every project that
+     * serves, or is being deployed and will serve (Project::heldContainers()).
+     * A sleeping project keeps its active deployment but runs nothing, so it
+     * does not count. One query.
      */
     private function activeContainersIn(Workspace $workspace, ?Project $except = null): int
     {
         return Project::query()
             ->where('workspace_id', $workspace->id)
             ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except?->id))
-            ->where(fn (Builder $query) => $query
-                ->whereNotNull('active_deployment_id')
-                ->orWhereHas('deployments', fn (Builder $deployments) => $deployments->active()))
-            ->count();
+            ->holdingContainers()
+            ->get()
+            ->sum(static fn (Project $project): int => $project->heldContainers());
     }
 }

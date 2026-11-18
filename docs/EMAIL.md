@@ -14,6 +14,8 @@ Semua email Sakala memakai satu layout bermerek dan punya versi teks biasa. Untu
 | `email-change-applied` | Tautan konfirmasi ganti email dibuka | Alamat lama | Email akun Sakala kamu sudah diganti | Tidak ada; email ini menyebut kontak privasi |
 | `workspace-invitation` | Owner tim mengundang alamat email | Alamat yang diundang | {pengundang} mengundangmu ke {workspace} di Sakala | Lihat undangan (Console `/workspace-invitations/{id}?token=`) |
 | `project-suspended` | Admin menangguhkan proyek | Semua yang bisa mengelola proyek itu | Proyek {nama} di Sakala ditangguhkan | Buka proyek (Console `/projects/{id}`) |
+| `edge-unhealthy` | `edge:check-health` melihat Sakala Edge menjadi tidak sehat (lihat [Pemantauan](EDGE_API.md#pemantauan)) | Semua admin | Sakala Edge {nama} tidak sehat | Tidak ada; belum ada halaman admin Edge di Console. Email menyebut perintah pertama untuk memeriksa server Edge |
+| `edge-recovered` | `edge:check-health` melihat Sakala Edge yang tidak sehat menjadi sehat kembali | Semua admin | Sakala Edge {nama} sehat kembali | Tidak ada |
 | `account-deleted` | Pengguna menghapus akunnya | Alamat akun yang dihapus | Akun Sakala kamu sudah dihapus | Tidak ada; tidak ada lagi yang bisa dibuka |
 
 Notifikasi lain, misalnya deployment gagal atau perubahan peran di tim, hanya muncul di dalam aplikasi (`UserAlertNotification`) dan tidak dikirim lewat email.

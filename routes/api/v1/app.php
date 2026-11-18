@@ -12,7 +12,9 @@ use App\Http\Controllers\Api\V1\Profile\ProfileController;
 use App\Http\Controllers\Api\V1\Project\DomainPreviewController;
 use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
+use App\Http\Controllers\Api\V1\Project\ProjectMetricsController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
+use App\Http\Controllers\Api\V1\Runtime\RegionController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceInvitationController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceMemberController;
@@ -36,6 +38,10 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
     Route::get('/pilot-limits', [PilotLimitsController::class, 'show'])
         ->name('api.v1.app.pilot-limits.show');
 
+    // Regions a project may run in
+    Route::get('/regions', [RegionController::class, 'index'])
+        ->name('api.v1.app.regions.index');
+
     // Project routes
     Route::get('projects/domain-preview', DomainPreviewController::class)
         ->name('api.v1.app.projects.domain-preview');
@@ -45,6 +51,10 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
     Route::post('projects/{project}/inspection', [ProjectController::class, 'inspect'])
         ->middleware(['throttle:inspection', EnsureLegalAcceptance::class])
         ->name('api.v1.app.projects.inspection');
+    Route::post('projects/{project}/wake', [ProjectController::class, 'wake'])
+        ->name('api.v1.app.projects.wake');
+    Route::get('projects/{project}/metrics', ProjectMetricsController::class)
+        ->name('api.v1.app.projects.metrics');
 
     // Environment variable routes
     Route::scopeBindings()->group(function (): void {

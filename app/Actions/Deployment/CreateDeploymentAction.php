@@ -16,6 +16,7 @@ use App\Enums\UsageSignalType;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
+use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
@@ -38,6 +39,9 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class CreateDeploymentAction
 {
+    /** Usage signal scope of the limits that count across a workspace. */
+    private const WORKSPACE_SCOPE = 'workspace';
+
     private function findExistingDeployment(
         Project $project,
         User $user,
@@ -211,11 +215,18 @@ final class CreateDeploymentAction
                     $lockedProject,
                 );
 
+                $this->runtimeLimitService->checkBuildRateLimit(
+                    $user,
+                    $lockedProject,
+                );
+
                 // Resolve effective runtime limits
                 $effectiveLimits = $this->runtimeLimitService->resolveEffectiveLimits(
                     $data->requested_resources,
                     $lockedProject->workspace,
                 );
+
+                $replicas = $this->runtimeLimitService->replicasFor($lockedProject);
 
                 $sequence = (int) $lockedProject->deployments()->max('sequence') + 1;
 
@@ -225,10 +236,28 @@ final class CreateDeploymentAction
                 // only ever materialised for one authenticated node. With no
                 // eligible node the command waits unassigned for a later
                 // assignment sweep or heartbeat.
+                // Only a node of the project's region that runs every replica,
+                // and the release command when there is one, is selected: an
+                // older one would run one container, or skip the release
+                // command, and report success. Without one the command waits,
+                // unless no node could ever take it.
+                $releaseCommand = $lockedProject->hasReleaseCommand();
+
                 $node = $this->scheduler->selectNodeFor(
                     AgentCommandType::DeployProject,
                     $lockedProject,
+                    $replicas,
+                    $releaseCommand,
                 );
+
+                $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas, $releaseCommand);
+
+                // A project from before environment fingerprints gets one now,
+                // under the lock, so it and this deployment agree from here on.
+                if ($lockedProject->environment_fingerprint === null) {
+                    $lockedProject->refreshEnvironmentFingerprint();
+                    $lockedProject->save();
+                }
 
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,
@@ -243,6 +272,11 @@ final class CreateDeploymentAction
                     'commit_message' => $this->commitSubject($commit['message']),
                     // Fixed at creation: a later port change only affects the next deployment.
                     'container_port' => $lockedProject->effectivePort(),
+                    // Fixed at creation too: a later change applies from the next deployment.
+                    'replicas' => $replicas,
+                    // What `redeploy_required` compares with the project later,
+                    // taken from the same locked row as the payload below.
+                    'config_fingerprint' => $lockedProject->deploymentConfigFingerprint(),
                     'requested_resources' => $data->requested_resources?->toArray(),
                     'effective_resources' => $effectiveLimits->toArray(),
                 ]);
@@ -271,12 +305,18 @@ final class CreateDeploymentAction
                     'resources' => $effectiveLimits->toResourcesArray(),
                     'timeouts' => $effectiveLimits->timeouts->toArray(),
                     'log_bounds' => $effectiveLimits->log_bounds->toArray(),
-                    // Optional additions to protocol revision 4; absent unless set.
+                    // Optional additions to protocol revision 4; absent unless
+                    // set. `release_command` only goes to a node with the
+                    // `release-command` capability (selected above).
                     ...array_filter([
                         'build_command' => $lockedProject->build_command,
                         'start_command' => $lockedProject->start_command,
+                        'release_command' => $lockedProject->release_command,
                         'root_directory' => $lockedProject->root_directory,
-                    ], static fn (?string $value): bool => $value !== null),
+                    ], static fn (?string $value): bool => $value !== null && $value !== ''),
+                    // Optional addition to protocol revision 4, only above one,
+                    // and only to a node with the `replicas` capability.
+                    ...($replicas > Project::DEFAULT_REPLICAS ? ['replicas' => $replicas] : []),
                 ];
 
                 AgentCommand::create([
@@ -319,8 +359,17 @@ final class CreateDeploymentAction
             $this->recordAction->handle(
                 type: UsageSignalType::RejectedLimits,
                 count: 1,
-                scope: 'workspace',
+                scope: self::WORKSPACE_SCOPE,
                 tags: ['limit_name' => 'max_active_containers'],
+            );
+
+            throw $e;
+        } catch (BuildRateLimitExceededException $e) {
+            $this->recordAction->handle(
+                type: UsageSignalType::RejectedLimits,
+                count: 1,
+                scope: self::WORKSPACE_SCOPE,
+                tags: ['limit_name' => BuildRateLimitExceededException::LIMIT_NAME],
             );
 
             throw $e;

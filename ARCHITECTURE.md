@@ -317,7 +317,7 @@ Contoh:
     "id": "...",
     "name": "Portfolio",
     "slug": "portfolio",
-    "default_domain": "portfolio.run.sakala.dev",
+    "default_domain": "portfolio.sakala.app",
     "status": "active",
     "runtime_status": "running"
   }

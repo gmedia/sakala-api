@@ -140,6 +140,12 @@ test('collect action records active projects count', function (): void {
         'runtime_status' => RuntimeStatus::Stopped,
     ]);
 
+    // Asleep after being idle: not active, although it keeps its deployment.
+    Project::factory()->create([
+        'user_id' => $user->id,
+        'runtime_status' => RuntimeStatus::Sleeping,
+    ]);
+
     $action = app(CollectUsageSignalsAction::class);
     $from = CarbonImmutable::parse('2026-09-14 00:00:00 UTC');
     $to = CarbonImmutable::parse('2026-09-14 12:00:00 UTC');

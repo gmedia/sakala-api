@@ -41,7 +41,15 @@ final class PilotLimitsResource extends JsonResource
                 'current_projects_count' => $this->resource->current_projects_count,
                 'current_active_deployments_count' => $this->resource->current_active_deployments_count,
                 'max_active_containers' => $this->resource->max_active_containers,
+                /** Replicas of the projects that serve or are being deployed; sleeping projects do not count. */
                 'current_active_containers_count' => $this->resource->current_active_containers_count,
+                /** Most replicas per project, from the workspace's limit profile; 1 without one. */
+                'max_replicas' => $limits->max_replicas,
+                /**
+                 * Deployments the workspace may create per rolling hour, from its limit profile or the global
+                 * setting; every deployment builds. `null` means no limit.
+                 */
+                'max_builds_per_hour' => $limits->max_builds_per_hour,
             ],
             'runtime_defaults' => [
                 /** @var int */
@@ -67,6 +75,11 @@ final class PilotLimitsResource extends JsonResource
                 'max_request_bytes' => (int) config('sakala.pilot_limits.log_bounds.max_request_bytes', 1024 * 1024),
             ],
             'deleted_project_retention_days' => (int) config('sakala.project.deleted_retention_days', 30),
+            /**
+             * Minutes without a request before a running project of this workspace is put to sleep, from its
+             * limit profile or the global setting. `0` means its projects never sleep.
+             */
+            'project_idle_sleep_minutes' => $limits->idle_sleep_minutes,
         ];
     }
 }

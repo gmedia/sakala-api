@@ -12,6 +12,8 @@ use App\Enums\NotificationCategory;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
+use App\Exceptions\Runtime\BuildRateLimitExceededException;
+use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Models\AuditEvent;
@@ -30,6 +32,12 @@ use App\Services\Notification\UserNotifier;
 final class CreatePushDeploymentsAction
 {
     private const NO_COMMIT = '0000000000000000000000000000000000000000';
+
+    /** Audit reason of a push skipped by the workspace's build rate limit. */
+    private const SKIP_BUILD_RATE_LIMIT = 'build_rate_limit';
+
+    /** Audit reason of a push skipped because no node runs the project's release command. */
+    private const SKIP_RELEASE_COMMAND_UNSUPPORTED = 'release_command_unsupported';
 
     public function __construct(
         private readonly CreateDeploymentAction $createDeployment,
@@ -57,7 +65,7 @@ final class CreatePushDeploymentsAction
         $message = is_string($headCommit['message'] ?? null) ? $headCommit['message'] : null;
 
         $projects = Project::query()
-            ->with(['user', 'workspace'])
+            ->with(['user', 'workspace', 'workspace.personalUser', 'githubInstallation'])
             ->where('auto_deploy', true)
             ->where('github_repository_id', $repository['id'])
             ->where('branch', $branch)
@@ -104,10 +112,14 @@ final class CreatePushDeploymentsAction
             $this->skip($project, 'active_deployment_limit', $commit, 'Batas deployment yang berjalan sudah tercapai, jadi push terbaru tidak di-deploy. Tunggu deployment yang berjalan selesai, lalu deploy manual.');
         } catch (ActiveContainerLimitExceededException) {
             $this->skip($project, 'active_container_limit', $commit, 'Workspace ini sudah menjalankan proyek sebanyak batasnya, jadi push terbaru tidak di-deploy.');
+        } catch (BuildRateLimitExceededException $e) {
+            $this->skip($project, self::SKIP_BUILD_RATE_LIMIT, $commit, "Workspace ini sudah mencapai batas {$e->limit} build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push ulang {$e->retryHint()}.");
         } catch (RepositoryAccessRevokedException) {
             $this->skip($project, 'repository_access_revoked', $commit, 'Pembuat proyek tidak lagi punya akses ke repository ini di GitHub atau sudah keluar dari workspace, jadi push terbaru tidak di-deploy.');
         } catch (ProjectSuspendedException) {
             $this->skip($project, 'project_suspended', $commit, 'Proyek ini sedang ditangguhkan, jadi push terbaru tidak di-deploy.');
+        } catch (ProjectReleaseCommandUnsupportedException) {
+            $this->skip($project, self::SKIP_RELEASE_COMMAND_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung perintah rilis, jadi push terbaru tidak di-deploy. Kosongkan perintah rilis di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
         }
     }
 

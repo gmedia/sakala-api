@@ -4,15 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Project;
 
+use App\Actions\Project\GetAvailableRegionsAction;
 use App\Data\Project\UpdateProjectData;
 use App\Http\Requests\Concerns\ValidatesBuildConfiguration;
 use App\Models\Project;
+use App\Rules\RegionSlug;
+use App\Services\Runtime\PilotRuntimeLimitService;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class UpdateProjectRequest extends FormRequest
 {
-    use ValidatesBuildConfiguration;
+    use ValidatesBuildConfiguration {
+        messages as buildConfigurationMessages;
+    }
 
     protected function receivesPushWebhooks(): bool
     {
@@ -44,7 +50,59 @@ final class UpdateProjectRequest extends FormRequest
             'thumbnail_url' => ['sometimes', 'nullable', 'string', 'url', 'max:2048'],
             'branch' => ['sometimes', 'required', 'string', 'max:255'],
             ...$this->buildConfigurationRules(),
+            /**
+             * Containers the project runs behind the node's router, from 1 to `max_replicas` of its workspace.
+             * Applies from the next deployment; `redeploy_required` turns true until then.
+             */
+            'replicas' => [
+                'sometimes',
+                'integer',
+                'min:'.Project::DEFAULT_REPLICAS,
+                // A closure, so the documented schema does not show the maximum
+                // of whichever workspace was resolved while generating it.
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    $max = $this->maxReplicas();
+
+                    if (is_numeric($value) && (int) $value > $max) {
+                        $fail("Proyek di workspace ini paling banyak berjalan dengan {$max} replika. Minta admin menaikkan batasnya bila butuh lebih.");
+                    }
+                },
+            ],
+            /**
+             * Region the project runs in, one of `GET app/regions`; `null` follows the workspace's default region, or
+             * any region without one. Applies to the next placement on a node: a project that already runs stays on its node.
+             */
+            'region' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:'.RegionSlug::MAX_LENGTH,
+                new RegionSlug,
+                // A closure, so the documented schema does not list the
+                // regions of whichever nodes existed while generating it.
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    if (is_string($value) && ! in_array($value, app(GetAvailableRegionsAction::class)->handle(), true)) {
+                        $fail("Region {$value} belum punya node. Pilih salah satu region yang tersedia.");
+                    }
+                },
+            ],
         ];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            ...$this->buildConfigurationMessages(),
+            'replicas.min' => 'Jumlah replika paling sedikit :min.',
+        ];
+    }
+
+    private function maxReplicas(): int
+    {
+        $project = $this->route('project');
+
+        return app(PilotRuntimeLimitService::class)->maxReplicasIn($project instanceof Project ? $project->workspace : null);
     }
 
     public function toData(): UpdateProjectData
@@ -60,6 +118,9 @@ final class UpdateProjectRequest extends FormRequest
         /** @var string|null $branch */
         $branch = $this->validated('branch');
 
+        /** @var string|null $region */
+        $region = $this->validated('region');
+
         return new UpdateProjectData(
             name: $name,
             thumbnailUrl: $thumbnailUrl,
@@ -67,6 +128,9 @@ final class UpdateProjectRequest extends FormRequest
             thumbnailUrlProvided: array_key_exists('thumbnail_url', $validated),
             buildConfiguration: $this->buildConfiguration(),
             autoDeploy: array_key_exists('auto_deploy', $validated) ? $this->boolean('auto_deploy') : null,
+            replicas: array_key_exists('replicas', $validated) ? $this->integer('replicas') : null,
+            region: $region,
+            regionProvided: array_key_exists('region', $validated),
         );
     }
 }

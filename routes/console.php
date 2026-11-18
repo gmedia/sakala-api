@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Console\Commands\AssignAgentCommandsCommand;
+use App\Console\Commands\CheckEdgeHealthCommand;
 use App\Console\Commands\CollectUsageSignalsCommand;
 use App\Console\Commands\ExpireAgentCommandsCommand;
 use App\Console\Commands\MarkOfflineAgentNodesCommand;
@@ -11,6 +12,8 @@ use App\Console\Commands\PruneNotificationsCommand;
 use App\Console\Commands\PruneUsageSignalsCommand;
 use App\Console\Commands\PruneWorkspaceInvitationsCommand;
 use App\Console\Commands\PurgeDeletedProjectsCommand;
+use App\Console\Commands\RollUpProjectMetricsCommand;
+use App\Console\Commands\SleepIdleProjectsCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -27,6 +30,23 @@ Schedule::command(ExpireAgentCommandsCommand::class)
 
 Schedule::command(MarkOfflineAgentNodesCommand::class)
     ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(SleepIdleProjectsCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+Schedule::command(CheckEdgeHealthCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// Recomputes the previous and current hour, so every five minutes keeps the
+// 7d and 30d ranges at most five minutes behind.
+Schedule::command(RollUpProjectMetricsCommand::class)
+    ->everyFiveMinutes()
     ->withoutOverlapping()
     ->onOneServer();
 

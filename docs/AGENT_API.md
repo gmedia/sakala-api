@@ -113,6 +113,139 @@ atau broadcast, dan biayanya satu query baca. Setiap perubahan dibroadcast
 sebagai `deployment.updated` pada channel deployment aktif, dengan tambahan
 field `project_runtime_status`.
 
+`metadata.workloads.traffic` juga tambahan opsional di dalam revision 4, dikirim
+node ber-capability `idle-sleep` untuk tidur otomatis. Isinya kapan router terakhir
+melayani request untuk setiap workload yang berjalan, paling banyak 500 item di sisi
+API (agent membatasinya ke `SAKALA_MAX_ACTIVE_CONTAINERS`), dan seperti
+`crashed_details`, seluruh heartbeat ditolak `422` bila ada item yang tidak sesuai:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `project_id` | UUID, wajib | Project pemilik workload. |
+| `deployment_id` | UUID, wajib | Deployment pemilik container. |
+| `last_request_at` | RFC 3339, wajib | Kapan agent pertama kali melihat counter request host ini berubah. |
+
+`metadata.detail_counts.traffic` (integer ≥ 0, opsional) menyimpan jumlah sebelum
+dipotong. Bila daftarnya ada, API memajukan `projects.last_request_at` hanya untuk
+project yang `active_deployment_id`-nya adalah `deployment_id` item itu, deployment
+itu berjalan di node pelapor, dan `project_id`-nya cocok. Nilainya hanya maju, tidak
+pernah mundur, dan waktu di depan jam API disimpan sebagai waktu sekarang. Item yang
+berulang untuk deployment yang sama memakai waktu terbaru. Biayanya satu query baca
+dan paling banyak satu query tulis per heartbeat, berapa pun panjang daftarnya.
+Workload yang tidak tercantum tidak berubah, karena tidak tercantum berarti belum ada
+request yang dihitung, bukan sepi.
+
+Daftar yang tidak dikirim tidak mengubah apa pun. `projects:sleep-idle` hanya
+menidurkan project di node yang punya capability `idle-sleep`, tidak `offline`, dan
+heartbeat terakhirnya (`agent_nodes.metadata`) membawa `workloads.traffic`, supaya
+node yang belum bisa membaca trafik tidak membuat project tampak sepi. Sleep karena
+sepi dikirim sebagai `SleepProject` biasa dengan payload kosong; perbedaannya hanya
+di `request_context` (`reason: idle`, actor `system`) yang tidak dikirim ke agent.
+Sleep karena sepi yang gagal diminta lagi dengan jeda yang makin panjang, dan bila
+node menjawab `fail` dengan `error_code` `runtime_workload_not_found`, API berhenti
+memintanya untuk deployment itu sampai ada deployment baru atau wake/restart yang
+sukses (lihat [Tidur Otomatis](API_CONVENTIONS.md#tidur-otomatis)).
+Bangunnya lewat `WakeProject` ke node dan deployment yang sama. Container yang tidur
+tetap muncul di `startup_reconciliation.orphans` sebagai container deployment yang
+berhenti; API tidak menganggapnya sampah. Laporan crash untuk deployment yang
+`sleeping` diabaikan, sama seperti `stopped`. Lihat
+[Tidur Otomatis](API_CONVENTIONS.md#tidur-otomatis).
+
+`metadata.workloads.replicas` juga tambahan opsional di dalam revision 4, dikirim
+node ber-capability `replicas`. Isinya satu item per deployment yang berjalan dengan
+replika: berapa container yang dijalankan node dan berapa yang lolos health check
+router. Batasnya 500 item, dan seperti `traffic`, seluruh heartbeat ditolak `422`
+bila ada item yang tidak sesuai:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `project_id` | UUID, wajib | Project pemilik workload. |
+| `deployment_id` | UUID, wajib | Deployment pemilik replika. |
+| `desired` | integer 1 sampai 1000, wajib | Container yang dijalankan node untuk deployment itu. |
+| `ready` | integer 0 sampai 1000, wajib | Dari jumlah itu, yang lolos health check router saat ini. |
+
+`metadata.detail_counts.replicas` (integer ≥ 0, opsional) menyimpan jumlah sebelum
+dipotong. API menyimpan `desired` dan `ready` ke `deployments.replicas_desired` dan
+`deployments.replicas_ready` hanya untuk deployment yang menjadi
+`active_deployment_id` project yang melayani (tidak `sleeping`), berjalan di node
+pelapor, dan `project_id`-nya cocok. Item yang berulang untuk deployment yang sama
+memakai item terakhir. Biayanya satu query baca dan paling banyak satu query tulis
+per heartbeat, dan laporan yang sama tidak menulis apa pun. Deployment yang tidak
+tercantum menyimpan laporan terakhirnya.
+
+Node ber-capability `replicas` juga mengirim
+`metadata.workloads.maximum_replicas_per_project` di setiap heartbeat: replika
+terbanyak per project yang ia jalankan (`SAKALA_MAX_REPLICAS_PER_PROJECT`, integer 1
+sampai 64), atau `null` bila driver-nya tidak bisa menjalankan replika. Nilai di luar
+itu menolak heartbeat `422`. API menyimpannya bersama metadata node dan memakainya
+saat memilih node untuk `DeployProject` dengan `replicas` lebih dari 1: node harus
+punya capability `replicas` dan maksimumnya paling sedikit sebanyak replika yang
+diminta. Node ber-capability yang tidak mengirim field ini dianggap sanggup berapa
+pun.
+
+`metadata.workloads.metrics` juga tambahan opsional di dalam revision 4, dikirim
+node ber-capability `workload-metrics`. Isinya sampel pemakaian resource container
+yang berjalan, satu item per replika per sampel. Batasnya 500 item, dan seperti
+`traffic`, seluruh heartbeat ditolak `422` bila ada item yang bentuknya tidak sesuai:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `project_id` | UUID, wajib | Project pemilik workload. |
+| `deployment_id` | UUID, wajib | Deployment pemilik container. |
+| `replica` | integer 0 sampai 999, wajib | Indeks replika di deployment itu, mulai dari 0. |
+| `sampled_at` | RFC 3339, wajib | Kapan sampel diambil. Disimpan dengan presisi detik. |
+| `cpu_percent` | angka ≥ 0, wajib | Persen dari satu core, jadi container yang memakai dua core penuh melapor 200. Paling besar 102400. |
+| `memory_bytes` | integer ≥ 0, wajib | Memory yang dipakai container, dalam byte. Paling besar 1 PiB. |
+| `memory_limit_bytes` | integer ≥ 0 atau `null`, wajib ada | Batas memory container dalam byte, `null` bila tanpa batas. Paling besar 1 PiB. |
+| `restart_count` | integer ≥ 0, wajib | Jumlah restart kumulatif container itu, seperti `RestartCount` Docker. Boleh mulai dari 0 lagi saat container dibuat ulang. |
+
+`metadata.detail_counts.metrics` (integer ≥ 0, opsional) menyimpan jumlah sebelum
+dipotong. API hanya menyimpan sampel untuk deployment yang menjadi
+`active_deployment_id` project-nya, berjalan di node pelapor, dan `project_id`-nya
+cocok, sama dengan aturan `traffic`. Sampel untuk project atau deployment lain,
+termasuk ID yang tidak dikenal dan deployment yang sudah tergantikan, diabaikan
+tanpa menolak heartbeat. Sampel yang lebih tua dari 10 menit dari jam API juga
+diabaikan, dan waktu di depan jam API disimpan sebagai waktu sekarang.
+
+Sampel digabung per replika per menit ke `project_metric_minutes`: jumlah sampel,
+jumlah dan maksimum `cpu_percent` serta `memory_bytes`, `memory_limit_bytes` dari
+sampel terbaru, dan `restart_count` tertinggi. Sampel yang `sampled_at`-nya sama
+atau lebih tua dari sampel terakhir yang sudah tersimpan untuk replika dan menit
+itu tidak dihitung lagi, jadi node boleh mengirim ulang sampel terakhirnya kalau
+belum mengambil yang baru. Biayanya satu query baca project, satu query baca baris
+menit, dan satu upsert per heartbeat, berapa pun panjang daftarnya. Daftar ini
+tidak ikut disimpan di `agent_nodes.metadata`, tetapi `detail_counts.metrics`
+tetap tersimpan. Hasilnya dibaca Console lewat
+[Metrik](API_CONVENTIONS.md#metrik).
+
+`metadata.runtime` juga tambahan opsional di dalam revision 4, untuk Sakala Edge
+dan region (ADR-019). Kedua kuncinya opsional dan boleh `null`; nilai yang tidak
+sesuai menolak seluruh heartbeat `422`, seperti daftar di atas:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `metadata.runtime.region` | string atau `null` | Region node, dari `SAKALA_AGENT_REGION`. Huruf kecil dan angka dalam kelompok yang dipisah satu tanda hubung (`^[a-z0-9]+(?:-[a-z0-9]+)*$`), paling panjang 32 karakter, misalnya `jkt` atau `id-jog-1`. |
+| `metadata.runtime.edge_address` | string atau `null` | Alamat router runtime node seperti dicapai Sakala Edge, `host:port` tanpa skema atau path: IPv4 (`10.0.47.201:8180`), IPv6 dalam kurung siku (`[fd00::21]:8180`), atau nama DNS (`runtime-01.internal:8180`); port 1 sampai 65535; paling panjang 255 karakter. Usulan nama env di agent: `SAKALA_AGENT_EDGE_ADDRESS`. |
+
+`metadata.workloads.maximum_active_workloads` (integer ≥ 0 atau `null`, opsional,
+tambahan di revision 4) adalah container terbanyak yang dijalankan node sekaligus
+(`SAKALA_MAX_ACTIVE_CONTAINERS`, nilai yang sama dengan `RuntimeCapacity.maximum_active_workloads`
+di agent). Bersama `metadata.workloads.active` dan `metadata.resources.memory_available_bytes`,
+nilai ini dipakai scheduler untuk memilih node dengan kapasitas paling longgar.
+
+API menyimpan semuanya di `agent_nodes.metadata` seperti dilaporkan. Admin bisa
+menimpa region dan alamat Edge per node (`agent:node-region`,
+`agent:node-edge-address`); override admin selalu menang dan heartbeat tidak pernah
+mengubahnya. Region efektif menentukan penempatan project yang memilih region;
+alamat Edge efektif menjadi `upstreams` di tabel route Edge
+([EDGE_API.md](EDGE_API.md)). Node tanpa alamat Edge membuat project-nya masuk
+`skipped_routes`.
+
+`ready < desired` tidak pernah mengubah `runtime_status`: project dengan sebagian
+replika mati tetap melayani lewat replika yang sehat. Agent hanya mencantumkan
+deployment di `crashed_details` bila semua replikanya crash, dan hanya daftar itu
+yang membuat project `crashed`.
+
 API menyimpan `metadata.protocol_version` ke kolom `agent_nodes.protocol_version`
 dan membandingkannya dengan `sakala.agent.supported_protocol_versions`. Node
 dengan revisi tidak didukung tetap tercatat online, tetapi tidak menerima
@@ -186,10 +319,11 @@ Polling **tidak** memberi kepemilikan. Field `cancel_requested` dijelaskan di
   `restore_route`.
 
 Command tanpa payload selalu diserialisasi sebagai `{}`. Hanya
-`InspectProject`, `DeployProject`, `StopProject`, `ReconcileWorkload`, dan
-`CleanupRuntime` yang membawa payload. `StopProject` paling banyak membawa
-`remove_images` (lihat [StopProject](#stopproject)); lifecycle command lain hanya
-membawa identitas.
+`InspectProject`, `DeployProject`, `StopProject`, `SleepProject`,
+`ReconcileWorkload`, dan `CleanupRuntime` yang membawa payload. `StopProject`
+paling banyak membawa `remove_images` (lihat [StopProject](#stopproject)) dan
+`SleepProject` paling banyak membawa `page` (lihat [SleepProject](#sleepproject));
+lifecycle command lain hanya membawa identitas.
 
 | Command type | Capability yang dibutuhkan (salah satu) |
 | --- | --- |
@@ -198,6 +332,10 @@ membawa identitas.
 | `RestartProject`, `StopProject`, `SleepProject`, `WakeProject`, `HealthCheck`, `ReconcileWorkload`, `CleanupRuntime` | `docker-runtime` |
 | `RefreshRoute` | `caddy-file-routing` |
 | `DrainNode`, `ResumeNode` | — |
+
+`DeployProject` yang payload-nya membawa `replicas` lebih dari 1 juga butuh
+capability `replicas`, dan yang membawa `release_command` juga butuh capability
+`release-command`; lihat [DeployProject](#deployproject).
 
 ### Pembatalan command
 
@@ -254,7 +392,7 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   "repository_url": "https://github.com/example/app.git",
   "commit_sha": "0123456789abcdef0123456789abcdef01234567",
   "repository_access": "public",
-  "domain": "app.run.sakala.dev",
+  "domain": "portfolio.sakala.app",
   "container_port": 3000,
   "builder": "auto",
   "environment": { "APP_ENV": "production" },
@@ -272,6 +410,43 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   `root_directory` adalah path relatif terhadap root repository (tanpa `..`, tanpa
   `/` di awal) yang menjadi konteks build. API menjamin ketiganya satu baris,
   terbatas 1000 karakter untuk command dan 255 untuk direktori.
+- `release_command` adalah field opsional tambahan (revisi protocol tetap 4),
+  hanya dikirim bila project mengisinya, dan hanya ke node yang mengiklankan
+  capability `release-command`. Agent menjalankannya sekali per deployment,
+  sebelum versi baru menerima traffic (misalnya migrasi database), di dalam
+  container dan tidak pernah di shell host. API menjamin satu baris, paling
+  panjang 1000 karakter. Agent lama akan mengabaikan field ini dan menjalankan
+  versi baru tanpa perintah rilis, jadi deployment ditolak saat dibuat dengan
+  `409 PROJECT_RELEASE_COMMAND_UNSUPPORTED` bila tidak ada node yang bisa
+  menjalankannya: node tempat project berjalan (apa pun statusnya) tidak punya
+  capability itu, atau, untuk project yang belum pernah berjalan, tidak ada node
+  aktif yang punya. Bila node yang sanggup hanya sedang offline, command menunggu
+  node itu. Perintah yang keluar dengan kode selain 0 menggagalkan command dengan
+  `release_command_failed` (sertakan kode keluarnya di `error_message`), dan yang
+  melewati batas waktu dengan `release_command_timeout`; dalam kedua kasus versi
+  baru tidak menerima traffic dan versi sebelumnya tetap melayani. Field ini tidak
+  pernah ada di payload `WakeProject`, `RestartProject`, atau `ReconcileWorkload`.
+- `domain` adalah `projects.default_domain` saat deployment dibuat, yaitu
+  `<slug>.<SAKALA_PROJECT_DEFAULT_DOMAIN>` (hosted: `<slug>.sakala.app`,
+  staging: `<slug>.staging.sakala.app`). Agent hanya menerima domain satu label
+  di bawah suffix yang ia layani (`SAKALA_PROJECT_DOMAIN_SUFFIXES`). Wake dan
+  restart memakai domain yang tersimpan di container, bukan payload baru, jadi
+  setelah `projects:move-domain` setiap project harus dideploy ulang supaya
+  route-nya pindah.
+- `replicas` adalah field opsional tambahan (revisi protocol tetap 4): jumlah
+  container yang dijalankan untuk deployment ini di node yang sama, di belakang
+  router node. API hanya mengirimnya bila nilainya lebih dari 1, dan hanya ke node
+  yang mengiklankan capability `replicas` dengan
+  `maximum_replicas_per_project` yang cukup; tanpa field ini agent menjalankan satu
+  container. Agent lama akan mengabaikan field ini dan diam-diam menjalankan satu
+  container, jadi deployment ditolak saat dibuat dengan `409
+  PROJECT_REPLICAS_UNSUPPORTED` bila tidak ada node yang bisa menjalankannya: node
+  tempat project berjalan (apa pun statusnya) tidak sanggup, atau, untuk project
+  yang belum pernah berjalan, tidak ada node aktif yang sanggup. Bila node yang
+  sanggup hanya sedang offline, command menunggu node itu. Agent yang tetap menolak
+  karena batasnya lebih kecil gagal dengan `runtime_replicas_exceeded`. Nilainya adalah `replicas` project saat deployment
+  dibuat, dibatasi `max_replicas` workspace, dan disimpan di `deployments.replicas`.
+  Wake dan restart menjalankan semua replika yang disimpan node, bukan nilai baru.
 - `container_port` adalah `effective_port` project saat deployment dibuat:
   `configured_port`, lalu `detected_port`, lalu 3000. Agent mengisi `PORT` dengan
   nilai ini, dan `runtime_port_conflict` muncul bila environment project menulis
@@ -402,6 +577,8 @@ API hanya mengirim `{ "remove_images": true }` pada stop yang dibuat karena
 project dihapus: `DELETE /api/v1/app/projects/{project}` dan penghapusan akun
 (`DeleteProjectAction`), attempt yang tetap sukses setelah project dihapus
 (`TransitionDeploymentAction`), dan stop ulang harian dari `projects:purge-deleted`.
+Project yang sedang tidur, atau yang container-nya disimpan setelah suspend, juga
+mendapat stop ini saat dihapus, karena `SleepProject` tidak menghapus container.
 Stop lain (admin stop, suspend, finalisasi deploy yang tertunda) mempertahankan
 image supaya project bisa di-rollback atau dijalankan lagi, dan dikirim sebagai `{}`.
 API tidak pernah mengirim `false` atau nilai lain.
@@ -410,6 +587,28 @@ Agent sampai v0.3.0 tidak membaca payload `StopProject` sama sekali (payload
 di-deserialisasi sebagai JSON bebas dan tidak dipakai untuk stop), jadi field ini
 diabaikan tanpa error dan image project yang dihapus tetap tertinggal seperti
 sebelumnya. Karena itu protocol revision tidak dinaikkan.
+
+### SleepProject
+
+Lifecycle command yang membawa identitas (`project_id`, `deployment_id`) dan
+payload opsional berikut. Field ini tambahan di dalam protocol revision 4:
+
+| Field | Tipe | Arti |
+| --- | --- | --- |
+| `page` | string, opsional, `waking` atau `unavailable`, default `waking` | Halaman yang dilayani node di domain project selama tidur. `waking` adalah halaman 503 yang memanggil endpoint bangun publik lalu memuat ulang. `unavailable` adalah halaman statis bahwa project tidak tersedia, yang tidak pernah meminta bangun. |
+
+API hanya mengirim `{ "page": "unavailable" }` untuk sleep karena suspend
+(`POST /api/v1/admin/projects/{project}/suspend` dan sleep untuk deployment yang
+selesai setelah suspend), dan hanya ke node yang punya capability `idle-sleep`.
+Node tanpa capability itu, dan sleep karena sepi, menerima `{}`. API tidak pernah
+mengirim `waking`.
+
+Agent v0.7.0 adalah agent pertama yang mengiklankan `idle-sleep`. Ia
+men-deserialisasi payload command sebagai JSON bebas (`serde_json::Value`) dan
+tidak membaca payload `SleepProject` sama sekali, jadi `page` diabaikan tanpa error
+dan suspend tetap menampilkan halaman bangun miliknya. Agent v0.7.1 membaca
+`page`. Agent sebelum v0.7.0 tidak pernah menerima field ini. Karena itu protocol
+revision tidak dinaikkan dan tidak ada capability baru.
 
 ### Repository credential
 
@@ -603,13 +802,14 @@ dilihat console (`failure.category`):
 | `checkout` | ya | `repository_not_found`, `repository_access_denied`, `repository_auth_failed`, `repository_credential_unavailable`, `repository_commit_not_found`, `repository_access_revoked` (control plane) |
 | `checkout` | tidak | `repository_credential_expired`, `repository_checkout_failed`, `runtime_repository_failed`, `repository_access_check_failed` (control plane) |
 | `build` | ya | `runtime_build_failed`, `runtime_root_directory_invalid` |
+| `release` | ya | `release_command_failed` (perintah rilis keluar dengan kode selain 0), `release_command_timeout` (perintah rilis melewati batas waktu); versi sebelumnya tetap melayani |
 | `start` | ya | `runtime_app_crashed`, `runtime_port_conflict` |
 | `start` | tidak | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed` |
 | `health` | ya | `runtime_app_not_listening`, `runtime_app_unhealthy`, `runtime_health_check_failed` |
 | `route` | tidak | `runtime_routing_failed` |
 | `timeout` | ya | `runtime_timeout` |
 | `timeout` | tidak | `command_lease_expired` (control plane) |
-| `resource` | ya | `runtime_app_out_of_memory` |
+| `resource` | ya | `runtime_app_out_of_memory`, `runtime_replicas_exceeded` (replika melebihi batas node; kurangi di pengaturan proyek) |
 | `resource` | tidak | `runtime_capacity_exceeded`, `runtime_disk_pressure` |
 | `node` | tidak | `runtime_preflight_failed`, `runtime_dependency_failed`, `invalid_runtime_configuration`, `invalid_runtime_command`, `unsupported_runtime_command`, `runtime_cancelled`, serta kode lain yang belum dikenali dan berawalan `runtime_registry` atau `runtime_network` (node gagal menjangkau registry image atau jaringan) |
 | `scheduling` | tidak | `command_expired` (control plane) |
@@ -640,7 +840,9 @@ tanpa Agent atau Docker sungguhan. Lihat README di folder tersebut.
 
 Seluruh kontrak protocol v4 yang diperlukan #55 telah diimplementasikan. Belum
 tersedia: `desired_state = maintenance` (agent v0.2.0 hanya mencapainya lewat
-bootstrap) dan migrasi workload lintas node.
+bootstrap), migrasi workload lintas node, dan replika satu project yang tersebar ke
+beberapa node (semua replika masih di satu node; lihat
+[Penempatan](API_CONVENTIONS.md#region-dan-penempatan)).
 
 ## Catatan sinkronisasi untuk sakala-agent
 
@@ -664,3 +866,28 @@ Keputusan agent yang tetap berlaku:
    belum mengeksposnya sebagai control request.
 4. Agent menerima `204` tanpa body pada report untuk control plane lama; API
    selalu menjawab `200` dengan acknowledgement penuh.
+
+Tambahan untuk Sakala Edge dan region (belum dikirim agent mana pun saat API ini
+dirilis; semuanya opsional sehingga agent lama tetap kompatibel):
+
+5. Kirim `metadata.runtime.region` dari `SAKALA_AGENT_REGION` dan
+   `metadata.runtime.edge_address` (usulan env `SAKALA_AGENT_EDGE_ADDRESS`) di setiap
+   heartbeat, dengan aturan format di bagian Heartbeat. Validasi di agent saat start
+   dengan aturan yang sama, karena nilai salah membuat heartbeat ditolak `422`.
+6. Kirim `metadata.workloads.maximum_active_workloads` dari
+   `RuntimeCapacity.maximum_active_workloads`.
+
+Tambahan untuk perintah rilis (opsional; agent lama tetap kompatibel karena API
+tidak mengirim `release_command` ke node tanpa capability `release-command`):
+
+7. Iklankan capability `release-command`, jalankan `release_command` sesuai
+   [DeployProject](#deployproject), dan gagalkan command dengan
+   `release_command_failed` atau `release_command_timeout`.
+
+Tambahan untuk metrik project (opsional; node tanpa capability ini tidak
+mengirimnya dan grafiknya kosong):
+
+8. Iklankan capability `workload-metrics` dan kirim
+   `metadata.workloads.metrics` beserta `metadata.detail_counts.metrics` di setiap
+   heartbeat, satu sampel terbaru per replika yang berjalan, dengan aturan di
+   bagian Heartbeat.

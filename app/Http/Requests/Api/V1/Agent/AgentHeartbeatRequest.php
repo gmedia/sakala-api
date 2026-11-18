@@ -6,13 +6,54 @@ namespace App\Http\Requests\Api\V1\Agent;
 
 use App\Data\Agent\AgentHeartbeatData;
 use App\Data\Agent\CrashedWorkloadsData;
+use App\Data\Agent\WorkloadMetricsData;
+use App\Data\Agent\WorkloadReplicasData;
+use App\Data\Agent\WorkloadTrafficData;
 use App\Enums\AgentNodeStatus;
+use App\Models\AgentNode;
+use App\Models\Project;
+use App\Rules\EdgeAddress;
+use App\Rules\RegionSlug;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 final class AgentHeartbeatRequest extends FormRequest
 {
+    public const MAX_TRAFFIC_ITEMS = 500;
+
+    /** Same bound as traffic: one item per running workload at most. */
+    public const MAX_REPLICA_ITEMS = 500;
+
+    /**
+     * Bound of one reported replica count. Real counts stay far below
+     * (LimitProfile::MAX_REPLICAS_CEILING); this only keeps the smallint
+     * columns safe without rejecting a heartbeat over a near miss.
+     */
+    public const MAX_REPORTED_REPLICAS = 1000;
+
+    /** Same bound as traffic: one sample per running container is the norm. */
+    public const MAX_METRIC_ITEMS = 500;
+
+    /** Key of the metric samples under `metadata.workloads`. */
+    public const METRICS_KEY = 'metrics';
+
+    /**
+     * `cpu_percent` is a percent of one core, so 100 per core: this allows
+     * 1024 cores, far beyond any node, and keeps absurd values out.
+     */
+    public const MAX_REPORTED_CPU_PERCENT = 102400;
+
+    /**
+     * 1 PiB. Real containers stay far below; the bound keeps the summed
+     * memory of one replica over an hour inside a signed 64-bit integer for
+     * up to 8192 samples, more than two a second.
+     */
+    public const MAX_REPORTED_MEMORY_BYTES = 1_125_899_906_842_624;
+
+    /** Highest value the unsigned integer restart column holds on every database. */
+    public const MAX_REPORTED_RESTART_COUNT = 2147483647;
+
     /** @return array<string, mixed> */
     public function rules(): array
     {
@@ -50,6 +91,12 @@ final class AgentHeartbeatRequest extends FormRequest
             // Additive within protocol revision 4: v0.2.0 sends detail_counts
             // without this key, so it is tied to the list, not to detail_counts.
             'metadata.detail_counts.crashed_details' => ['required_with:metadata.workloads.crashed_details', 'integer', 'min:0'],
+            // Additive within protocol revision 4, sent with `traffic` (idle sleep).
+            'metadata.detail_counts.traffic' => ['sometimes', 'integer', 'min:0'],
+            // Additive within protocol revision 4, sent with `replicas`.
+            'metadata.detail_counts.replicas' => ['sometimes', 'integer', 'min:0'],
+            // Additive within protocol revision 4, sent with `metrics`.
+            'metadata.detail_counts.'.self::METRICS_KEY => ['sometimes', 'integer', 'min:0'],
 
             'metadata.resources' => ['required', 'array'],
             'metadata.resources.cpu_total' => ['present', 'nullable', 'integer', 'min:1'],
@@ -75,6 +122,54 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.workloads.crashed_details.*.exit_code' => ['present', 'nullable', 'integer'],
             'metadata.workloads.crashed_details.*.oom_killed' => ['required', 'boolean:strict'],
             'metadata.workloads.crashed_details.*.finished_at' => ['present', 'nullable', 'date'],
+            // Optional, from nodes with the `idle-sleep` capability. The agent
+            // caps it at its own max active containers, not at 50; the bound
+            // here only keeps one heartbeat cheap. Like crashed_details, a
+            // malformed item rejects the whole heartbeat.
+            'metadata.workloads.traffic' => ['sometimes', 'array', 'max:'.self::MAX_TRAFFIC_ITEMS],
+            'metadata.workloads.traffic.*' => ['required', 'array'],
+            'metadata.workloads.traffic.*.project_id' => ['required', 'uuid'],
+            'metadata.workloads.traffic.*.deployment_id' => ['required', 'uuid'],
+            'metadata.workloads.traffic.*.last_request_at' => ['required', 'date'],
+            // Optional, from nodes with the `replicas` capability: one item
+            // per deployment that runs replicas. Bounded and strict like
+            // traffic. Partial readiness is not a crash; only crashed_details
+            // changes runtime state.
+            // Sent by agents with the `replicas` capability on every
+            // heartbeat; null when the node's driver cannot run replicas.
+            'metadata.workloads.'.AgentNode::MAXIMUM_REPLICAS_METADATA_KEY => ['sometimes', 'nullable', 'integer', 'between:'.Project::DEFAULT_REPLICAS.','.AgentNode::MAXIMUM_REPLICAS_REPORT_CEILING],
+            // Optional and additive within protocol revision 4: the most
+            // containers the node runs at once (SAKALA_MAX_ACTIVE_CONTAINERS),
+            // for capacity-aware placement.
+            'metadata.workloads.'.AgentNode::MAXIMUM_ACTIVE_WORKLOADS_METADATA_KEY => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'metadata.workloads.replicas' => ['sometimes', 'array', 'max:'.self::MAX_REPLICA_ITEMS],
+            'metadata.workloads.replicas.*' => ['required', 'array'],
+            'metadata.workloads.replicas.*.project_id' => ['required', 'uuid'],
+            'metadata.workloads.replicas.*.deployment_id' => ['required', 'uuid'],
+            'metadata.workloads.replicas.*.desired' => ['required', 'integer', 'min:1', 'max:'.self::MAX_REPORTED_REPLICAS],
+            'metadata.workloads.replicas.*.ready' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_REPLICAS],
+            // Optional, from nodes with the `workload-metrics` capability: one
+            // resource sample per replica. Bounded and strict like traffic; an
+            // item for a project or deployment the node does not serve is
+            // well-formed and only ignored (RecordWorkloadMetricsAction).
+            'metadata.workloads.'.self::METRICS_KEY => ['sometimes', 'array', 'max:'.self::MAX_METRIC_ITEMS],
+            'metadata.workloads.'.self::METRICS_KEY.'.*' => ['required', 'array'],
+            'metadata.workloads.'.self::METRICS_KEY.'.*.project_id' => ['required', 'uuid'],
+            'metadata.workloads.'.self::METRICS_KEY.'.*.deployment_id' => ['required', 'uuid'],
+            'metadata.workloads.'.self::METRICS_KEY.'.*.replica' => ['required', 'integer', 'min:0', 'max:'.(self::MAX_REPORTED_REPLICAS - 1)],
+            'metadata.workloads.'.self::METRICS_KEY.'.*.sampled_at' => ['required', 'date'],
+            'metadata.workloads.'.self::METRICS_KEY.'.*.cpu_percent' => ['required', 'numeric', 'min:0', 'max:'.self::MAX_REPORTED_CPU_PERCENT],
+            'metadata.workloads.'.self::METRICS_KEY.'.*.memory_bytes' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_MEMORY_BYTES],
+            'metadata.workloads.'.self::METRICS_KEY.'.*.memory_limit_bytes' => ['present', 'nullable', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_MEMORY_BYTES],
+            'metadata.workloads.'.self::METRICS_KEY.'.*.restart_count' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_RESTART_COUNT],
+
+            // Optional and additive within protocol revision 4: where the node
+            // is (SAKALA_AGENT_REGION) and where Sakala Edge reaches its
+            // runtime router. An admin override on the node wins over both.
+            // A malformed value rejects the heartbeat, like the lists above.
+            'metadata.'.AgentNode::RUNTIME_METADATA_KEY => ['sometimes', 'array'],
+            'metadata.'.AgentNode::RUNTIME_METADATA_KEY.'.'.AgentNode::REGION_METADATA_KEY => ['sometimes', 'nullable', 'string', 'max:'.RegionSlug::MAX_LENGTH, new RegionSlug],
+            'metadata.'.AgentNode::RUNTIME_METADATA_KEY.'.'.AgentNode::EDGE_ADDRESS_METADATA_KEY => ['sometimes', 'nullable', 'string', 'max:'.EdgeAddress::MAX_LENGTH, new EdgeAddress],
 
             'metadata.disk_pressure' => ['required', 'array'],
             'metadata.disk_pressure.state' => ['required', 'string', 'max:50'],
@@ -123,15 +218,60 @@ final class AgentHeartbeatRequest extends FormRequest
             hostname: $this->validated('hostname'),
             runtimeNetwork: $this->validated('runtime_network'),
             capabilities: $this->validated('capabilities'),
-            // Persist the metadata as reported (validation above guarantees
-            // its shape); nested wildcard rules would otherwise strip items
-            // and drop additive fields from newer agent releases.
-            metadata: (array) $this->input('metadata', []),
+            metadata: $this->persistedMetadata(),
             status: AgentNodeStatus::from($this->validated('status')),
             protocolVersion: (int) $this->validated('metadata.protocol_version'),
             sentAt: CarbonImmutable::parse($this->validated('sent_at')),
             crashedWorkloads: $this->crashedWorkloads(),
+            workloadTraffic: $this->workloadTraffic(),
+            workloadReplicas: $this->workloadReplicas(),
+            workloadMetrics: $this->workloadMetrics(),
         );
+    }
+
+    /**
+     * The metadata as reported (validation above guarantees its shape);
+     * nested wildcard rules would otherwise strip items and drop additive
+     * fields from newer agent releases. The metric samples are the exception:
+     * they are stored in project_metric_minutes, and keeping up to
+     * MAX_METRIC_ITEMS of them in agent_nodes.metadata would rewrite them on
+     * every heartbeat for no reader.
+     *
+     * @return array<string, mixed>
+     */
+    private function persistedMetadata(): array
+    {
+        $metadata = (array) $this->input('metadata', []);
+
+        if (is_array($metadata['workloads'] ?? null)) {
+            unset($metadata['workloads'][self::METRICS_KEY]);
+        }
+
+        return $metadata;
+    }
+
+    private function workloadMetrics(): ?WorkloadMetricsData
+    {
+        /** @var list<array{project_id: string, deployment_id: string, replica: int, sampled_at: string, cpu_percent: float|int, memory_bytes: int, memory_limit_bytes: int|null, restart_count: int}>|null $details */
+        $details = $this->validated('metadata.workloads.'.self::METRICS_KEY);
+
+        return $details === null ? null : WorkloadMetricsData::fromReport($details);
+    }
+
+    private function workloadReplicas(): ?WorkloadReplicasData
+    {
+        /** @var list<array{project_id: string, deployment_id: string, desired: int, ready: int}>|null $details */
+        $details = $this->validated('metadata.workloads.replicas');
+
+        return $details === null ? null : WorkloadReplicasData::fromReport($details);
+    }
+
+    private function workloadTraffic(): ?WorkloadTrafficData
+    {
+        /** @var list<array{project_id: string, deployment_id: string, last_request_at: string}>|null $details */
+        $details = $this->validated('metadata.workloads.traffic');
+
+        return $details === null ? null : WorkloadTrafficData::fromReport($details);
     }
 
     private function crashedWorkloads(): ?CrashedWorkloadsData

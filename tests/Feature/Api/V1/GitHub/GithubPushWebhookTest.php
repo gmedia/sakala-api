@@ -158,6 +158,16 @@ test('a suspended project is skipped, audited, and the owner is told', function 
         ->and($project->user->notifications()->sole()->data['category'])->toBe('project_issue');
 });
 
+test('a project with a release command no node runs is skipped, audited, and the owner is told', function (): void {
+    $project = pushProject(['release_command' => 'php artisan migrate --force']);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0)
+        ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe('release_command_unsupported')
+        ->and($project->user->notifications()->sole()->data['message'])->toContain('perintah rilis');
+});
+
 test('the active deployment limit holds, and the webhook still succeeds', function (): void {
     config(['sakala.pilot_limits.max_active_deployments_per_project' => 1]);
     $project = pushProject();
@@ -170,6 +180,26 @@ test('the active deployment limit holds, and the webhook still succeeds', functi
 
     // The delivery stays recorded, so a redelivery does not retry the skip.
     sendPush($this, pushPayload())->assertOk()->assertJsonPath('duplicate', true);
+});
+
+test('the build rate limit holds, and the skip says when to deploy again', function (): void {
+    config(['sakala.project.max_builds_per_hour' => 1]);
+    $project = pushProject();
+    Deployment::factory()->for($project)->create([
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 1,
+        'created_at' => now()->subMinutes(48),
+    ]);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(1)
+        ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->sole()->metadata)->toBe(['reason' => 'build_rate_limit', 'commit_sha' => PUSH_SHA]);
+
+    $notification = $project->user->notifications()->sole();
+
+    expect($notification->data['category'])->toBe('project_issue')
+        ->and($notification->data['message'])->toBe("{$project->name}: Workspace ini sudah mencapai batas 1 build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push ulang sekitar 12 menit lagi.");
 });
 
 test('auto_deploy is opt in and owner controlled', function (): void {
@@ -288,4 +318,28 @@ test('a push to a team project on an installation nobody in the team is linked t
 
     expect(Deployment::query()->where('project_id', $project->id)->exists())->toBeFalse()
         ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->sole()->metadata['reason'])->toBe('repository_access_revoked');
+});
+
+test('a push matching projects in several personal workspaces deploys each as its own owner', function (): void {
+    $first = pushProject();
+    $second = pushProject();
+
+    sendPush($this, pushPayload())->assertOk()->assertJsonPath('duplicate', false);
+
+    expect(Deployment::query()->where('project_id', $first->id)->sole()->requested_by)->toBe($first->user_id)
+        ->and(Deployment::query()->where('project_id', $second->id)->sole()->requested_by)->toBe($second->user_id);
+});
+
+test('a push matching a personal and a team project deploys each as the right actor', function (): void {
+    $personal = pushProject();
+    $teamProject = pushProject();
+    $teamCreator = $teamProject->user;
+    $teamProject->githubInstallation->users()->attach($teamCreator, ['last_verified_at' => now()]);
+    $team = teamWorkspace(User::factory()->create(), [[$teamCreator, WorkspaceRole::Member]]);
+    $teamProject->update(['workspace_id' => $team->id]);
+
+    sendPush($this, pushPayload())->assertOk()->assertJsonPath('duplicate', false);
+
+    expect(Deployment::query()->where('project_id', $personal->id)->sole()->requested_by)->toBe($personal->user_id)
+        ->and(Deployment::query()->where('project_id', $teamProject->id)->sole()->requested_by)->toBe($teamCreator->id);
 });

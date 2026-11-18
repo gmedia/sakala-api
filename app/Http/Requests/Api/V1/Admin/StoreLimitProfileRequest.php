@@ -7,6 +7,8 @@ namespace App\Http\Requests\Api\V1\Admin;
 use App\Data\Admin\LimitProfileData;
 use App\Http\Requests\Concerns\RequiresAdminReason;
 use App\Models\LimitProfile;
+use App\Models\Project;
+use App\Rules\RegionSlug;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -14,7 +16,7 @@ class StoreLimitProfileRequest extends FormRequest
 {
     use RequiresAdminReason;
 
-    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour'];
+    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region'];
 
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
@@ -32,6 +34,21 @@ class StoreLimitProfileRequest extends FormRequest
             'max_cpu_millis' => ['required', 'integer', 'between:100,64000'],
             /** Reserved for the build rate limit; stored but not enforced yet. */
             'max_builds_per_hour' => ['sometimes', 'nullable', 'integer', 'between:1,1000'],
+            /**
+             * Minutes without a request before a project sleeps, up to a week. `0` never puts the workspace's
+             * projects to sleep; `null` (the default) follows `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`.
+             */
+            'idle_sleep_minutes' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_IDLE_SLEEP_MINUTES],
+            /**
+             * Most replicas per project, 1 to 10. `null` (the default) allows one, so replicas stay off. All replicas of a
+             * project run on one node, which may cap them lower.
+             */
+            'max_replicas' => ['sometimes', 'nullable', 'integer', 'between:'.Project::DEFAULT_REPLICAS.','.LimitProfile::MAX_REPLICAS_CEILING],
+            /**
+             * Region the workspace's projects run in unless a project sets its own, for example `jkt`. `null` (the
+             * default) places them in any region. Lowercase letters, digits, and single inner hyphens, up to 32 characters.
+             */
+            'default_region' => ['sometimes', 'nullable', 'string', 'max:'.RegionSlug::MAX_LENGTH, new RegionSlug],
         ];
     }
 

@@ -8,13 +8,17 @@ use App\Actions\Project\CreateProjectAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\GetProjectCollectionAction;
 use App\Actions\Project\RequestProjectInspectionAction;
+use App\Actions\Project\RequestProjectWakeAction;
 use App\Actions\Project\UpdateProjectAction;
 use App\Enums\ProjectStatus;
+use App\Exceptions\Runtime\ProjectNotSleepingException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
+use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Project\IndexProjectRequest;
 use App\Http\Requests\Api\V1\Project\StoreProjectRequest;
 use App\Http\Requests\Api\V1\Project\UpdateProjectRequest;
+use App\Http\Requests\Api\V1\Project\WakeProjectRequest;
 use App\Http\Resources\Api\V1\Project\CreateProjectResource;
 use App\Http\Resources\Api\V1\Project\GetCollectionProjectResource;
 use App\Http\Resources\Api\V1\Project\ProjectResource;
@@ -102,6 +106,26 @@ final class ProjectController extends Controller
         }
 
         $action->handle($project);
+
+        return ProjectResource::make($project->refresh())
+            ->response()
+            ->setStatusCode(202);
+    }
+
+    /**
+     * Wake a sleeping project.
+     *
+     * Answers 202: the node starts the kept container, and `runtime_status`
+     * becomes `running` once it reports back. A wake that is already queued is
+     * returned instead of a second one. Same rights as deploying.
+     *
+     * @throws ProjectSuspendedException
+     * @throws ProjectNotSleepingException
+     * @throws ProjectWakeLimitExceededException
+     */
+    public function wake(WakeProjectRequest $request, Project $project, RequestProjectWakeAction $action): JsonResponse
+    {
+        $action->handle($project, $request->user());
 
         return ProjectResource::make($project->refresh())
             ->response()

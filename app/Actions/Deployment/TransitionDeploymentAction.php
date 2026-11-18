@@ -13,10 +13,12 @@ use App\Enums\LogStream;
 use App\Enums\NotificationCategory;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Enums\SleepPage;
 use App\Events\Deployment\DeploymentUpdated;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Notification\UserNotifier;
+use App\Services\Runtime\ProjectWorkloadService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -29,6 +31,7 @@ final class TransitionDeploymentAction
         private readonly CreateSleepProjectCommandAction $createSleepProjectCommandAction,
         private readonly CreateStopProjectCommandAction $createStopProjectCommandAction,
         private readonly UserNotifier $notifier,
+        private readonly ProjectWorkloadService $workloads,
     ) {}
 
     /**
@@ -128,6 +131,7 @@ final class TransitionDeploymentAction
                 $this->createSleepProjectCommandAction->handle(
                     deployment: $deployment,
                     reason: 'deployment_completed_after_suspend',
+                    page: SleepPage::Unavailable,
                 );
 
                 return;
@@ -148,10 +152,13 @@ final class TransitionDeploymentAction
             // attempt leaves the previous deployment serving. `failed` is
             // reserved for projects with nothing live; a known crash of the
             // live workload stays visible until a heartbeat clears it.
+            // A sleeping version stays asleep: the attempt never woke it.
             $project->update([
                 'runtime_status' => match (true) {
                     $project->active_deployment_id === null => RuntimeStatus::Failed,
                     $project->runtime_status === RuntimeStatus::Crashed => RuntimeStatus::Crashed,
+                    $project->runtime_status === RuntimeStatus::Sleeping,
+                    $this->workloads->activeWorkloadIsAsleep($project) => RuntimeStatus::Sleeping,
                     default => RuntimeStatus::Running,
                 },
             ]);
@@ -177,6 +184,7 @@ final class TransitionDeploymentAction
             if ($project->runtime_status === RuntimeStatus::Deploying) {
                 $project->update([
                     'runtime_status' => match (true) {
+                        $this->workloads->activeWorkloadIsAsleep($project) => RuntimeStatus::Sleeping,
                         $project->active_deployment_id !== null => RuntimeStatus::Running,
                         $project->last_deployed_at !== null => RuntimeStatus::Stopped,
                         default => RuntimeStatus::NotDeployed,

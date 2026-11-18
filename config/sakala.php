@@ -2,7 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Actions\Edge\EvaluateEdgeHealthAction;
+use App\Services\Runtime\PilotRuntimeLimitService;
+use App\Support\Domains\ProjectDomainGenerator;
+
 $emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
+$edgeStaleAfterSeconds = env('SAKALA_EDGE_STALE_AFTER_SECONDS');
 
 return [
     'console_url' => env('SAKALA_CONSOLE_URL', 'http://localhost:5173'),
@@ -37,6 +42,12 @@ return [
         'account_export' => (int) env('SAKALA_ACCOUNT_EXPORT_RATE_LIMIT', 3),
         // Per hour per user: each invitation sends an email to an address the user chose.
         'workspace_invitations' => (int) env('SAKALA_WORKSPACE_INVITATION_RATE_LIMIT', 20),
+        // Per minute per visitor IP and project slug: the sleeping page of a
+        // project asks to wake it on every reload, every 3 seconds.
+        'project_wake' => (int) env('SAKALA_PROJECT_WAKE_RATE_LIMIT', 6),
+        // Per minute per Edge address: GET edge/v1/routes, polled every few
+        // seconds by each Edge instance.
+        'edge' => (int) env('SAKALA_EDGE_RATE_LIMIT', 120),
     ],
 
     // Current versions of the published documents, stored per user on acceptance.
@@ -68,15 +79,26 @@ return [
     ],
 
     'project' => [
-        'default_domain' => env('SAKALA_PROJECT_DEFAULT_DOMAIN', 'run.sakala.dev'),
+        'default_domain' => env('SAKALA_PROJECT_DEFAULT_DOMAIN', ProjectDomainGenerator::DEFAULT_BASE_DOMAIN),
         'url_scheme' => env('SAKALA_PROJECT_URL_SCHEME', 'https'),
         'url_port' => env('SAKALA_PROJECT_URL_PORT'),
         // A deleted project is kept this long, then projects:purge-deleted
         // removes it for good. GET app/pilot-limits gives the console this number.
         'deleted_retention_days' => (int) env('SAKALA_DELETED_PROJECT_RETENTION_DAYS', 30),
+        // A running project without a request for this many minutes is put to
+        // sleep by projects:sleep-idle, on nodes that advertise `idle-sleep`.
+        // 0 turns idle sleep off. GET app/pilot-limits gives the console this number.
+        'idle_sleep_minutes' => max(0, (int) env('SAKALA_PROJECT_IDLE_SLEEP_MINUTES', 0)),
+        // Deployments a workspace may create per rolling hour; every deployment
+        // builds an image. Applies to workspaces without a limit profile and to
+        // profiles without their own value. Empty means the default, 0 turns
+        // the limit off (PilotRuntimeLimitService::maxBuildsPerHourFor()).
+        'max_builds_per_hour' => env('SAKALA_PROJECT_MAX_BUILDS_PER_HOUR', PilotRuntimeLimitService::DEFAULT_MAX_BUILDS_PER_HOUR),
         'reserved_slugs' => [
             'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',
             'support', 'help', 'status', 'mail', 'test', 'run',
+            // Hosted staging serves its projects under staging.<default_domain>.
+            'staging',
         ],
     ],
 
@@ -96,6 +118,20 @@ return [
         'lease_grace_seconds' => (int) env('SAKALA_AGENT_LEASE_GRACE_SECONDS', 60),
     ],
 
+    'edge' => [
+        // How long GET edge/v1/routes reuses a built route table. Bounds how
+        // stale a route can be; 0 builds it on every request. See
+        // docs/EDGE_API.md.
+        'routes_cache_seconds' => max(0, (int) env('SAKALA_EDGE_ROUTES_CACHE_SECONDS', 5)),
+
+        // How long an Edge may stay stale, report a failing status, or serve
+        // an older revision before edge:check-health alerts the admins. Unset
+        // or empty uses the default. See docs/EDGE_API.md#pemantauan.
+        'stale_after_seconds' => $edgeStaleAfterSeconds === null || $edgeStaleAfterSeconds === ''
+            ? EvaluateEdgeHealthAction::DEFAULT_STALE_AFTER_SECONDS
+            : max(1, (int) $edgeStaleAfterSeconds),
+    ],
+
     'deployments' => [
         // Walk deployments through a fake lifecycle without a runtime node.
         // Only for local development of the console; never enable where a
@@ -106,6 +142,16 @@ return [
     'usage_signals' => [
         'retention_days' => (int) env('SAKALA_USAGE_SIGNALS_RETENTION_DAYS', 30),
         'repeat_failure_threshold' => (int) env('SAKALA_USAGE_SIGNALS_REPEAT_FAILURE_THRESHOLD', 3),
+    ],
+
+    'metrics' => [
+        // Per-project CPU, memory, and restart metrics from heartbeats (#128).
+        // Minute rows serve the 1h, 6h, and 24h ranges, so keeping them less
+        // than 24 hours leaves the start of the 24h range empty. The roll-up
+        // needs the previous hour of minute rows, hence the floor of 2.
+        'minute_retention_hours' => max(2, (int) env('SAKALA_METRICS_MINUTE_RETENTION_HOURS', 24)),
+        // Hourly rows serve the 7d and 30d ranges.
+        'hourly_retention_days' => max(1, (int) env('SAKALA_METRICS_HOURLY_RETENTION_DAYS', 30)),
     ],
 
     'workspaces' => [
