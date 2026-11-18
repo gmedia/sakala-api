@@ -42,6 +42,9 @@ return [
         // Per minute per visitor IP and project slug: the sleeping page of a
         // project asks to wake it on every reload, every 3 seconds.
         'project_wake' => (int) env('SAKALA_PROJECT_WAKE_RATE_LIMIT', 6),
+        // Per minute per Edge address: GET edge/v1/routes, polled every few
+        // seconds by each Edge instance.
+        'edge' => (int) env('SAKALA_EDGE_RATE_LIMIT', 120),
     ],
 
     // Current versions of the published documents, stored per user on acceptance.
@@ -105,6 +108,13 @@ return [
         // claim; covers the agent's post-commit finalization grace and HTTP
         // round trips before the control plane treats the command as abandoned.
         'lease_grace_seconds' => (int) env('SAKALA_AGENT_LEASE_GRACE_SECONDS', 60),
+    ],
+
+    'edge' => [
+        // How long GET edge/v1/routes reuses a built route table. Bounds how
+        // stale a route can be; 0 builds it on every request. See
+        // docs/EDGE_API.md.
+        'routes_cache_seconds' => max(0, (int) env('SAKALA_EDGE_ROUTES_CACHE_SECONDS', 5)),
     ],
 
     'deployments' => [

@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $max_builds_per_hour Reserved for the build rate limit (#124); not enforced yet.
  * @property int|null $idle_sleep_minutes Null follows the global setting, 0 never sleeps, N sleeps after N idle minutes.
  * @property int|null $max_replicas Most replicas per project. Null allows one (Project::DEFAULT_REPLICAS), so replicas stay off unless an admin allows more.
+ * @property string|null $default_region Region the workspace's projects run in unless a project sets its own; null for any region.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -39,6 +40,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'max_builds_per_hour',
     'idle_sleep_minutes',
     'max_replicas',
+    'default_region',
 ])]
 class LimitProfile extends Model
 {

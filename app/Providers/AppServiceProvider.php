@@ -143,6 +143,13 @@ class AppServiceProvider extends ServiceProvider
                 ->by((string) $identifier);
         });
 
+        // Sakala Edge instances, before authentication: per address, so a
+        // flood of bad tokens is limited as well.
+        RateLimiter::for('edge', function (Request $request): Limit {
+            return Limit::perMinute((int) config('sakala.rate_limits.edge'))
+                ->by('edge:'.(string) $request->ip());
+        });
+
         RateLimiter::for('oauth', function (Request $request): Limit {
             return Limit::perMinute((int) config('sakala.rate_limits.oauth'))
                 ->by((string) $request->ip());

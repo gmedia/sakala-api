@@ -8,6 +8,7 @@ use App\Data\Admin\LimitProfileData;
 use App\Http\Requests\Concerns\RequiresAdminReason;
 use App\Models\LimitProfile;
 use App\Models\Project;
+use App\Rules\RegionSlug;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -15,7 +16,7 @@ class StoreLimitProfileRequest extends FormRequest
 {
     use RequiresAdminReason;
 
-    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas'];
+    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region'];
 
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
@@ -43,6 +44,11 @@ class StoreLimitProfileRequest extends FormRequest
              * project run on one node, which may cap them lower.
              */
             'max_replicas' => ['sometimes', 'nullable', 'integer', 'between:'.Project::DEFAULT_REPLICAS.','.LimitProfile::MAX_REPLICAS_CEILING],
+            /**
+             * Region the workspace's projects run in unless a project sets its own, for example `jkt`. `null` (the
+             * default) places them in any region. Lowercase letters, digits, and single inner hyphens, up to 32 characters.
+             */
+            'default_region' => ['sometimes', 'nullable', 'string', 'max:'.RegionSlug::MAX_LENGTH, new RegionSlug],
         ];
     }
 

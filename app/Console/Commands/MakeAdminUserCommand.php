@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Actions\Admin\ChangeUserRoleAction;
 use App\Actions\Admin\CreateAdminUserAction;
+use App\Console\Commands\Concerns\AsksForAuditReason;
 use App\Enums\UserRole;
 use App\Exceptions\Admin\LastAdminException;
 use App\Models\User;
@@ -23,8 +24,7 @@ use Illuminate\Validation\Rules\Password;
  */
 final class MakeAdminUserCommand extends Command
 {
-    /** The admin API accepts reasons up to this length too. */
-    private const MAX_REASON_LENGTH = 500;
+    use AsksForAuditReason;
 
     /**
      * The name and signature of the console command.
@@ -171,35 +171,6 @@ final class MakeAdminUserCommand extends Command
         $this->line('  Recorded in the audit log as user.admin_created.');
 
         return self::SUCCESS;
-    }
-
-    /**
-     * The reason from --reason, or asked for in a terminal. Only a run that
-     * cannot prompt may go without one; the audit event then says so.
-     */
-    private function reason(): ?string
-    {
-        /** @var string|null $option */
-        $option = $this->option('reason');
-        $reason = trim($option ?? '');
-
-        if ($reason === '' && $this->input->isInteractive()) {
-            $reason = trim((string) $this->ask('Reason for this change (stored in the audit log)'));
-
-            if ($reason === '') {
-                $this->components->error('A reason is required in a terminal. Nothing changed.');
-
-                return null;
-            }
-        }
-
-        if (mb_strlen($reason) > self::MAX_REASON_LENGTH) {
-            $this->components->error('The reason may be at most '.self::MAX_REASON_LENGTH.' characters. Nothing changed.');
-
-            return null;
-        }
-
-        return $reason;
     }
 
     private function askPassword(): ?string

@@ -238,3 +238,27 @@ test('empty audit metadata is sent as a JSON object', function (): void {
 
     expect($body)->toContain('"metadata":{}');
 });
+
+test('the OpenAPI document describes regions, node placement, and the Edge route table', function (): void {
+    $document = openApiDocumentForTypes();
+    $schemas = $document['components']['schemas'];
+    $update = $document['paths']['/v1/app/projects/{project}']['put']['requestBody']['content']['application/json']['schema'];
+    $updateProperties = isset($update['$ref'])
+        ? $schemas[str_replace('#/components/schemas/', '', $update['$ref'])]['properties']
+        : $update['properties'];
+    $node = $schemas['AdminAgentResource']['properties'];
+    $routes = $document['paths']['/edge/v1/routes']['get']['responses']['200']['content']['application/json']['schema'];
+    $routeTable = isset($routes['$ref']) ? $schemas[str_replace('#/components/schemas/', '', $routes['$ref'])] : $routes;
+
+    expect($schemas['ProjectResource']['properties']['region']['type'])->toBe(['string', 'null'])
+        ->and($updateProperties['region']['type'])->toBe(['string', 'null'])
+        ->and($schemas['LimitProfileResource']['properties']['default_region']['type'])->toBe(['string', 'null'])
+        ->and($schemas['RegionResource']['properties']['slug']['type'])->toBe('string')
+        ->and($node['region']['type'])->toBe(['string', 'null'])
+        ->and($node['edge_address']['type'])->toBe(['string', 'null'])
+        ->and($schemas['AgentNodeCapacityResource']['properties']['free_workload_slots']['type'])->toBe(['integer', 'null'])
+        ->and($routeTable['properties']['expected_minimum_routes']['type'])->toBe('integer')
+        ->and($routeTable['properties']['routes']['items']['properties']['upstreams']['items']['type'])->toBe('string')
+        ->and($routeTable['properties']['skipped_routes']['items']['properties']['reason']['type'])->toBe('string')
+        ->and(untypedOpenApiProperties($routeTable, 'EdgeRouteTable'))->toBe([]);
+});

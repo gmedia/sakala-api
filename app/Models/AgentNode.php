@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Data\Agent\NodeCapacityData;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
+use App\Rules\EdgeAddress;
+use App\Rules\RegionSlug;
 use Carbon\CarbonImmutable;
 use Database\Factories\AgentNodeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -25,6 +28,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $last_seen_at
  * @property array<int, string>|null $capabilities
  * @property array<string, mixed>|null $metadata The last heartbeat's metadata, as reported.
+ * @property string|null $region_override Region an admin set; wins over the reported one (effectiveRegion()).
+ * @property string|null $edge_address_override Edge address an admin set; wins over the reported one (effectiveEdgeAddress()).
  */
 #[Fillable([
     'agent_id',
@@ -38,6 +43,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'description',
     'hostname',
     'runtime_network',
+    'region_override',
+    'edge_address_override',
     'capabilities',
     'metadata',
     'registered_at',
@@ -78,6 +85,94 @@ class AgentNode extends Model
 
     /** Upper bound of that report, the agent's own ceiling. */
     public const MAXIMUM_REPLICAS_REPORT_CEILING = 64;
+
+    /**
+     * Heartbeat `metadata.runtime`: where the node is and how Sakala Edge
+     * reaches it. Both keys are optional and nullable (additive in protocol
+     * revision 4).
+     */
+    public const RUNTIME_METADATA_KEY = 'runtime';
+
+    /** `metadata.runtime.region`, from `SAKALA_AGENT_REGION` (App\Rules\RegionSlug). */
+    public const REGION_METADATA_KEY = 'region';
+
+    /** `metadata.runtime.edge_address`, the node router's `host:port` as the Edge reaches it (App\Rules\EdgeAddress). */
+    public const EDGE_ADDRESS_METADATA_KEY = 'edge_address';
+
+    /** `metadata.workloads.active`: containers the node runs now. */
+    public const ACTIVE_WORKLOADS_METADATA_KEY = 'active';
+
+    /**
+     * `metadata.workloads.maximum_active_workloads`: the most containers the
+     * node runs at once (`SAKALA_MAX_ACTIVE_CONTAINERS`), optional and
+     * nullable (additive in protocol revision 4).
+     */
+    public const MAXIMUM_ACTIVE_WORKLOADS_METADATA_KEY = 'maximum_active_workloads';
+
+    /** `metadata.resources` keys the scheduler reads. */
+    public const MEMORY_TOTAL_METADATA_KEY = 'memory_total_bytes';
+
+    public const MEMORY_AVAILABLE_METADATA_KEY = 'memory_available_bytes';
+
+    /**
+     * The region the node serves: the admin override, else what its last
+     * heartbeat reported, else null (a node without a region only takes
+     * projects that ask for none).
+     */
+    public function effectiveRegion(): ?string
+    {
+        return $this->region_override ?? $this->reportedRegion();
+    }
+
+    /** The region the last heartbeat reported in `metadata.runtime.region`. */
+    public function reportedRegion(): ?string
+    {
+        $region = $this->runtimeMetadata()[self::REGION_METADATA_KEY] ?? null;
+
+        return RegionSlug::isValid($region) ? $region : null;
+    }
+
+    /**
+     * Where Sakala Edge reaches the node's runtime router (`host:port`): the
+     * admin override, else what its last heartbeat reported, else null, in
+     * which case the Edge route table skips the node's projects.
+     */
+    public function effectiveEdgeAddress(): ?string
+    {
+        return $this->edge_address_override ?? $this->reportedEdgeAddress();
+    }
+
+    /** The address the last heartbeat reported in `metadata.runtime.edge_address`. */
+    public function reportedEdgeAddress(): ?string
+    {
+        $address = $this->runtimeMetadata()[self::EDGE_ADDRESS_METADATA_KEY] ?? null;
+
+        return EdgeAddress::isValid($address) ? $address : null;
+    }
+
+    /** Free memory and container slots from the last heartbeat. */
+    public function capacity(): NodeCapacityData
+    {
+        $resources = $this->metadata['resources'] ?? null;
+        $resources = is_array($resources) ? $resources : [];
+        $workloads = $this->workloadMetadata();
+        $integer = static fn (mixed $value): ?int => is_int($value) && $value >= 0 ? $value : null;
+
+        return new NodeCapacityData(
+            memoryTotalBytes: $integer($resources[self::MEMORY_TOTAL_METADATA_KEY] ?? null),
+            memoryAvailableBytes: $integer($resources[self::MEMORY_AVAILABLE_METADATA_KEY] ?? null),
+            activeWorkloads: $integer($workloads[self::ACTIVE_WORKLOADS_METADATA_KEY] ?? null),
+            maximumActiveWorkloads: $integer($workloads[self::MAXIMUM_ACTIVE_WORKLOADS_METADATA_KEY] ?? null),
+        );
+    }
+
+    /** @return array<string, mixed> */
+    private function runtimeMetadata(): array
+    {
+        $runtime = $this->metadata[self::RUNTIME_METADATA_KEY] ?? null;
+
+        return is_array($runtime) ? $runtime : [];
+    }
 
     /**
      * Whether a deployment of `$replicas` containers may be sent to this node:

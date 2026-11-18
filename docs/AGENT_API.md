@@ -183,6 +183,29 @@ punya capability `replicas` dan maksimumnya paling sedikit sebanyak replika yang
 diminta. Node ber-capability yang tidak mengirim field ini dianggap sanggup berapa
 pun.
 
+`metadata.runtime` juga tambahan opsional di dalam revision 4, untuk Sakala Edge
+dan region (ADR-019). Kedua kuncinya opsional dan boleh `null`; nilai yang tidak
+sesuai menolak seluruh heartbeat `422`, seperti daftar di atas:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `metadata.runtime.region` | string atau `null` | Region node, dari `SAKALA_AGENT_REGION`. Huruf kecil dan angka dalam kelompok yang dipisah satu tanda hubung (`^[a-z0-9]+(?:-[a-z0-9]+)*$`), paling panjang 32 karakter, misalnya `jkt` atau `id-jog-1`. |
+| `metadata.runtime.edge_address` | string atau `null` | Alamat router runtime node seperti dicapai Sakala Edge, `host:port` tanpa skema atau path: IPv4 (`10.0.47.201:8180`), IPv6 dalam kurung siku (`[fd00::21]:8180`), atau nama DNS (`runtime-01.internal:8180`); port 1 sampai 65535; paling panjang 255 karakter. Usulan nama env di agent: `SAKALA_AGENT_EDGE_ADDRESS`. |
+
+`metadata.workloads.maximum_active_workloads` (integer ≥ 0 atau `null`, opsional,
+tambahan di revision 4) adalah container terbanyak yang dijalankan node sekaligus
+(`SAKALA_MAX_ACTIVE_CONTAINERS`, nilai yang sama dengan `RuntimeCapacity.maximum_active_workloads`
+di agent). Bersama `metadata.workloads.active` dan `metadata.resources.memory_available_bytes`,
+nilai ini dipakai scheduler untuk memilih node dengan kapasitas paling longgar.
+
+API menyimpan semuanya di `agent_nodes.metadata` seperti dilaporkan. Admin bisa
+menimpa region dan alamat Edge per node (`agent:node-region`,
+`agent:node-edge-address`); override admin selalu menang dan heartbeat tidak pernah
+mengubahnya. Region efektif menentukan penempatan project yang memilih region;
+alamat Edge efektif menjadi `upstreams` di tabel route Edge
+([EDGE_API.md](EDGE_API.md)). Node tanpa alamat Edge membuat project-nya masuk
+`skipped_routes`.
+
 `ready < desired` tidak pernah mengubah `runtime_status`: project dengan sebagian
 replika mati tetap melayani lewat replika yang sehat. Agent hanya mencantumkan
 deployment di `crashed_details` bila semua replikanya crash, dan hanya daftar itu
@@ -764,7 +787,9 @@ tanpa Agent atau Docker sungguhan. Lihat README di folder tersebut.
 
 Seluruh kontrak protocol v4 yang diperlukan #55 telah diimplementasikan. Belum
 tersedia: `desired_state = maintenance` (agent v0.2.0 hanya mencapainya lewat
-bootstrap) dan migrasi workload lintas node.
+bootstrap), migrasi workload lintas node, dan replika satu project yang tersebar ke
+beberapa node (semua replika masih di satu node; lihat
+[Penempatan](API_CONVENTIONS.md#region-dan-penempatan)).
 
 ## Catatan sinkronisasi untuk sakala-agent
 
@@ -788,3 +813,13 @@ Keputusan agent yang tetap berlaku:
    belum mengeksposnya sebagai control request.
 4. Agent menerima `204` tanpa body pada report untuk control plane lama; API
    selalu menjawab `200` dengan acknowledgement penuh.
+
+Tambahan untuk Sakala Edge dan region (belum dikirim agent mana pun saat API ini
+dirilis; semuanya opsional sehingga agent lama tetap kompatibel):
+
+5. Kirim `metadata.runtime.region` dari `SAKALA_AGENT_REGION` dan
+   `metadata.runtime.edge_address` (usulan env `SAKALA_AGENT_EDGE_ADDRESS`) di setiap
+   heartbeat, dengan aturan format di bagian Heartbeat. Validasi di agent saat start
+   dengan aturan yang sama, karena nilai salah membuat heartbeat ditolak `422`.
+6. Kirim `metadata.workloads.maximum_active_workloads` dari
+   `RuntimeCapacity.maximum_active_workloads`.

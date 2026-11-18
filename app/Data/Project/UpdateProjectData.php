@@ -16,6 +16,9 @@ final readonly class UpdateProjectData
         public ?bool $autoDeploy = null,
         /** Applies from the next deployment. */
         public ?int $replicas = null,
+        /** Null places the project in any region; only stored when $regionProvided. */
+        public ?string $region = null,
+        public bool $regionProvided = false,
     ) {}
 
     /**
@@ -36,6 +39,12 @@ final readonly class UpdateProjectData
 
         if ($this->autoDeploy !== null) {
             $data['auto_deploy'] = $this->autoDeploy;
+        }
+
+        // Not runtime configuration: a region only applies to placing a
+        // project without a workload, so it never asks for a redeploy.
+        if ($this->regionProvided) {
+            $data['region'] = $this->region;
         }
 
         return [...$data, ...$this->runtimeConfiguration()];

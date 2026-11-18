@@ -4,15 +4,18 @@ declare(strict_types=1);
 
 namespace App\Services\Agent;
 
+use App\Data\Agent\ReplicaPlacementData;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\DeploymentStatus;
+use App\Exceptions\Runtime\ProjectRegionUnavailableException;
 use App\Exceptions\Runtime\ProjectReplicasUnsupportedException;
 use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Services\Runtime\PilotRuntimeLimitService;
 use Illuminate\Support\Collection;
 
 /**
@@ -23,65 +26,97 @@ use Illuminate\Support\Collection;
  */
 final class AgentNodeSchedulerService
 {
+    /** Attribute eligibleNodes() adds: open DeployProject commands pinned to the node. */
+    private const RESERVED_DEPLOYMENTS_ATTRIBUTE = 'reserved_deployments_count';
+
+    /** Bytes in one MB, for the memory a reserved deployment is assumed to take. */
+    private const BYTES_PER_MEGABYTE = 1024 * 1024;
+
     public function __construct(
         private readonly AgentCommandEligibilityService $eligibility,
+        private readonly PilotRuntimeLimitService $limits,
     ) {}
 
     /**
      * Return the node that should execute a command of the given type for the
      * project, or null when no node can take it right now (the command then
-     * stays unassigned until a later sweep or heartbeat assigns it). A
-     * deployment of several `$replicas` only goes to a node that runs them all
-     * (AgentNode::supportsReplicas()).
+     * stays unassigned until a later sweep or heartbeat assigns it). The
+     * primary node of placementFor().
      */
     public function selectNodeFor(AgentCommandType $type, ?Project $project = null, int $replicas = Project::DEFAULT_REPLICAS): ?AgentNode
+    {
+        return $this->placementFor($type, $project, $replicas)->primaryNode();
+    }
+
+    /**
+     * Where a command of the given type for the project runs, in this order:
+     *
+     * 1. Only eligible nodes (eligibleNodes()) that run every replica
+     *    (AgentNode::supportsReplicas()).
+     * 2. A project already served by a node stays there, whatever its region
+     *    and capacity, or waits for it (see below).
+     * 3. Otherwise only nodes of the project's region
+     *    (PilotRuntimeLimitService::regionFor()), when it has one.
+     * 4. Among those, the node with the most free capacity (rankByCapacity()).
+     *
+     * All replicas go to one node. TODO(ADR-019 stage 4): once Sakala Edge
+     * balances a project across nodes (the route table already lists several
+     * upstreams), spread replicas over the eligible nodes of the region here;
+     * ReplicaPlacementData already carries several assignments.
+     */
+    public function placementFor(AgentCommandType $type, ?Project $project = null, int $replicas = Project::DEFAULT_REPLICAS): ReplicaPlacementData
     {
         $candidates = $this->eligibleNodes($type)
             ->filter(static fn (AgentNode $node): bool => $node->supportsReplicas($replicas))
             ->values();
 
-        // Routes, images, and containers are node-local: a project that is
-        // already served by a node must stay there so stop/finalization
-        // commands can reach the running workload. If that node cannot take
-        // work right now the command waits for it; moving to another node
-        // would leave the old workload running unreachable, so cross-node
-        // migration is deliberately not implicit.
         if ($project !== null) {
+            // Routes, images, and containers are node-local: a project that is
+            // already served by a node must stay there so stop/finalization
+            // commands can reach the running workload. If that node cannot take
+            // work right now the command waits for it; moving to another node
+            // would leave the old workload running unreachable, so cross-node
+            // migration is deliberately not implicit. A region changed later
+            // applies once the workload is gone.
             $currentNodeId = $this->currentNodeIdOf($project);
 
             if ($currentNodeId !== null) {
-                return $candidates->firstWhere('id', $currentNodeId);
+                $current = $candidates->firstWhere('id', $currentNodeId);
+
+                return $current === null ? ReplicaPlacementData::none() : ReplicaPlacementData::onOneNode($current, $replicas);
             }
+
+            $candidates = $this->inRegion($candidates, $this->limits->regionFor($project));
         }
 
-        if ($candidates->isEmpty()) {
-            return null;
-        }
+        $node = $this->rankByCapacity($candidates, $replicas)->first();
 
-        return $candidates
-            ->sortBy([
-                ['reserved_commands_count', 'asc'],
-                ['last_seen_at', 'desc'],
-            ])
-            ->first();
+        return $node === null ? ReplicaPlacementData::none() : ReplicaPlacementData::onOneNode($node, $replicas);
     }
 
     /**
-     * Refuse a deployment of `$replicas` that no node could ever run, so it is
-     * not queued forever: the selected node, or else the node the project is
-     * pinned to whatever its state, or else every node that is allowed work,
-     * must run them all. A pinned or known node that only needs to come back
-     * online is fine; the deployment waits for it.
+     * Refuse a deployment that no node could ever run, so it is not queued
+     * forever. Nothing to check when a node was selected. Otherwise the node
+     * the project is pinned to, whatever its state, or else every node of the
+     * project's region that is allowed work, must exist and run all
+     * `$replicas`. A pinned or known node that only needs to come back online
+     * is fine; the deployment waits for it.
      *
+     * @throws ProjectRegionUnavailableException
      * @throws ProjectReplicasUnsupportedException
      */
-    public function ensureReplicasCanRun(Project $project, ?AgentNode $selected, int $replicas): void
+    public function ensurePlaceable(Project $project, ?AgentNode $selected, int $replicas): void
     {
-        if ($replicas <= Project::DEFAULT_REPLICAS || $selected !== null) {
+        if ($selected !== null) {
             return;
         }
 
         $currentNodeId = $this->currentNodeIdOf($project);
+        $region = $currentNodeId === null ? $this->limits->regionFor($project) : null;
+
+        if ($region === null && $replicas <= Project::DEFAULT_REPLICAS) {
+            return;
+        }
 
         /** @var Collection<int, AgentNode> $nodes */
         $nodes = AgentNode::query()
@@ -94,6 +129,12 @@ final class AgentNodeSchedulerService
             )
             ->get();
 
+        $nodes = $this->inRegion($nodes, $region);
+
+        if ($region !== null && $nodes->isEmpty()) {
+            throw new ProjectRegionUnavailableException($region);
+        }
+
         if ($nodes->contains(static fn (AgentNode $node): bool => $node->supportsReplicas($replicas))) {
             return;
         }
@@ -102,6 +143,78 @@ final class AgentNodeSchedulerService
             $replicas,
             $nodes->map(static fn (AgentNode $node): ?int => $node->maximumReplicasPerProject())->filter()->max(),
         );
+    }
+
+    /**
+     * Nodes whose effective region is `$region`; all of them when it is null.
+     *
+     * @param  Collection<int, AgentNode>  $nodes
+     * @return Collection<int, AgentNode>
+     */
+    private function inRegion(Collection $nodes, ?string $region): Collection
+    {
+        if ($region === null) {
+            return $nodes;
+        }
+
+        return $nodes
+            ->filter(static fn (AgentNode $node): bool => $node->effectiveRegion() === $region)
+            ->values();
+    }
+
+    /**
+     * Best node first, by what it has free, in this order:
+     *
+     * 1. Nodes whose free container slots fit the replicas, or that do not
+     *    report a maximum, before nodes that are full.
+     * 2. More memory headroom first: available memory from the last
+     *    heartbeat, minus the default container memory for each deployment
+     *    reserved on the node since (each counted as one container). Nodes
+     *    that report no memory come last.
+     * 3. More free container slots first, minus the same reservations.
+     * 4. Fewer reserved commands, then the freshest heartbeat.
+     *
+     * Reservations matter because a heartbeat is up to one interval old: a
+     * batch of deployments would otherwise all land on the node that looked
+     * emptiest at its last report.
+     *
+     * @param  Collection<int, AgentNode>  $candidates  From eligibleNodes(), with the reservation counts.
+     * @return Collection<int, AgentNode>
+     */
+    private function rankByCapacity(Collection $candidates, int $replicas): Collection
+    {
+        $containerMemoryBytes = (int) config('sakala.pilot_limits.resources.default_memory_mb', 256) * self::BYTES_PER_MEGABYTE;
+
+        $freeSlots = static function (AgentNode $node): ?int {
+            $free = $node->capacity()->freeWorkloadSlots();
+
+            return $free === null ? null : $free - (int) $node->getAttribute(self::RESERVED_DEPLOYMENTS_ATTRIBUTE);
+        };
+
+        $fits = static function (AgentNode $node) use ($freeSlots, $replicas): bool {
+            $free = $freeSlots($node);
+
+            return $free === null || $free >= $replicas;
+        };
+
+        $memoryHeadroom = static function (AgentNode $node) use ($containerMemoryBytes): ?int {
+            $available = $node->capacity()->memoryAvailableBytes;
+
+            return $available === null ? null : $available - (int) $node->getAttribute(self::RESERVED_DEPLOYMENTS_ATTRIBUTE) * $containerMemoryBytes;
+        };
+
+        // Unknown values sort as the least free.
+        $descending = static fn (?int $a, ?int $b): int => ($b ?? PHP_INT_MIN) <=> ($a ?? PHP_INT_MIN);
+
+        return $candidates
+            ->sortBy([
+                static fn (AgentNode $a, AgentNode $b): int => $fits($b) <=> $fits($a),
+                static fn (AgentNode $a, AgentNode $b): int => $descending($memoryHeadroom($a), $memoryHeadroom($b)),
+                static fn (AgentNode $a, AgentNode $b): int => $descending($freeSlots($a), $freeSlots($b)),
+                ['reserved_commands_count', 'asc'],
+                ['last_seen_at', 'desc'],
+            ])
+            ->values();
     }
 
     /**
@@ -139,6 +252,15 @@ final class AgentNodeSchedulerService
             ->whereIn('protocol_version', $this->eligibility->supportedProtocolVersions())
             ->where('last_seen_at', '>=', now()->subSeconds($offlineAfter))
             ->withCount([
+                // Deployments not finished yet will start containers the
+                // last heartbeat does not show (rankByCapacity()).
+                'commands as '.self::RESERVED_DEPLOYMENTS_ATTRIBUTE => function ($query): void {
+                    $query->where('type', AgentCommandType::DeployProject)->whereIn('status', [
+                        AgentCommandStatus::Pending,
+                        AgentCommandStatus::Claimed,
+                        AgentCommandStatus::Running,
+                    ]);
+                },
                 // Assigned-but-unclaimed commands are reservations too;
                 // counting only claimed work would let one node absorb a
                 // whole assignment batch.

@@ -28,6 +28,10 @@ final class AgentResource extends JsonResource
             'status' => $this->status->value,
             'desired_state' => $this->desired_state->value,
             'protocol_version' => $this->protocol_version,
+            /** The region the node serves: the admin override, else the reported one. */
+            'region' => $this->resource->effectiveRegion(),
+            /** `host:port` where Sakala Edge reaches the node's router: the admin override, else the reported one. */
+            'edge_address' => $this->resource->effectiveEdgeAddress(),
             'last_seen_at' => $this->last_seen_at?->toAtomString(),
             'created_at' => $this->created_at->toAtomString(),
             'updated_at' => $this->updated_at->toAtomString(),

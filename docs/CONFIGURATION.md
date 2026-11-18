@@ -73,6 +73,19 @@ php artisan projects:move-domain run.sakala.dev sakala.app --force
 - `SAKALA_AGENT_OFFLINE_AFTER_SECONDS`: node yang heartbeat terakhirnya lebih lama dari ini tidak dipilih sebagai target command baru dan ditandai `offline` oleh `agent:mark-offline-nodes`; default `60`.
 - `SAKALA_AGENT_LEASE_GRACE_SECONDS`: ditambahkan ke `command_timeout_seconds` saat claim untuk membentuk lease command; setelah lewat, `agent:expire-commands` menutup command dan deployment terkait. Default `60`.
 
+Region dan alamat Edge sebuah node dilaporkan agent lewat heartbeat (lihat [Agent API](AGENT_API.md#heartbeat)). Admin bisa menimpanya per node, dan nilai admin selalu menang:
+
+- `php artisan agent:node-region {node} {region} --reason=...` atau `--clear`;
+- `php artisan agent:node-edge-address {node} {host:port} --reason=...` atau `--clear`.
+
+`{node}` adalah ID node, agent ID, atau nama unik. Keduanya mencatat audit event.
+
+## Sakala Edge
+
+- `SAKALA_EDGE_ROUTES_CACHE_SECONDS`: berapa detik `GET /api/edge/v1/routes` memakai ulang tabel route yang sudah disusun; sekaligus batas basinya route. Default `5`, `0` menyusun ulang di setiap request.
+- `SAKALA_EDGE_RATE_LIMIT`: request per menit per alamat klien ke route Edge, dihitung sebelum autentikasi. Default `120`.
+- Token setiap instance Edge dibuat dengan `php artisan edge:token {name} --reason=...`, yang mencetak `SAKALA_EDGE_TOKEN=...` sekali. Jalankan lagi untuk mengganti token, atau dengan `--revoke` untuk mencabutnya. Kontraknya ada di [EDGE_API.md](EDGE_API.md).
+
 ## Deployments
 
 - `SAKALA_SIMULATE_DEPLOYMENTS`: `true` menjalankan `SimulatedDeploymentJob` yang memalsukan lifecycle deployment tanpa runtime node — hanya untuk pengembangan console lokal. Default `false`; jangan aktifkan bila ada agent yang terhubung karena keduanya akan menggerakkan record deployment yang sama.
