@@ -23,6 +23,11 @@ trait ValidatesBuildConfiguration
             'configured_port' => ['sometimes', 'nullable', 'integer', 'between:1,65535'],
             'build_command' => ['sometimes', 'nullable', 'string', 'max:1000', 'not_regex:/[\\x00-\\x1F\\x7F]/'],
             'start_command' => ['sometimes', 'nullable', 'string', 'max:1000', 'not_regex:/[\\x00-\\x1F\\x7F]/'],
+            /**
+             * Run once per deployment, before the new version takes traffic, for example database migrations.
+             * Only nodes with the `release-command` capability run it.
+             */
+            'release_command' => ['sometimes', 'nullable', 'string', 'max:1000', 'not_regex:/[\\x00-\\x1F\\x7F]/'],
             'root_directory' => [
                 'sometimes',
                 'nullable',
@@ -49,6 +54,7 @@ trait ValidatesBuildConfiguration
         return [
             'build_command.not_regex' => 'Perintah build harus satu baris. Gabungkan beberapa langkah dengan && atau pindahkan ke script di repository.',
             'start_command.not_regex' => 'Perintah start harus satu baris. Gabungkan beberapa langkah dengan && atau pindahkan ke script di repository.',
+            'release_command.not_regex' => 'Perintah rilis harus satu baris. Gabungkan beberapa langkah dengan && atau pindahkan ke script di repository.',
             'root_directory.regex' => 'Direktori root harus berupa path relatif di dalam repository, misalnya apps/web, tanpa / di awal atau di akhir.',
             'root_directory.not_regex' => 'Direktori root tidak boleh memakai . atau .. karena harus tetap berada di dalam repository. Tulis path-nya langsung, misalnya apps/web.',
         ];
@@ -66,6 +72,7 @@ trait ValidatesBuildConfiguration
             'configured_port',
             'build_command',
             'start_command',
+            'release_command',
             'root_directory',
         ]));
 

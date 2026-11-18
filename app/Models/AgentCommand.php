@@ -88,6 +88,19 @@ class AgentCommand extends Model
     }
 
     /**
+     * Whether a DeployProject asks the node to run a release command: its
+     * payload's `release_command`, which is only present when set. Read from
+     * the payload, not the project, so a later change to the project does not
+     * move a waiting deployment to a node that cannot run what it carries.
+     */
+    public function requestsReleaseCommand(): bool
+    {
+        $command = $this->payload['release_command'] ?? null;
+
+        return is_string($command) && $command !== '';
+    }
+
+    /**
      * Whether this SleepProject puts an idle project to sleep, as opposed to
      * suspending it. Suspension sleeps always carry the admin as actor or no
      * actor at all, so an admin who writes "idle" as a reason still suspends.

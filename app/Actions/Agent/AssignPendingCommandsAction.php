@@ -62,8 +62,14 @@ final class AssignPendingCommandsAction
                 }
 
                 // A deployment of several replicas waits for a node that runs
-                // them all; an older one would quietly run one.
-                $node = $this->scheduler->selectNodeFor($command->type, $command->project, $command->requestedReplicas());
+                // them all, and one with a release command for a node that runs
+                // it; an older one would quietly run one replica, or skip it.
+                $node = $this->scheduler->selectNodeFor(
+                    $command->type,
+                    $command->project,
+                    $command->requestedReplicas(),
+                    $command->requestsReleaseCommand(),
+                );
 
                 if ($node === null || ($onlyFor !== null && $node->id !== $onlyFor->id)) {
                     return 0;

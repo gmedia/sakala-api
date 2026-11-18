@@ -4,6 +4,12 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- **Per-project release command.** Projects gain `release_command` (nullable, one line without control characters, at most 1000 characters, like `start_command`), accepted by `POST` and `PATCH app/projects` and shown in `ProjectResource` and `CreateProjectResource`. It runs once per deployment before the new version takes traffic, for database migrations, and never on wake, restart, or reconcile. Changing it turns `redeploy_required` on; a project without one keeps its existing fingerprint.
+- `DeployProject` payload `release_command` (agent revision 4, additive), only sent when set and only to nodes with the new `release-command` capability. When no node could run it (the project's node, or for a new project every active node), the deployment is refused up front with `409 PROJECT_RELEASE_COMMAND_UNSUPPORTED` instead of starting the new version without it; a capable node that is only offline is waited for. A waiting deployment follows its own payload, not later project changes. Auto-deploy skips such a project with `reason` `release_command_unsupported` and tells its owners and members.
+- Failure codes `release_command_failed` and `release_command_timeout`, classified as user-fixable in the new failure category `release` (also accepted by the admin failure filter and counted in the failure summaries). The previous version keeps serving.
+
 ### Fixed
 
 - `redeploy_required` no longer turns on for every `PATCH app/projects/{project}`. A request without build fields or `replicas` used to mark the configuration changed whatever it changed, so renaming a project, or changing `thumbnail_url`, `auto_deploy`, or `region`, asked for a redeploy. The hint is now `true` only when the serving deployment was created with another deploy-relevant configuration: `branch`, the effective port (a port found by inspection counts while none is configured), `build_command`, `start_command`, `root_directory`, `replicas`, or environment variable keys and values. Changing a value back, or deleting a variable and adding it again with the same value, turns it off again; `is_secret` never counts. `branch` and a newly detected port, which were missed before, now count.

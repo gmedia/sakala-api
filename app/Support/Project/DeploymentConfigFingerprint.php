@@ -15,11 +15,11 @@ use App\Models\Project;
  * changing it back asks for nothing.
  *
  * Deploy-relevant: the branch, the effective port (what `container_port`
- * gets, so a newly detected port counts while none is configured), the build
- * and start commands, the root directory, the project's `replicas` setting,
- * and the environment variables' keys and values. Not: the name, thumbnail,
- * auto-deploy, region, or `is_secret`. Resources are requested per
- * deployment, not stored on the project.
+ * gets, so a newly detected port counts while none is configured), the build,
+ * start, and release commands, the root directory, the project's `replicas`
+ * setting, and the environment variables' keys and values. Not: the name,
+ * thumbnail, auto-deploy, region, or `is_secret`. Resources are requested
+ * per deployment, not stored on the project.
  *
  * Both fingerprints are HMAC-SHA256 keyed with APP_KEY, because environment
  * values are secrets and a bare hash of a short one can be guessed from a
@@ -46,6 +46,9 @@ final class DeploymentConfigFingerprint
             $project->root_directory,
             $project->replicas,
             $project->environment_fingerprint,
+            // Appended only when set, so a project without one keeps the
+            // fingerprint its deployments stored before the field existed.
+            ...($project->hasReleaseCommand() ? [$project->release_command] : []),
         ]);
     }
 

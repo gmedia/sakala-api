@@ -299,7 +299,8 @@ lifecycle command lain hanya membawa identitas.
 | `DrainNode`, `ResumeNode` | — |
 
 `DeployProject` yang payload-nya membawa `replicas` lebih dari 1 juga butuh
-capability `replicas`; lihat [DeployProject](#deployproject).
+capability `replicas`, dan yang membawa `release_command` juga butuh capability
+`release-command`; lihat [DeployProject](#deployproject).
 
 ### Pembatalan command
 
@@ -374,6 +375,22 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   `root_directory` adalah path relatif terhadap root repository (tanpa `..`, tanpa
   `/` di awal) yang menjadi konteks build. API menjamin ketiganya satu baris,
   terbatas 1000 karakter untuk command dan 255 untuk direktori.
+- `release_command` adalah field opsional tambahan (revisi protocol tetap 4),
+  hanya dikirim bila project mengisinya, dan hanya ke node yang mengiklankan
+  capability `release-command`. Agent menjalankannya sekali per deployment,
+  sebelum versi baru menerima traffic (misalnya migrasi database), di dalam
+  container dan tidak pernah di shell host. API menjamin satu baris, paling
+  panjang 1000 karakter. Agent lama akan mengabaikan field ini dan menjalankan
+  versi baru tanpa perintah rilis, jadi deployment ditolak saat dibuat dengan
+  `409 PROJECT_RELEASE_COMMAND_UNSUPPORTED` bila tidak ada node yang bisa
+  menjalankannya: node tempat project berjalan (apa pun statusnya) tidak punya
+  capability itu, atau, untuk project yang belum pernah berjalan, tidak ada node
+  aktif yang punya. Bila node yang sanggup hanya sedang offline, command menunggu
+  node itu. Perintah yang keluar dengan kode selain 0 menggagalkan command dengan
+  `release_command_failed` (sertakan kode keluarnya di `error_message`), dan yang
+  melewati batas waktu dengan `release_command_timeout`; dalam kedua kasus versi
+  baru tidak menerima traffic dan versi sebelumnya tetap melayani. Field ini tidak
+  pernah ada di payload `WakeProject`, `RestartProject`, atau `ReconcileWorkload`.
 - `domain` adalah `projects.default_domain` saat deployment dibuat, yaitu
   `<slug>.<SAKALA_PROJECT_DEFAULT_DOMAIN>` (hosted: `<slug>.sakala.app`,
   staging: `<slug>.staging.sakala.app`). Agent hanya menerima domain satu label
@@ -750,6 +767,7 @@ dilihat console (`failure.category`):
 | `checkout` | ya | `repository_not_found`, `repository_access_denied`, `repository_auth_failed`, `repository_credential_unavailable`, `repository_commit_not_found`, `repository_access_revoked` (control plane) |
 | `checkout` | tidak | `repository_credential_expired`, `repository_checkout_failed`, `runtime_repository_failed`, `repository_access_check_failed` (control plane) |
 | `build` | ya | `runtime_build_failed`, `runtime_root_directory_invalid` |
+| `release` | ya | `release_command_failed` (perintah rilis keluar dengan kode selain 0), `release_command_timeout` (perintah rilis melewati batas waktu); versi sebelumnya tetap melayani |
 | `start` | ya | `runtime_app_crashed`, `runtime_port_conflict` |
 | `start` | tidak | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed` |
 | `health` | ya | `runtime_app_not_listening`, `runtime_app_unhealthy`, `runtime_health_check_failed` |
@@ -823,3 +841,10 @@ dirilis; semuanya opsional sehingga agent lama tetap kompatibel):
    dengan aturan yang sama, karena nilai salah membuat heartbeat ditolak `422`.
 6. Kirim `metadata.workloads.maximum_active_workloads` dari
    `RuntimeCapacity.maximum_active_workloads`.
+
+Tambahan untuk perintah rilis (opsional; agent lama tetap kompatibel karena API
+tidak mengirim `release_command` ke node tanpa capability `release-command`):
+
+7. Iklankan capability `release-command`, jalankan `release_command` sesuai
+   [DeployProject](#deployproject), dan gagalkan command dengan
+   `release_command_failed` atau `release_command_timeout`.

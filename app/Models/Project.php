@@ -42,6 +42,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property int|null $configured_port
  * @property string|null $build_command
  * @property string|null $start_command
+ * @property string|null $release_command Run once per deployment before the new version takes traffic; only placed on nodes with AgentNode::RELEASE_COMMAND_CAPABILITY.
  * @property string|null $root_directory
  * @property int $replicas Containers the next deployment runs, behind the node's router. Applies from the next deployment.
  * @property string|null $region Region the project runs in; null follows the workspace profile's default_region (PilotRuntimeLimitService::regionFor()).
@@ -77,6 +78,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'configured_port',
     'build_command',
     'start_command',
+    'release_command',
     'root_directory',
     'replicas',
     'region',
@@ -130,6 +132,15 @@ class Project extends Model
     public function effectivePort(): int
     {
         return $this->configured_port ?? $this->detected_port ?? self::DEFAULT_CONTAINER_PORT;
+    }
+
+    /**
+     * Whether the next deployment runs a release command, and so needs a node
+     * with AgentNode::RELEASE_COMMAND_CAPABILITY.
+     */
+    public function hasReleaseCommand(): bool
+    {
+        return $this->release_command !== null && $this->release_command !== '';
     }
 
     /**

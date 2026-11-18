@@ -8,6 +8,7 @@ enum DeploymentFailureCategory: string
 {
     case Checkout = 'checkout';
     case Build = 'build';
+    case Release = 'release';
     case Start = 'start';
     case Health = 'health';
     case Route = 'route';
