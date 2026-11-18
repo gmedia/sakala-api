@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Actions\Edge\RecordEdgeContactAction;
+use App\Data\Edge\EdgeContactData;
 use App\Models\EdgeToken;
 use Closure;
 use Illuminate\Http\Request;
@@ -12,12 +14,18 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Authenticates Sakala Edge with its own bearer token (EdgeToken), apart from
  * user sessions and agent tokens: a missing or unknown token answers 401, a
- * revoked one 403. The token reaches nothing but the Edge routes.
+ * revoked one 403. The token reaches nothing but the Edge routes. Each
+ * authenticated request is recorded on the token (RecordEdgeContactAction),
+ * for health monitoring; malformed Edge headers never fail the request.
  */
 final class EnsureEdgeToken
 {
     /** Request attribute holding the authenticated EdgeToken. */
     public const ATTRIBUTE = 'edge_token';
+
+    public function __construct(
+        private readonly RecordEdgeContactAction $recordContact,
+    ) {}
 
     /**
      * @param  Closure(Request): (Response)  $next
@@ -40,10 +48,11 @@ final class EnsureEdgeToken
             abort(Response::HTTP_FORBIDDEN, 'Forbidden');
         }
 
-        if ($edgeToken->last_used_at === null
-            || $edgeToken->last_used_at->lt(now()->subSeconds(EdgeToken::LAST_USED_RESOLUTION_SECONDS))) {
-            $edgeToken->forceFill(['last_used_at' => now()])->saveQuietly();
-        }
+        $this->recordContact->handle($edgeToken, EdgeContactData::fromHeaders(
+            $request->userAgent(),
+            $request->header(EdgeContactData::APPLIED_REVISION_HEADER),
+            $request->header(EdgeContactData::STATUS_HEADER),
+        ));
 
         $request->attributes->set(self::ATTRIBUTE, $edgeToken);
 

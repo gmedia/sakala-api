@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Actions\Edge\EvaluateEdgeHealthAction;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\Domains\ProjectDomainGenerator;
 
 $emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
+$edgeStaleAfterSeconds = env('SAKALA_EDGE_STALE_AFTER_SECONDS');
 
 return [
     'console_url' => env('SAKALA_CONSOLE_URL', 'http://localhost:5173'),
@@ -121,6 +123,13 @@ return [
         // stale a route can be; 0 builds it on every request. See
         // docs/EDGE_API.md.
         'routes_cache_seconds' => max(0, (int) env('SAKALA_EDGE_ROUTES_CACHE_SECONDS', 5)),
+
+        // How long an Edge may stay stale, report a failing status, or serve
+        // an older revision before edge:check-health alerts the admins. Unset
+        // or empty uses the default. See docs/EDGE_API.md#pemantauan.
+        'stale_after_seconds' => $edgeStaleAfterSeconds === null || $edgeStaleAfterSeconds === ''
+            ? EvaluateEdgeHealthAction::DEFAULT_STALE_AFTER_SECONDS
+            : max(1, (int) $edgeStaleAfterSeconds),
     ],
 
     'deployments' => [

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Admin\AgentController;
 use App\Http\Controllers\Api\V1\Admin\AuditEventController;
 use App\Http\Controllers\Api\V1\Admin\DeploymentController;
+use App\Http\Controllers\Api\V1\Admin\EdgeController;
 use App\Http\Controllers\Api\V1\Admin\FeedbackController;
 use App\Http\Controllers\Api\V1\Admin\LimitProfileController;
 use App\Http\Controllers\Api\V1\Admin\OverviewController;
@@ -71,6 +72,9 @@ Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function ()
     Route::post('agents/{agent}/revoke', [AgentController::class, 'revoke'])->whereUuid('agent');
     Route::get('agents/{agent}/commands', [AgentController::class, 'commands'])->whereUuid('agent');
     Route::get('agents/{agent}/commands/{command}', [AgentController::class, 'command'])->whereUuid(['agent', 'command']);
+
+    // Sakala Edge instances and their health
+    Route::get('edges', [EdgeController::class, 'index']);
 
     // Feedback and audit
     Route::get('feedback', [FeedbackController::class, 'index']);
