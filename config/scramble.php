@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Support\Scramble\BuildRateLimitExceptionToResponseExtension;
 use App\Support\Scramble\DeploymentEventPropertyTypeExtension;
 use App\Support\Scramble\DeploymentPropertyTypeExtension;
 use App\Support\Scramble\GithubUnavailableExceptionToResponseExtension;
+use App\Support\Scramble\MergeSameStatusResponsesExtension;
 use App\Support\Scramble\ProjectWakeConflictExceptionToResponseExtension;
 use Dedoc\Scramble\Http\Middleware\RestrictedDocsAccess;
 
@@ -161,6 +163,8 @@ return [
         DeploymentEventPropertyTypeExtension::class,
         GithubUnavailableExceptionToResponseExtension::class,
         ProjectWakeConflictExceptionToResponseExtension::class,
+        BuildRateLimitExceptionToResponseExtension::class,
+        MergeSameStatusResponsesExtension::class,
     ],
 
     /*

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\Domains\ProjectDomainGenerator;
 
 $emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
@@ -86,6 +87,11 @@ return [
         // sleep by projects:sleep-idle, on nodes that advertise `idle-sleep`.
         // 0 turns idle sleep off. GET app/pilot-limits gives the console this number.
         'idle_sleep_minutes' => max(0, (int) env('SAKALA_PROJECT_IDLE_SLEEP_MINUTES', 0)),
+        // Deployments a workspace may create per rolling hour; every deployment
+        // builds an image. Applies to workspaces without a limit profile and to
+        // profiles without their own value. Empty means the default, 0 turns
+        // the limit off (PilotRuntimeLimitService::maxBuildsPerHourFor()).
+        'max_builds_per_hour' => env('SAKALA_PROJECT_MAX_BUILDS_PER_HOUR', PilotRuntimeLimitService::DEFAULT_MAX_BUILDS_PER_HOUR),
         'reserved_slugs' => [
             'api', 'app', 'console', 'agent', 'admin', 'www', 'sakala', 'webhook', 'docs',
             'support', 'help', 'status', 'mail', 'test', 'run',

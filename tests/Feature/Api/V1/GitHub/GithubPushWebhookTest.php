@@ -172,6 +172,26 @@ test('the active deployment limit holds, and the webhook still succeeds', functi
     sendPush($this, pushPayload())->assertOk()->assertJsonPath('duplicate', true);
 });
 
+test('the build rate limit holds, and the skip says when to deploy again', function (): void {
+    config(['sakala.project.max_builds_per_hour' => 1]);
+    $project = pushProject();
+    Deployment::factory()->for($project)->create([
+        'status' => DeploymentStatus::Succeeded,
+        'sequence' => 1,
+        'created_at' => now()->subMinutes(48),
+    ]);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(1)
+        ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->sole()->metadata)->toBe(['reason' => 'build_rate_limit', 'commit_sha' => PUSH_SHA]);
+
+    $notification = $project->user->notifications()->sole();
+
+    expect($notification->data['category'])->toBe('project_issue')
+        ->and($notification->data['message'])->toBe("{$project->name}: Workspace ini sudah mencapai batas 1 build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push lagi sekitar 12 menit lagi.");
+});
+
 test('auto_deploy is opt in and owner controlled', function (): void {
     $project = pushProject(['auto_deploy' => false]);
     $user = $project->user;

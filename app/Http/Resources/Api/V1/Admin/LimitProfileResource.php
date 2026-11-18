@@ -32,7 +32,8 @@ final class LimitProfileResource extends JsonResource
             /** Per project. */
             'max_cpu_millis' => $profile->max_cpu_millis,
             /**
-             * Reserved for the build rate limit; not enforced yet.
+             * Deployments the workspace may create per rolling hour; every deployment builds. `null` follows the
+             * global `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR`.
              */
             'max_builds_per_hour' => $profile->max_builds_per_hour,
             /**

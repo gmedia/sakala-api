@@ -12,6 +12,7 @@ use App\Actions\Deployment\GetDeploymentLogAction;
 use App\Enums\DeploymentStatus;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\GitHub\GithubUnavailableException;
+use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentLogRequest;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentRequest;
@@ -36,6 +37,7 @@ final class DeploymentController extends Controller
      *
      * @throws GithubUnavailableException
      * @throws GithubRateLimitedException
+     * @throws BuildRateLimitExceededException
      */
 
     // Untuk Testing

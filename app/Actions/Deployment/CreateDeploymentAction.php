@@ -16,6 +16,7 @@ use App\Enums\UsageSignalType;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
+use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
@@ -38,6 +39,9 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class CreateDeploymentAction
 {
+    /** Usage signal scope of the limits that count across a workspace. */
+    private const WORKSPACE_SCOPE = 'workspace';
+
     private function findExistingDeployment(
         Project $project,
         User $user,
@@ -211,6 +215,11 @@ final class CreateDeploymentAction
                     $lockedProject,
                 );
 
+                $this->runtimeLimitService->checkBuildRateLimit(
+                    $user,
+                    $lockedProject,
+                );
+
                 // Resolve effective runtime limits
                 $effectiveLimits = $this->runtimeLimitService->resolveEffectiveLimits(
                     $data->requested_resources,
@@ -333,8 +342,17 @@ final class CreateDeploymentAction
             $this->recordAction->handle(
                 type: UsageSignalType::RejectedLimits,
                 count: 1,
-                scope: 'workspace',
+                scope: self::WORKSPACE_SCOPE,
                 tags: ['limit_name' => 'max_active_containers'],
+            );
+
+            throw $e;
+        } catch (BuildRateLimitExceededException $e) {
+            $this->recordAction->handle(
+                type: UsageSignalType::RejectedLimits,
+                count: 1,
+                scope: self::WORKSPACE_SCOPE,
+                tags: ['limit_name' => BuildRateLimitExceededException::LIMIT_NAME],
             );
 
             throw $e;
