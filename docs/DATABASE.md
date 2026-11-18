@@ -32,7 +32,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `workspaces` | Pemilik project: satu workspace pribadi per user (`personal_user_id` unik) dan workspace tim. `slug` unik untuk keduanya. `limit_profile_id` opsional. |
 | `workspace_members` | Anggota workspace dengan peran `owner`, `member`, atau `viewer`. Unik per workspace dan user; ikut terhapus bersama workspace atau user. |
 | `workspace_invitations` | Undangan: email (huruf kecil), peran, `status` (`pending`, `accepted`, `declined`, `revoked`), hash SHA-256 token, pengundang, masa berlaku, dan `closed_at`. Diterima, ditolak, dicabut, atau diganti berarti barisnya ditutup, bukan dihapus, supaya tautannya bisa menjelaskan kenapa tidak berlaku. `workspaces:prune-invitations` menghapus setiap baris setelah `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS` lewat dari masa berlakunya. |
-| `limit_profiles` | Profil batas yang bisa dipakai ulang: jumlah project, container berjalan, deployment berjalan, memory dan CPU per project, `max_builds_per_hour` yang disiapkan untuk batas build, `idle_sleep_minutes` (`null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` tidak pernah tidur), dan `max_replicas` (`null` berarti 1 replika per project). Tidak bisa dihapus selama dipakai workspace. |
+| `limit_profiles` | Profil batas yang bisa dipakai ulang: jumlah project, container berjalan, deployment berjalan, memory dan CPU per project, `max_builds_per_hour` (deployment per 60 menit, `null` mengikuti `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR`), `idle_sleep_minutes` (`null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` tidak pernah tidur), dan `max_replicas` (`null` berarti 1 replika per project). Tidak bisa dihapus selama dipakai workspace. |
 | `legal_acceptances` | Versi dokumen yang disetujui atau diketahui tiap user, dengan waktunya. Append-only, unik per user, dokumen, dan versi; index itu juga melayani pembacaan per user. Ikut terhapus bersama user. |
 | `usage_signal_records` | Sinyal agregat penggunaan dan abuse (deployment attempts, agent failures, rejected limits, dll.) untuk observabilitas pilot. Append-only, diproses secara berkala oleh scheduler. |
 
@@ -56,7 +56,7 @@ Index dibuat dari query path yang sudah diketahui:
 - project yang ikut auto-deploy pada satu repository: `(github_repository_id, auto_deploy)` pada `projects`;
 - daftar notifikasi dan jumlah belum dibaca: `(notifiable_type, notifiable_id, created_at)` dan `(notifiable_type, notifiable_id, read_at)`; retensi: `(created_at)`;
 - ringkasan runtime user: `(user_id, runtime_status)`;
-- riwayat deployment: `(project_id, created_at)`;
+- riwayat deployment: `(project_id, created_at)`. Index yang sama melayani batas build per jam, yang menghitung deployment dengan `project_id IN (project workspace, termasuk yang dihapus)` dan `created_at` di dalam jendela 60 menit di bawah row lock workspace, jadi tidak perlu index baru;
 - deployment terbaru tiap project di daftar project: satu query tambahan per halaman, dengan `(project_id, status)` atau unique `(project_id, sequence)` yang sudah ada, jadi tidak perlu index baru. Lihat [Deployment Terbaru](#deployment-terbaru);
 - alasan penangguhan di daftar project: satu query tambahan per halaman lewat `Project::latestSuspendRequest`, dengan `(project_id, action)` yang sudah ada pada `project_control_requests`, jadi tidak perlu index baru;
 - project yang dilayani sebuah deployment, dipakai heartbeat untuk status crash: `(active_deployment_id)` pada `projects`, bersama `(agent_node_id, status)` pada `deployments`;

@@ -6,9 +6,18 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Added
 
+- **Build rate limit (#124).** `limit_profiles.max_builds_per_hour` is now enforced: a workspace may create that many deployments in a rolling 60 minutes. Every deployment counts, whatever its status, because every deployment builds a fresh image: manual deploys, redeploys, and push webhooks, failed and cancelled ones included, and deployments of deleted projects, so deleting and recreating a project does not reset the window. Wakes and restarts are not deployments and do not count. Over the limit, deploying answers `422 BUILD_RATE_LIMIT_EXCEEDED` with `limit`, `current`, and `retry_after_seconds` (when the window frees a slot, at least 1). The count runs under the workspace row lock, like the running container limit. Admins acting are not limited, and an idempotent replay still returns the existing deployment. Rejections are recorded as `rejected_limits` usage signals with `limit_name` `max_builds_per_hour`.
+- `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR` (default 20) is the limit for workspaces without a limit profile, personal and team alike, and for profiles whose `max_builds_per_hour` is `null`. Empty means the default; `0` turns the limit off.
+- `GET app/pilot-limits` gains `quotas.max_builds_per_hour`, the effective limit (`null` means none).
+- A push webhook over the build rate limit is skipped like the other limits: no deployment, a `project.auto_deploy_skipped` audit event with reason `build_rate_limit`, and a `project_issue` notification that says when to deploy again.
+- `BUILD_RATE_LIMIT_EXCEEDED` is in the OpenAPI document of the deployment store endpoint, next to the validation error of the same status: responses that share a status with a business error body are now merged into one `anyOf` response instead of the last one winning.
 - **Per-project release command.** Projects gain `release_command` (nullable, one line without control characters, at most 1000 characters, like `start_command`), accepted by `POST` and `PATCH app/projects` and shown in `ProjectResource` and `CreateProjectResource`. It runs once per deployment before the new version takes traffic, for database migrations, and never on wake, restart, or reconcile. Changing it turns `redeploy_required` on; a project without one keeps its existing fingerprint.
 - `DeployProject` payload `release_command` (agent revision 4, additive), only sent when set and only to nodes with the new `release-command` capability. When no node could run it (the project's node, or for a new project every active node), the deployment is refused up front with `409 PROJECT_RELEASE_COMMAND_UNSUPPORTED` instead of starting the new version without it; a capable node that is only offline is waited for. A waiting deployment follows its own payload, not later project changes. Auto-deploy skips such a project with `reason` `release_command_unsupported` and tells its owners and members.
 - Failure codes `release_command_failed` and `release_command_timeout`, classified as user-fixable in the new failure category `release` (also accepted by the admin failure filter and counted in the failure summaries). The previous version keeps serving.
+
+### Changed
+
+- The admin workspace detail `quota.limits.max_builds_per_hour` is the effective limit (profile value, else the global setting; `null` means no limit) instead of the raw profile value. The limit profile resource keeps the raw value, where `null` follows the global setting.
 
 ### Fixed
 
