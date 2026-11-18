@@ -211,7 +211,7 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 | `public_url` | string | Alamat publik project untuk instalasi ini, dari `SAKALA_PROJECT_URL_SCHEME` dan `SAKALA_PROJECT_URL_PORT`. Console memakai ini, bukan menyusun sendiri. Ada juga di `GET /api/v1/app/projects`. |
 | `latest_deployment` | object atau `null` | Deployment dengan `sequence` terbesar, apa pun hasilnya, atau `null` bila belum pernah ada. Bisa berbeda dari `active_deployment_id`. Ada juga di `GET /api/v1/app/projects`, jadi daftar project tidak perlu request per kartu. Lihat tabel di bawah. |
 | `suspension` | object atau `null` | Terisi selama `status` bernilai `suspended`, dan `null` di luar itu, termasuk setelah penangguhan dibuka. Ada juga di `GET /api/v1/app/projects`. Lihat "Pemberitahuan dan Membuka Penangguhan". |
-| `redeploy_required` | boolean | `true` bila environment variable, konfigurasi build, atau `replicas` berubah setelah deployment aktif dibuat. |
+| `redeploy_required` | boolean | `true` bila deployment aktif dibuat dengan konfigurasi yang relevan untuk deploy yang berbeda dari sekarang: `branch`, port (`effective_port`), konfigurasi build (`build_command`, `start_command`, `root_directory`), `replicas`, atau environment variable (key dan nilai). Mengembalikan nilainya seperti semula membuatnya `false` lagi. `name`, `thumbnail_url`, `auto_deploy`, `region`, dan `is_secret` tidak pernah membuatnya `true`. Selalu `false` bila tidak ada deployment aktif. |
 | `stack` | object atau `null` | Lihat "Inspeksi". |
 | `workspace` | object atau `null` | Workspace pemilik project: `id`, `name`, `slug`, `type` (`personal` atau `team`). Ada juga di daftar project dan respons pembuatan project. `null` hanya untuk project yang sedang menunggu purge tanpa workspace. Peran pemanggil ada di `GET /api/v1/app/workspaces`. |
 
@@ -240,7 +240,7 @@ Nilai `runtime_status` dan yang menuliskannya:
 | `failed` | Deployment terakhir gagal dan tidak ada versi yang melayani. | Deployment gagal tanpa `active_deployment_id`. |
 | `crashed` | Workload aktif berhenti sendiri. | Heartbeat (lihat [Agent API](AGENT_API.md#heartbeat)). |
 
-Mengganti port tidak mengubah workload yang sedang berjalan: `PORT` dan route baru berlaku pada deployment berikutnya, dan `redeploy_required` menandainya sampai saat itu. Aplikasi harus membaca `PORT`. Bila project sendiri punya environment variable `PORT` dengan nilai lain, deployment gagal dengan `runtime_port_conflict`.
+Mengganti port tidak mengubah workload yang sedang berjalan: `PORT` dan route baru berlaku pada deployment berikutnya, dan `redeploy_required` menandainya sampai saat itu. Ini termasuk port baru yang ditemukan inspeksi selama `configured_port` kosong, karena `effective_port` ikut berubah. Aplikasi harus membaca `PORT`. Bila project sendiri punya environment variable `PORT` dengan nilai lain, deployment gagal dengan `runtime_port_conflict`.
 
 Field konfigurasi diterima pada `POST` dan `PATCH /api/v1/app/projects`. Pada `PATCH`, field yang tidak dikirim tidak berubah dan `null` mengosongkannya. `thumbnail_url` belum punya generator, jadi console memakai gambar cadangannya bila kosong.
 
@@ -329,7 +329,7 @@ Yang sengaja tetap ada: slug di `retired_project_slugs`, supaya alamat lama tida
 
 ### Environment Variable
 
-Semua anggota workspace membaca daftar variabel; menambah, mengubah, menghapus, dan membaca nilai secret lewat `GET .../value` hanya untuk owner dan member, jadi viewer tidak pernah melihat nilai secret. `POST` menerima `is_secret` (default `true`). `PATCH .../environment-variables/{id}` menerima `value` dan `is_secret`, keduanya opsional. `value` ada di response hanya untuk variabel non-secret; variabel secret tidak punya key itu dan tetap dibaca lewat `GET .../value`. `POST` dan `PATCH` menyertakan `redeploy_required`, karena deployment berjalan memakai nilai saat ia dibuat.
+Semua anggota workspace membaca daftar variabel; menambah, mengubah, menghapus, dan membaca nilai secret lewat `GET .../value` hanya untuk owner dan member, jadi viewer tidak pernah melihat nilai secret. `POST` menerima `is_secret` (default `true`). `PATCH .../environment-variables/{id}` menerima `value` dan `is_secret`, keduanya opsional. `value` ada di response hanya untuk variabel non-secret; variabel secret tidak punya key itu dan tetap dibaca lewat `GET .../value`. `POST` dan `PATCH` menyertakan `redeploy_required`, karena deployment berjalan memakai nilai saat ia dibuat. Mengubah `is_secret` saja tidak mengubahnya, sedangkan menghapus variabel lalu menambahkannya lagi dengan nilai yang sama membuatnya kembali `false`.
 
 Setiap `GET .../value` untuk variabel secret mencatat `environment_variable.value_revealed` di `audit_events` sebelum nilainya dikirim: pelaku, project, `variable_id`, `variable_name`, dan `by_project_owner` (`true` bila pembacanya owner atau member workspace project), tidak pernah nilainya. Bila catatan gagal ditulis, nilainya tidak dikirim. Alamat IP dan user agent hanya disimpan untuk admin yang membaca project dari workspace yang bukan miliknya. Variabel non-secret tidak dicatat, karena nilainya sudah ada di daftar.
 

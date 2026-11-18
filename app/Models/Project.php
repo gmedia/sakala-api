@@ -8,9 +8,11 @@ use App\Enums\ProjectControlAction;
 use App\Enums\ProjectInspectionStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
+use App\Support\Project\DeploymentConfigFingerprint;
 use Carbon\CarbonImmutable;
 use Database\Factories\ProjectFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -43,7 +45,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $root_directory
  * @property int $replicas Containers the next deployment runs, behind the node's router. Applies from the next deployment.
  * @property string|null $region Region the project runs in; null follows the workspace profile's default_region (PilotRuntimeLimitService::regionFor()).
- * @property CarbonImmutable|null $config_changed_at
+ * @property CarbonImmutable|null $config_changed_at Last deploy-relevant change; only read for an active deployment without a config_fingerprint.
+ * @property string|null $environment_fingerprint DeploymentConfigFingerprint::forEnvironment() of the stored variables; null until the first variable change or deployment after it was introduced.
  * @property bool $auto_deploy
  * @property string|null $active_deployment_id
  * @property array<string, mixed>|null $inspection
@@ -87,6 +90,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'last_deployed_at',
     'last_request_at',
 ])]
+#[Hidden(['environment_fingerprint'])]
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
@@ -206,21 +210,54 @@ class Project extends Model
     }
 
     /**
-     * Whether the serving deployment predates the last change to environment
-     * variables or build configuration. A deployment snapshots both when it is
-     * created, so only a new deployment applies the change. Timestamps have
-     * second precision; a tie counts as changed, because a needless redeploy
-     * hint costs less than a missed one.
+     * Whether the serving deployment was created with another deploy-relevant
+     * configuration than the project has now (DeploymentConfigFingerprint), so
+     * only a new deployment applies it. Reverting a change makes it false again.
+     *
+     * A deployment created before fingerprints existed falls back to
+     * timestamps: the last deploy-relevant change against its `created_at`.
+     * They have second precision; a tie counts as changed, because a needless
+     * redeploy hint costs less than a missed one.
      */
     public function requiresRedeploy(): bool
     {
-        if ($this->config_changed_at === null || $this->active_deployment_id === null) {
+        if ($this->active_deployment_id === null) {
             return false;
         }
 
-        $deployedAt = $this->activeDeployment?->created_at;
+        $deployment = $this->activeDeployment;
 
-        return $deployedAt !== null && $this->config_changed_at->greaterThanOrEqualTo($deployedAt);
+        if ($deployment === null) {
+            return false;
+        }
+
+        if ($deployment->config_fingerprint !== null) {
+            return ! hash_equals($deployment->config_fingerprint, $this->deploymentConfigFingerprint());
+        }
+
+        $deployedAt = $deployment->created_at;
+
+        return $this->config_changed_at !== null
+            && $deployedAt !== null
+            && $this->config_changed_at->greaterThanOrEqualTo($deployedAt);
+    }
+
+    /** The deploy-relevant configuration the next deployment gets, as DeploymentConfigFingerprint::forProject(). */
+    public function deploymentConfigFingerprint(): string
+    {
+        return DeploymentConfigFingerprint::forProject($this);
+    }
+
+    /**
+     * Recompute `environment_fingerprint` from the stored variables, without
+     * saving. Call it under the project row lock, so a concurrent variable
+     * change cannot leave a stale value.
+     */
+    public function refreshEnvironmentFingerprint(): void
+    {
+        $this->environment_fingerprint = DeploymentConfigFingerprint::forEnvironment(
+            $this->environmentVariables()->get(),
+        );
     }
 
     /**

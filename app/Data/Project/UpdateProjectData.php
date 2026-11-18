@@ -31,6 +31,7 @@ final readonly class UpdateProjectData
         $data = array_filter([
             'name' => $this->name,
             'branch' => $this->branch,
+            'replicas' => $this->replicas,
         ], fn (mixed $value): bool => $value !== null);
 
         if ($this->thumbnailUrlProvided) {
@@ -41,26 +42,12 @@ final readonly class UpdateProjectData
             $data['auto_deploy'] = $this->autoDeploy;
         }
 
-        // Not runtime configuration: a region only applies to placing a
-        // project without a workload, so it never asks for a redeploy.
+        // A region only applies to placing a project without a workload, so
+        // DeploymentConfigFingerprint leaves it out: it never asks for a redeploy.
         if ($this->regionProvided) {
             $data['region'] = $this->region;
         }
 
-        return [...$data, ...$this->runtimeConfiguration()];
-    }
-
-    /**
-     * What the next deployment receives and the serving one does not have
-     * until then: the build configuration and the replica count.
-     *
-     * @return array<string, int|string|null>
-     */
-    public function runtimeConfiguration(): array
-    {
-        return [
-            ...$this->buildConfiguration,
-            ...($this->replicas === null ? [] : ['replicas' => $this->replicas]),
-        ];
+        return [...$data, ...$this->buildConfiguration];
     }
 }
