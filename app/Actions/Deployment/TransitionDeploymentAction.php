@@ -7,10 +7,12 @@ namespace App\Actions\Deployment;
 use App\Actions\Admin\CreateSleepProjectCommandAction;
 use App\Actions\Admin\CreateStopProjectCommandAction;
 use App\Data\Deployment\DeploymentFailureData;
+use App\Data\Notification\ProjectAlertMailData;
 use App\Enums\DeploymentEventLevel;
 use App\Enums\DeploymentStatus;
 use App\Enums\LogStream;
 use App\Enums\NotificationCategory;
+use App\Enums\ProjectAlert;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Enums\SleepPage;
@@ -121,6 +123,14 @@ final class TransitionDeploymentAction
                 "{$project->name} sudah live dengan commit ".mb_substr((string) $deployment->commit_sha, 0, 7).'.',
             );
 
+            $this->notifier->emailProject($project, new ProjectAlertMailData(
+                alert: ProjectAlert::DeploymentSucceeded,
+                projectId: $project->id,
+                projectName: $project->name,
+                deploymentId: $deployment->id,
+                deploymentSequence: $deployment->sequence,
+            ), $deployment->requester);
+
             if ($project->status === ProjectStatus::Suspended) {
                 $project->update([
                     'runtime_status' => RuntimeStatus::Running,
@@ -173,6 +183,18 @@ final class TransitionDeploymentAction
                         ? "{$project->name}: {$failureData->summary}"
                         : "Deployment {$project->name} gagal. Buka log deployment untuk melihat penyebabnya.",
                 );
+
+                $this->notifier->emailProject($project, new ProjectAlertMailData(
+                    alert: ProjectAlert::DeploymentFailed,
+                    projectId: $project->id,
+                    projectName: $project->name,
+                    deploymentId: $deployment->id,
+                    deploymentSequence: $deployment->sequence,
+                    failureStage: $deployment->failure_stage,
+                    summary: $failureData?->summary,
+                    recoveryHint: $failureData?->recoveryHint,
+                    previousVersionServing: $project->active_deployment_id !== null,
+                ), $deployment->requester);
             }
 
             return;

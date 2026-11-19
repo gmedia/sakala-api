@@ -164,6 +164,12 @@ class AppServiceProvider extends ServiceProvider
                 ->by('project-wake:'.(string) $request->ip().'|'.(is_string($slug) ? $slug : ''));
         });
 
+        // Anonymous: the signed unsubscribe link in alert emails, per IP.
+        RateLimiter::for('notification-unsubscribe', function (Request $request): Limit {
+            return Limit::perMinute((int) config('sakala.rate_limits.notification_unsubscribe', 10))
+                ->by('notification-unsubscribe:'.(string) $request->ip());
+        });
+
         RateLimiter::for('feedback', function (Request $request): Limit {
             $identifier = $request->user()?->getAuthIdentifier() ?? $request->ip();
 

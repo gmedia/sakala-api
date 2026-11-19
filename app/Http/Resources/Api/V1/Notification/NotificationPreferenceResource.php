@@ -15,11 +15,12 @@ use Illuminate\Http\Resources\Json\JsonResource;
 final class NotificationPreferenceResource extends JsonResource
 {
     /**
-     * @return array{deployment_success: bool, deployment_failure: bool, project_issue: bool, account_security: bool, workspace: bool}
+     * @return array{deployment_success: bool, deployment_failure: bool, project_issue: bool, account_security: bool, workspace: bool, email: array{deployment_success: bool, deployment_failure: bool, project_issue: bool}}
      */
     public function toArray(Request $request): array
     {
         $preferences = $this->resource->preferences;
+        $email = $this->resource->email;
 
         return [
             /** @var bool */
@@ -35,6 +36,18 @@ final class NotificationPreferenceResource extends JsonResource
              * sent regardless, since they are the invitation itself.
              */
             'workspace' => $preferences[NotificationCategory::Workspace->value],
+            /**
+             * Email, independent of the in-app switch above. Only categories that can be emailed are listed:
+             * `account_security` and `workspace` have no email preference.
+             */
+            'email' => [
+                /** Default false: a success is only worth a glance at the bell. */
+                'deployment_success' => $email[NotificationCategory::DeploymentSuccess->value],
+                /** Default true. */
+                'deployment_failure' => $email[NotificationCategory::DeploymentFailure->value],
+                /** Default true. A crash of the running app, or a push that auto-deploy skipped. */
+                'project_issue' => $email[NotificationCategory::ProjectIssue->value],
+            ],
         ];
     }
 }

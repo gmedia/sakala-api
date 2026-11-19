@@ -71,6 +71,26 @@ final class ConsoleAuthenticationRedirect
         return $this->url('/projects/'.rawurlencode($projectId));
     }
 
+    public function deployment(string $projectId, string $deploymentId): string
+    {
+        return $this->url('/projects/'.rawurlencode($projectId).'/deployments/'.rawurlencode($deploymentId));
+    }
+
+    public function notificationSettings(): string
+    {
+        return $this->url('/settings', ['tab' => 'notifications']);
+    }
+
+    /**
+     * The console page that confirms an email unsubscribe. It receives the query
+     * of the signed API link unchanged, because the signature covers it byte for
+     * byte, and POSTs it back to the same API path.
+     */
+    public function notificationUnsubscribe(string $signedQuery): string
+    {
+        return $this->url('/notifications/unsubscribe').($signedQuery === '' ? '' : '?'.$signedQuery);
+    }
+
     public function login(): string
     {
         return $this->url('/login');

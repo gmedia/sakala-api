@@ -35,6 +35,7 @@ use Laravel\Sanctum\HasApiTokens;
  * @property string $email
  * @property string|null $pending_email
  * @property array<string, bool>|null $notification_preferences
+ * @property array<string, bool>|null $notification_email_preferences
  * @property CarbonImmutable|null $created_at
  * @property Carbon|null $email_verified_at
  * @property string|null $password
@@ -52,6 +53,7 @@ use Laravel\Sanctum\HasApiTokens;
     'email',
     'pending_email',
     'notification_preferences',
+    'notification_email_preferences',
     'username',
     'password',
     'role',
@@ -83,12 +85,18 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function notificationPreferences(): NotificationPreferencesData
     {
-        return NotificationPreferencesData::fromStored($this->notification_preferences);
+        return NotificationPreferencesData::fromStored($this->notification_preferences, $this->notification_email_preferences);
     }
 
     public function wantsNotification(NotificationCategory $category): bool
     {
         return $this->notificationPreferences()->preferences[$category->value];
+    }
+
+    /** False for a category without an email channel. Independent of the in-app preference. */
+    public function wantsNotificationEmail(NotificationCategory $category): bool
+    {
+        return $this->notificationPreferences()->email[$category->value] ?? false;
     }
 
     /**
@@ -205,6 +213,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'onboarding_completed_at' => 'immutable_datetime',
             'last_login_at' => 'immutable_datetime',
             'notification_preferences' => 'array',
+            'notification_email_preferences' => 'array',
             'created_at' => 'immutable_datetime',
             'max_owned_teams' => 'integer',
         ];

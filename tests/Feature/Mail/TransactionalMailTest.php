@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 use App\Actions\Auth\DeleteAccountAction;
 use App\Actions\Edge\GetEdgeRouteTableAction;
+use App\Data\Notification\ProjectAlertMailData;
+use App\Enums\DeploymentStatus;
+use App\Enums\NotificationCategory;
+use App\Enums\ProjectAlert;
 use App\Enums\UserRole;
 use App\Models\EdgeToken;
 use App\Models\Project;
@@ -13,6 +17,8 @@ use App\Notifications\Auth\ConfirmEmailChangeNotification;
 use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
 use App\Notifications\Messages\SakalaMailMessage;
+use App\Services\Notification\NotificationUnsubscribeLinks;
+use App\Services\Notification\UserNotifier;
 use App\Support\Mail\MailPreviewCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -91,8 +97,9 @@ function primaryLink(Email $email): ?string
  * credential besides the one link this mail exists to deliver.
  *
  * @param  list<string>  $secrets  Values that must never appear (passwords, hashes, other tokens).
+ * @param  list<string>  $footerLinks  Other links the mail is meant to carry, such as a signed unsubscribe link.
  */
-function expectWellFormedMail(Email $email, ?string $link, array $secrets = []): void
+function expectWellFormedMail(Email $email, ?string $link, array $secrets = [], array $footerLinks = []): void
 {
     $html = (string) $email->getHtmlBody();
     $text = (string) $email->getTextBody();
@@ -119,8 +126,10 @@ function expectWellFormedMail(Email $email, ?string $link, array $secrets = []):
     // Take the intended link out; what is left must hold no credential at all.
     $rest = implode("\n", [$html, $text, (string) $email->getSubject()]);
 
-    if ($link !== null) {
-        $rest = str_replace([$link, htmlspecialchars($link, ENT_NOQUOTES), htmlspecialchars($link)], '', $rest);
+    foreach ([$link, ...$footerLinks] as $allowed) {
+        if ($allowed !== null) {
+            $rest = str_replace([$allowed, htmlspecialchars($allowed, ENT_NOQUOTES), htmlspecialchars($allowed)], '', $rest);
+        }
     }
 
     expect($rest)->not->toMatch('/token=|signature=|expires=/')
@@ -272,6 +281,48 @@ test('a suspension reaches the owner with the reason, the contact, and a link to
     expectWellFormedMail($email, MAIL_CONSOLE."/projects/{$project->id}", [(string) $owner->password]);
 });
 
+test('a failed deployment reaches its requester with the stage, the reason, the next step, and a way to stop these emails', function (): void {
+    $owner = User::factory()->create(['email' => 'rani@example.test']);
+    $project = Project::factory()->for($owner)->create(['name' => 'toko-kopi-web']);
+    $deploymentId = '019a0000-0000-7000-8000-0000000000aa';
+
+    app(UserNotifier::class)->emailProject($project, new ProjectAlertMailData(
+        alert: ProjectAlert::DeploymentFailed,
+        projectId: $project->id,
+        projectName: $project->name,
+        deploymentId: $deploymentId,
+        deploymentSequence: 5,
+        failureStage: DeploymentStatus::Building,
+        summary: 'Deployment gagal saat proses build aplikasi.',
+        recoveryHint: 'Perbaiki di repository, lalu commit dan deploy ulang.',
+    ), $owner);
+
+    $email = onlyMailTo('rani@example.test');
+    $text = (string) $email->getTextBody();
+    $deploymentUrl = MAIL_CONSOLE."/projects/{$project->id}/deployments/{$deploymentId}";
+    $links = app(NotificationUnsubscribeLinks::class);
+    $oneClick = $links->oneClick($owner->id, NotificationCategory::DeploymentFailure);
+    $confirm = $links->confirmPage($oneClick);
+    $settings = MAIL_CONSOLE.'/settings?tab=notifications';
+
+    expect($email->getSubject())->toBe('Deployment toko-kopi-web di Sakala gagal di tahap Build proyek')
+        ->and(primaryLink($email))->toBe($deploymentUrl)
+        ->and($text)->toContain('Deployment #5 proyek toko-kopi-web gagal')
+        ->and($text)->toContain('Gagal di tahap: Build proyek.')
+        ->and($text)->toContain('Penyebab: Deployment gagal saat proses build aplikasi.')
+        ->and($text)->toContain('Saran: Perbaiki di repository, lalu commit dan deploy ulang.')
+        ->and($text)->toContain('Salin ringkasan error')
+        ->and($text)->toContain("Atur notifikasi email: {$settings}")
+        ->and($text)->toContain("Berhenti menerima email deployment gagal: {$confirm}")
+        ->and((string) $email->getHtmlBody())->toContain('href="'.htmlspecialchars($confirm, ENT_NOQUOTES).'"')
+        ->and($oneClick)->toStartWith(MAIL_API.'/api/v1/public/notifications/unsubscribe?')
+        // RFC 8058 one-click: the header names the API link, which takes a POST.
+        ->and($email->getHeaders()->get('List-Unsubscribe')?->getBodyAsString())->toBe("<{$oneClick}>")
+        ->and($email->getHeaders()->get('List-Unsubscribe-Post')?->getBodyAsString())->toBe('List-Unsubscribe=One-Click');
+
+    expectWellFormedMail($email, $deploymentUrl, [(string) $owner->password], [$oneClick, $confirm, $settings]);
+});
+
 test('an unhealthy Edge reaches every admin with why, what still works, and what to check, then its recovery', function (): void {
     $this->travelTo('2026-11-18 07:30:00');
     config(['sakala.edge.routes_cache_seconds' => 0, 'sakala.edge.stale_after_seconds' => 300]);
@@ -372,7 +423,8 @@ test('every notification with a mail version is in the preview catalog', functio
 const MAIL_NAMES = [
     'verify-email', 'reset-password', 'existing-account', 'email-change-confirm', 'email-change-requested',
     'email-change-applied', 'workspace-invitation', 'project-suspended', 'edge-unhealthy', 'edge-recovered',
-    'account-deleted',
+    'project-deployment-failed', 'project-deployment-failed-repeated', 'project-deployment-succeeded',
+    'project-app-crashed', 'project-auto-deploy-skipped', 'account-deleted',
 ];
 
 dataset('catalog', MAIL_NAMES);
