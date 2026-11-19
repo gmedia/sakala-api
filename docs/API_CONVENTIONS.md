@@ -138,6 +138,46 @@ Instalasi GitHub App selalu kembali ke `/projects/new` di console: `?github_inst
 
 Webhook `push` membuat deployment untuk project yang `auto_deploy`-nya aktif bila repository, installation, dan branch cocok, memakai commit dari payload dengan `trigger = webhook`. Deployment itu atas nama pemilik workspace pribadi, atau di tim atas nama pembuat project selama ia masih owner atau member, lalu owner tim yang paling lama. Signature diverifikasi lebih dulu, dan `X-GitHub-Delivery` membuat pengiriman ulang tidak melakukan apa-apa. Project yang ditangguhkan, yang kena batas deployment aktif, yang workspace-nya sudah mencapai batas build per jam, atau yang `release_command`-nya tidak bisa dijalankan node mana pun dilewati: webhook tetap `200`, tindakan dicatat di audit (`project.auto_deploy_skipped`, dengan `reason` seperti `build_rate_limit` atau `release_command_unsupported`), dan owner serta member workspace mendapat notifikasi `project_issue`. Notifikasi batas build menyebut kapan bisa deploy lagi. Pengiriman yang dilewati tidak dicoba ulang. GitHub App harus berlangganan event `push`.
 
+### Push di Monorepo
+
+Beberapa project di satu workspace boleh memakai repository dan branch yang sama, masing-masing dengan `root_directory` sendiri (misalnya `apps/web`, `apps/api`, `apps/landing`). Push hanya men-deploy project yang terkena perubahan, supaya perubahan di satu folder tidak mengantrekan build semua aplikasi. Belum ada setelan untuk aturan ini; daftar path yang diawasi (watch paths) sengaja ditunda.
+
+Aturannya:
+
+- File yang berubah adalah gabungan `added`, `removed`, dan `modified` dari semua `commits[]` di payload push.
+- Setiap project di workspace yang sama dengan repository (`github_repository_id`) dan branch yang sama memiliki folder `root_directory`-nya, apa pun setelan `auto_deploy`-nya. Project yang sudah dihapus, project di branch lain, dan project di workspace lain tidak memiliki folder di sini. `root_directory` dinormalkan tanpa `./` di depan dan tanpa `/` di depan atau belakang.
+- Sebuah file milik root yang paling spesifik yang memuatnya: dengan `apps/web` dan `apps/web/admin`, file `apps/web/admin/x.ts` milik `apps/web/admin`. Pencocokan per segmen path, jadi `apps/webhooks/x.ts` bukan milik `apps/web`.
+- File yang tidak berada di folder project mana pun adalah file bersama, misalnya lockfile, `README.md` di root, `turbo.json`, atau `packages/ui`.
+- Project ber-`auto_deploy` di-deploy bila ada file yang berubah di foldernya sendiri atau ada file bersama yang berubah.
+- Project tanpa `root_directory` (null, kosong, atau `.`) membangun seluruh repository: selalu di-deploy, dan tidak memiliki folder, jadi tidak membuat file lain berhenti menjadi file bersama.
+
+Kalau ragu, push di-deploy seperti sebelumnya (fail-open). Itu berlaku untuk seluruh push bila `forced` atau `created` bernilai `true`, `commits` tidak ada atau kosong, jumlah `commits` mencapai 2048 (GitHub menulis bahwa array itu memuat paling banyak 2048 commit), satu commit mencapai 3000 file di `added`, `removed`, dan `modified` (batas file per commit yang ditulis GitHub), ada commit tanpa salah satu daftar file itu, isinya bukan daftar string, atau tidak ada file yang berubah sama sekali (commit kosong yang sering dipakai untuk memicu deploy). Push juga di-deploy untuk satu project bila project itu belum pernah punya deployment `succeeded`, deployment terbarunya `failed` atau `cancelled` atau berasal dari branch lain, atau ada push yang dilewati karena batas (`project.auto_deploy_skipped`) sejak deployment terbarunya, karena versi yang berjalan mungkin belum memuat perubahan sebelumnya. Deploy manual, redeploy, dan trigger lain tidak terpengaruh.
+
+Push yang dilewati karena aturan ini dicatat sebagai audit event `project.push_skipped` (actor `github_app`, subjek project) di transaksi yang sama dengan catatan delivery, jadi pengiriman ulang dengan `X-GitHub-Delivery` yang sama tidak mencatatnya dua kali. Catatan itu bukan deployment: tidak memakai nomor urut, tidak dihitung dalam batas build per jam atau batas deployment aktif, tidak masuk metrik, tidak mengubah deployment terbaru project, dan tidak mengirim notifikasi atau email. Webhook tetap `200`.
+
+`GET /api/v1/app/projects/{project}/skipped-pushes` menampilkan catatan itu, terbaru dulu, dengan hak yang sama seperti melihat project: owner, member, dan viewer workspace, serta admin. Selain itu `403`, dan tanpa sesi `401`. Pagination standar (`data`, `links`, `meta`).
+
+| Query | Nilai | Keterangan |
+| --- | --- | --- |
+| `page` | integer ≥ 1 | Opsional, default 1. |
+| `per_page` | integer 1 sampai 100 | Opsional, default 20. Di luar itu `422` pada `per_page`. |
+| `since` | tanggal-waktu ISO 8601 | Opsional. Hanya push yang dilewati pada atau setelah waktu ini. Nilai yang bukan tanggal `422` pada `since`. |
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `delivery_id` | string (UUID), selalu ada | `X-GitHub-Delivery` push yang dilewati. Unik per project. |
+| `reason` | string enum, selalu ada | Saat ini hanya `no_changes_in_root_directory`: semua file yang berubah ada di folder project lain. |
+| `commit_sha` | string, 40 karakter heksadesimal, selalu ada | Commit `after` dari push. |
+| `commit_message` | string atau `null` | Baris pertama pesan `head_commit`, paling panjang 500 karakter, sama seperti `commit_message` deployment. `null` bila tidak ada. |
+| `branch` | string, selalu ada | Branch push. |
+| `root_directory` | string, selalu ada, tidak pernah kosong | `root_directory` project saat push datang, sudah dinormalkan. |
+| `changed_path_count` | integer ≥ 1, selalu ada | Jumlah file berbeda yang berubah di push itu. |
+| `example_paths` | array string, 1 sampai 5 item | Contoh file yang berubah, urut abjad; semuanya milik project lain. |
+| `after_deployment_id` | string (UUID), selalu ada | Deployment terbaru project (urutan `sequence`) saat push datang. Console menaruh catatan ini tepat di atas deployment itu di riwayat. |
+| `created_at` | string tanggal-waktu ISO 8601, selalu ada | Kapan push dilewati. |
+
+Console memanggilnya dengan `since` berisi `created_at` deployment tertua di halaman riwayat yang sedang tampil, lalu mengelompokkan hasilnya per `after_deployment_id`.
+
 ## Project Preview
 
 `ProjectResource` dan `CreateProjectResource` menyertakan `preview_status` (`pending` | `succeeded` | `failed` | `unavailable`), `inspection` (hanya saat `succeeded`: `repository_url`, `commit_sha`, `dockerfile_found`, `env_example_found`, `compose_found`, `manifests`, `package_manager`, `inspected_at`), dan `inspection_error_code`. Preview diminta otomatis saat project dibuat dan tidak pernah menggagalkan pembuatan; `unavailable` dengan kode `branch_not_found`, `repository_access_denied`, atau `github_unavailable` berarti tidak ada command inspeksi yang dibuat. Inspeksi ulang tersedia lewat `POST /api/v1/app/projects/{project}/inspection`; lihat "Inspeksi".
