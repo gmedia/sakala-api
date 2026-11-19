@@ -23,7 +23,12 @@ final class GetProjectCollectionAction
         // for. A solo user belongs only to the personal workspace, so the list
         // is what it was before workspaces.
         $query = Project::query()
-            ->with(['latestDeployment', 'latestSuspendRequest', 'workspace'])
+            ->with([
+                'latestDeployment',
+                'latestSuspendRequest',
+                'workspace',
+                'databases' => fn ($query) => $query->select(['databases.id', 'databases.name', 'databases.status']),
+            ])
             ->whereIn('workspace_id', WorkspaceMember::query()->select('workspace_id')->where('user_id', $user->id))
             ->when($data->workspaceId !== null, fn ($query) => $query->where('workspace_id', $data->workspaceId))
             ->when(

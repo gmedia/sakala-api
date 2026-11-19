@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Workspace;
 
 use App\Models\Workspace;
+use App\Services\Runtime\PilotRuntimeLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -43,6 +44,14 @@ final class WorkspaceResource extends JsonResource
              * The limit profile attached by an admin, or null for the default of the workspace type.
              */
             'limit_profile' => $profile === null ? null : ['id' => $profile->id, 'name' => $profile->name],
+            /**
+             * The region projects and managed databases of this workspace use when they do not name one, from the limit
+             * profile, for example `jkt`. Null for any region. One of `GET /api/v1/app/regions` when a node there is
+             * available.
+             *
+             * @var string|null
+             */
+            'default_region' => app(PilotRuntimeLimitService::class)->defaultRegionOf($this->resource),
             /** Projects in the workspace, not counting deleted ones waiting for purge. */
             'projects_count' => (int) $this->resource->projects_count,
             /**
