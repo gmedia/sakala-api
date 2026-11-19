@@ -71,6 +71,24 @@ test('the failure exposes the agent message, stage, and who can fix it', functio
         ->assertJsonPath('data.failure.user_fixable', true);
 });
 
+test('an app that refuses its domain fails as fixable at start and keeps the agent message as detail', function (): void {
+    [$node, $user, $project, $deployment, $command] = failingAttempt(DeploymentStatus::HealthChecking);
+    // Copied from sakala-agent examples/failures/deploy-failures.json.
+    $message = "Vite's preview server refuses requests for portfolio.sakala.app, so every visitor would get HTTP 403; add it to preview.allowedHosts in vite.config (for example preview: { allowedHosts: ['portfolio.sakala.app'] }), or clear the start command so Sakala serves the build output as a static site";
+
+    failAttempt($this, $node, $command, $message, 'runtime_app_host_blocked');
+
+    $this->actingAs($user, 'web')
+        ->getJson("/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'failed')
+        ->assertJsonPath('data.failure.code', 'runtime_app_host_blocked')
+        ->assertJsonPath('data.failure.category', 'start')
+        ->assertJsonPath('data.failure.user_fixable', true)
+        ->assertJsonPath('data.failure.detail', $message)
+        ->assertJsonPath('data.failure.stage', 'health_checking');
+});
+
 test('a failure before any phase event still has a stage', function (): void {
     [$node, $user, $project, $deployment, $command] = failingAttempt(DeploymentStatus::Queued);
 

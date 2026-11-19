@@ -503,6 +503,7 @@ Event fase dari agent menggerakkan status deployment (maju saja, retry aman):
 | `deployment.health.started` | `health_checking` |
 | `deployment.route.started` | `routing` |
 | `deployment.runtime.ready` | tidak mengubah status; mengisi `image_reference` dari `metadata.image` |
+| `deployment.workspace.detected` | tidak mengubah status; disimpan di timeline dengan metadata berbentuk `workspace` hasil `InspectProject`, berisi perintah yang benar-benar dipakai (sakala-agent #113, hanya build Railpack dari package workspace JavaScript) |
 
 Urutan statusnya `queued`, `cloning`, `analyzing`, `building`, `deploying`,
 `health_checking`, `routing`, karena agent memeriksa kesehatan aplikasi sebelum
@@ -558,6 +559,18 @@ Entri yang bukan integer 1 sampai 65535 dibuang, dan duplikat digabung. Mengubah
 `root_directory` project juga mengosongkan `detected_port`, karena port itu milik
 direktori yang diinspeksi. `DeployProject.container_port` memakai
 `Project::effectivePort()`: `configured_port`, lalu `detected_port`, lalu 3000.
+
+Result juga boleh memuat `workspace`, tambahan pada revisi 4 (sakala-agent #113):
+`null` tanpa workspace, atau `{ manager, root_directory, package_directory,
+package_name, build_command, start_command, static_output_directory }` bila
+`root_directory` adalah package workspace pnpm, npm, Yarn, atau Bun yang root-nya ada
+di atasnya. Result tanpa field berasal dari agent lama. API menyimpannya di
+`projects.inspection.workspace` dan menampilkannya sebagai `stack.monorepo`
+(lihat [API Conventions](API_CONVENTIONS.md#inspeksi)). Nilai dari agent tidak
+dipercaya: `manager` di luar `npm`, `pnpm`, `yarn`, `bun`, atau `root_directory` dan
+`package_directory` yang bukan path relatif tanpa segmen `.`/`..`, membuang seluruh
+objek; field opsional yang tidak cocok (perintah multi-baris atau di atas 2000
+karakter, nama package di atas 214 karakter, path tidak aman) menjadi `null`.
 
 ### ReconcileWorkload dan CleanupRuntime
 
@@ -884,7 +897,7 @@ dilihat console (`failure.category`):
 | `checkout` | tidak | `repository_credential_expired`, `repository_checkout_failed`, `runtime_repository_failed`, `repository_access_check_failed` (control plane) |
 | `build` | ya | `runtime_build_failed`, `runtime_root_directory_invalid` |
 | `release` | ya | `release_command_failed` (perintah rilis keluar dengan kode selain 0), `release_command_timeout` (perintah rilis melewati batas waktu); versi sebelumnya tetap melayani |
-| `start` | ya | `runtime_app_crashed`, `runtime_port_conflict` |
+| `start` | ya | `runtime_app_crashed`, `runtime_app_exec_denied`, `runtime_app_host_blocked` (framework menolak domain project: `allowedHosts` Vite atau `ALLOWED_HOSTS` Django; versi sebelumnya tetap melayani), `runtime_port_conflict` |
 | `start` | tidak | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed` |
 | `health` | ya | `runtime_app_not_listening`, `runtime_app_unhealthy`, `runtime_health_check_failed` |
 | `route` | tidak | `runtime_routing_failed` |
