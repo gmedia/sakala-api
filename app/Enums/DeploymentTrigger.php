@@ -16,4 +16,10 @@ enum DeploymentTrigger: string
      * for a project attached to it, when the rotation asked for it.
      */
     case DatabasePasswordRotated = 'database_password_rotated';
+
+    /**
+     * Queued by the API once a database created for a project with
+     * `deploy_when_ready` is ready: the project's first deployment with it.
+     */
+    case DatabaseReady = 'database_ready';
 }

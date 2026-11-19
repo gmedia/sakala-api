@@ -15,6 +15,7 @@ use App\Enums\DeploymentBuildFallbackReason;
 use App\Enums\DeploymentBuildMode;
 use App\Enums\DeploymentStatus;
 use App\Events\Deployment\DeploymentEventCreated;
+use App\Events\Deployment\DeploymentUpdated;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Exceptions\Agent\ReportIdempotencyConflictException;
 use App\Models\AgentCommand;
@@ -162,6 +163,10 @@ final class ReportDeploymentEventAction
 
             $this->progress->markRunning($command);
 
+            if ($command->type === AgentCommandType::DeployProject) {
+                $deployment = $this->markDeploymentStarted($deployment);
+            }
+
             $nextSequence = (int) $deployment->events()->max('sequence') + 1;
 
             foreach ($newReports as [$item, $payload, $key, $payloadHash]) {
@@ -197,6 +202,29 @@ final class ReportDeploymentEventAction
 
             return $this->acknowledgement($data->items, $duplicateCount, $sequences);
         });
+    }
+
+    /**
+     * A deployment starts when the agent begins working on it: its first
+     * accepted report, the same moment the command turns Running. A reused
+     * image reports no phase status until its container starts (after the
+     * reuse and the release command), so waiting for the first transition
+     * would leave that work out of the deployment's duration.
+     */
+    private function markDeploymentStarted(Deployment $deployment): Deployment
+    {
+        if ($deployment->started_at !== null || $deployment->status->isTerminal()) {
+            return $deployment;
+        }
+
+        $deployment->update(['started_at' => now()]);
+
+        DeploymentUpdated::dispatch(
+            deploymentId: $deployment->id,
+            payload: DeploymentUpdated::payloadFor($deployment, $this->allocateRealtimeSequence->handle($deployment)),
+        );
+
+        return $deployment;
     }
 
     /**

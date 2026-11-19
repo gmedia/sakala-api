@@ -400,13 +400,19 @@ test('once the node reports the database created, the project is deployed once a
 
     expect($deployment->project_id)->toBe($project->id)
         ->and($deployment->requested_by)->toBe($team['member']->id)
-        ->and($deployment->trigger)->toBe(DeploymentTrigger::Manual)
+        ->and($deployment->trigger)->toBe(DeploymentTrigger::DatabaseReady)
         ->and($deployment->commit_sha)->toBe(FOR_PROJECT_BRANCH_HEAD)
         ->and($deployment->status)->toBe(DeploymentStatus::Queued)
         ->and($deployment->idempotency_key)->toBe("database-ready:{$attachment->id}")
         ->and($attachment->deploy_deployment_id)->toBe($deployment->id)
         ->and($attachment->deploy_resolved_at)->not->toBeNull()
         ->and(databaseStatus($database))->toBe(DatabaseStatus::Ready);
+
+    // The history says why it started without a click.
+    $this->actingAs($team['member'], 'web')
+        ->getJson("/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}")
+        ->assertOk()
+        ->assertJsonPath('data.trigger', 'database_ready');
 
     $started = AuditEvent::query()->where('action', DatabaseAudit::PROJECT_DEPLOY_STARTED)->sole();
     expect($started->metadata['deployment_id'])->toBe($deployment->id)

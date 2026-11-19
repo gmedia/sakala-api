@@ -12,6 +12,7 @@ use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
 use App\Enums\ProjectInspectionStatus;
 use App\Enums\RuntimeStatus;
+use App\Events\Deployment\DeploymentUpdated;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\DatabaseAttachment;
@@ -24,6 +25,7 @@ use App\Support\Project\BuildTimeVariable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 
@@ -760,6 +762,72 @@ test('deployment.image.reused keeps the plan and the status; runtime.ready still
     expect($deployment->status)->toBe(DeploymentStatus::Deploying)
         ->and($deployment->image_reference)->toBe('sakala/project-x:3e91b22a2e56-0198a2f0')
         ->and($deployment->build_mode)->toBe(DeploymentBuildMode::Reused);
+});
+
+test('a reused deployment starts at the agent\'s first report, not when its container starts', function (): void {
+    $node = reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject();
+    $live = reuseGoLive($project, $team['owner']);
+    $deployment = reuseDeploy($project, $team['owner']);
+
+    $this->travelTo(now()->startOfSecond());
+    $claimedAt = now()->toImmutable();
+    reuseReportEvents($deployment, $node, [
+        'command.claimed' => ['info', []],
+        'deployment.image.reused' => ['info', ['image' => 'sakala/project-x:3e91b22a2e56-0198a2f0', 'source_deployment_id' => $live->id, 'builder' => 'railpack']],
+    ]);
+
+    $deployment->refresh();
+    expect($deployment->status)->toBe(DeploymentStatus::Queued)
+        ->and($deployment->started_at?->equalTo($claimedAt))->toBeTrue();
+
+    // The release command and the container take time; the start stays put.
+    $this->travel(20)->seconds();
+    reuseReportEvents($deployment, $node, [
+        'deployment.release.started' => ['info', []],
+        'deployment.container.started' => ['info', []],
+    ]);
+
+    $deployment->refresh();
+    expect($deployment->status)->toBe(DeploymentStatus::Deploying)
+        ->and($deployment->started_at?->equalTo($claimedAt))->toBeTrue();
+});
+
+test('a built deployment starts at the agent\'s first report too, so both modes measure the same span', function (): void {
+    $node = reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject();
+    $deployment = reuseDeploy($project, $team['owner']);
+    expectBuild($deployment);
+
+    $this->travelTo(now()->startOfSecond());
+    $claimedAt = now()->toImmutable();
+    reuseReportEvents($deployment, $node, ['command.claimed' => ['info', []]]);
+
+    $this->travel(5)->seconds();
+    reuseReportEvents($deployment, $node, ['deployment.checkout.started' => ['info', []]]);
+
+    $deployment->refresh();
+    expect($deployment->status)->toBe(DeploymentStatus::Cloning)
+        ->and($deployment->started_at?->equalTo($claimedAt))->toBeTrue();
+});
+
+test('the first report broadcasts the start so a watching console counts from it', function (): void {
+    Event::fake([DeploymentUpdated::class]);
+    $node = reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject();
+    $deployment = reuseDeploy($project, $team['owner']);
+
+    reuseReportEvents($deployment, $node, [
+        'command.claimed' => ['info', []],
+        'deployment.timeouts.resolved' => ['info', []],
+    ]);
+
+    Event::assertDispatchedTimes(DeploymentUpdated::class, 1);
+    Event::assertDispatched(
+        DeploymentUpdated::class,
+        fn (DeploymentUpdated $event): bool => $event->broadcastWith()['started_at'] === $deployment->refresh()->started_at?->toISOString()
+            && $event->broadcastWith()['status'] === DeploymentStatus::Queued->value,
+    );
 });
 
 test('deployment.image.reuse_skipped turns a planned reuse into a build with the reason', function (mixed $reason, DeploymentBuildFallbackReason $expected): void {
