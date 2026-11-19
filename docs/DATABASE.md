@@ -31,7 +31,7 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 | `agent_node_control_requests` | Record idempotency operasi admin pada runtime node (drain, resume, cleanup); terpisah dari `project_control_requests` yang project-scoped. |
 | `deployment_events` | Timeline state yang dilaporkan agent. |
 | `deployment_logs` | Output redacted dari build/runtime. |
-| `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. |
+| `audit_events` | Jejak tindakan sensitif oleh user, agent, atau sistem. Juga menyimpan push monorepo yang dilewati (`project.push_skipped`, subjek project), yang dibaca Console lewat `GET app/projects/{project}/skipped-pushes` memakai index `(subject_type, subject_id, created_at)`; lihat [Push di Monorepo](API_CONVENTIONS.md#push-di-monorepo). |
 | `workspaces` | Pemilik project: satu workspace pribadi per user (`personal_user_id` unik) dan workspace tim. `slug` unik untuk keduanya. `limit_profile_id` opsional. `database_storage_warned_at` mencatat kapan peringatan 80% penyimpanan database dikirim, dan dikosongkan di bawah 80%. |
 | `workspace_members` | Anggota workspace dengan peran `owner`, `member`, atau `viewer`. Unik per workspace dan user; ikut terhapus bersama workspace atau user. |
 | `workspace_invitations` | Undangan: email (huruf kecil), peran, `status` (`pending`, `accepted`, `declined`, `revoked`), hash SHA-256 token, pengundang, masa berlaku, dan `closed_at`. Diterima, ditolak, dicabut, atau diganti berarti barisnya ditutup, bukan dihapus, supaya tautannya bisa menjelaskan kenapa tidak berlaku. `workspaces:prune-invitations` menghapus setiap baris setelah `SAKALA_WORKSPACE_INVITATION_RETENTION_HOURS` lewat dari masa berlakunya. |
