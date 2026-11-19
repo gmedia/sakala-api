@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Project;
 
 use App\Data\Agent\JavaScriptWorkspaceData;
+use App\Enums\DetectedFramework;
 use App\Enums\VariableBuildReason;
 use App\Models\Project;
 
@@ -13,7 +14,8 @@ use App\Models\Project;
  * deployment build (see docs/API_CONVENTIONS.md#redeploy-tanpa-build):
  *
  * 1. a static site (files, no server process) reads every variable at build;
- * 2. a framework that can render at build may bake any variable in;
+ * 2. a framework that can render at build may bake any variable in, whether
+ *    the agent found it in `package.json` or Railpack named it;
  * 3. a plain server reads variables at runtime, except BuildTimeVariable's
  *    prefixes and keys;
  * 4. an attached database's connection variables are never build-affecting,
@@ -23,11 +25,12 @@ use App\Models\Project;
  * 5. without a usable inspection, or for a stack this cannot classify, every
  *    variable counts (fail safe: build).
  *
- * Classified from the project's stored inspection only (Railpack v0.23.0
- * signals), with the guard and labels of ProjectPreviewPresenter. Railpack
- * reports Gatsby and Astro in server mode as plain `node`, so they fall under
- * rule 3 until the agent reports framework dependencies; "Build ulang dari
- * awal" (`force_build`) stays the override.
+ * Classified from the project's stored inspection only, with the guard and
+ * labels of ProjectPreviewPresenter: the frameworks the agent found in
+ * `package.json` (`frameworks`, DetectedFramework), then Railpack v0.23.0
+ * signals. Railpack reports Gatsby and Astro in server mode as plain `node`,
+ * so for an inspection by an agent before `frameworks` they fall under rule 3;
+ * "Build ulang dari awal" (`force_build`) stays the override.
  */
 final class VariableBuildPolicy
 {
@@ -42,6 +45,9 @@ final class VariableBuildPolicy
 
     /** How Railpack writes a true metadata value: always a string, `"true"`. */
     private const METADATA_TRUE = 'true';
+
+    /** Inspection key of the agent's DetectedFramework list. */
+    private const INSPECTION_FRAMEWORKS = 'frameworks';
 
     /** Railpack metadata keys read here. */
     private const METADATA_NODE_RUNTIME = 'nodeRuntime';
@@ -101,6 +107,14 @@ final class VariableBuildPolicy
         // Railpack does not serve an SPA as files when a start command is set.
         if (! self::hasStartCommand($project) && self::servedAsFiles($inspection, $metadata, $provider, $runtime)) {
             return VariableBuildReason::StaticSite;
+        }
+
+        // Railpack names no framework for some of these (Gatsby, Astro in
+        // server mode), so the agent's dependency check comes first. None
+        // found, or no list from an agent before the field, falls through to
+        // the Railpack signals.
+        if ((DetectedFramework::listFrom($inspection[self::INSPECTION_FRAMEWORKS] ?? null) ?? []) !== []) {
+            return VariableBuildReason::PrerenderFramework;
         }
 
         if ($provider === self::NODE_PROVIDER

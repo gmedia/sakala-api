@@ -239,3 +239,39 @@ test('a hostile value written to the stored inspection is checked again on the w
         ->assertJsonPath('data.inspection.database_hint.likely', false)
         ->assertJsonPath('data.inspection.database_hint.suggested_release_command', null);
 });
+
+// ─── frameworks ──────────────────────────────────────────────────────────────
+
+test('frameworks from the agent are stored known, sorted, and unique, and make variable changes build', function (): void {
+    $response = completeHintInspection(hintResult([
+        'railpack' => railpackStackInspection('express')['railpack'],
+        'frameworks' => ['gatsby', 'hugo', 'astro', 'gatsby', 3],
+    ]));
+
+    expect(Project::query()->sole()->inspection['frameworks'])->toBe(['astro', 'gatsby']);
+    $response->assertJsonPath('data.variable_changes.requires_build', true)
+        ->assertJsonPath('data.variable_changes.reason', 'prerender_framework')
+        // The Console contract is unchanged: neither inspection nor stack shows them.
+        ->assertJsonMissingPath('data.inspection.frameworks')
+        ->assertJsonPath('data.stack.framework', null);
+});
+
+test('an empty frameworks list leaves a plain node server on the prefix rule', function (): void {
+    completeHintInspection(hintResult([
+        'railpack' => railpackStackInspection('express')['railpack'],
+        'frameworks' => [],
+    ]))
+        ->assertJsonPath('data.variable_changes.requires_build', false)
+        ->assertJsonPath('data.variable_changes.reason', null);
+
+    expect(Project::query()->sole()->inspection['frameworks'])->toBe([]);
+});
+
+test('an inspection by an agent before frameworks stores null and keeps the Railpack classification', function (): void {
+    completeHintInspection(hintResult(['railpack' => railpackStackInspection('express')['railpack']]))
+        ->assertJsonPath('data.variable_changes.requires_build', false);
+
+    $inspection = Project::query()->sole()->inspection;
+    expect($inspection)->toHaveKey('frameworks')
+        ->and($inspection['frameworks'])->toBeNull();
+});

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Data\Agent\ProjectInspectionResultData;
+use App\Enums\DetectedFramework;
 use App\Enums\ProjectInspectionStatus;
 use App\Enums\VariableBuildReason;
 use App\Models\EnvironmentVariable;
@@ -101,6 +103,68 @@ test('a stack is classified from its Railpack signals', function (string $stack,
     'no provider' => ['no-provider', VariableBuildReason::UnknownStack],
 ]);
 
+test('a framework the agent found in package.json renders at build, whatever Railpack reports', function (string $stack, ?VariableBuildReason $expected): void {
+    expect(VariableBuildPolicy::reasonFor(policyProjectFor($stack)))->toBe($expected);
+})->with([
+    'Gatsby (Railpack: node)' => ['gatsby', VariableBuildReason::PrerenderFramework],
+    'Astro in server mode (Railpack: node)' => ['astro-server', VariableBuildReason::PrerenderFramework],
+    'Eleventy (Railpack: node)' => ['eleventy', VariableBuildReason::PrerenderFramework],
+    'SvelteKit without a Vite config (Railpack: node)' => ['sveltekit-without-vite-config', VariableBuildReason::PrerenderFramework],
+    'Express, none found' => ['express-without-frameworks', null],
+    // Order a and b stay first.
+    'Dockerfile, even with frameworks' => ['dockerfile-with-frameworks', null],
+    'static site, even with frameworks' => ['astro-spa-with-frameworks', VariableBuildReason::StaticSite],
+]);
+
+test('every detected framework counts, alone', function (DetectedFramework $framework): void {
+    $inspection = railpackStackInspection('express');
+    $inspection['frameworks'] = [$framework->value];
+
+    expect(VariableBuildPolicy::reasonFor(policyProject(inspectedProjectAttributes($inspection))))->toBe(VariableBuildReason::PrerenderFramework);
+})->with(DetectedFramework::cases());
+
+test('an inspection by an agent before frameworks keeps the Railpack classification', function (string $stack, ?VariableBuildReason $expected): void {
+    $inspection = railpackStackInspection($stack);
+    unset($inspection['frameworks']);
+
+    expect(VariableBuildPolicy::reasonFor(policyProject(inspectedProjectAttributes($inspection))))->toBe($expected);
+})->with([
+    // The known gap for those agents: Gatsby looks like Express.
+    'Gatsby (Railpack: node)' => ['gatsby', null],
+    'Express' => ['express', null],
+    'Next.js' => ['next', VariableBuildReason::PrerenderFramework],
+    'Vite SPA' => ['vite-spa', VariableBuildReason::StaticSite],
+]);
+
+test('unknown or malformed framework values are not frameworks', function (mixed $frameworks, ?VariableBuildReason $expected): void {
+    $inspection = railpackStackInspection('express');
+    $inspection['frameworks'] = $frameworks;
+
+    expect(VariableBuildPolicy::reasonFor(policyProject(inspectedProjectAttributes($inspection))))->toBe($expected);
+})->with([
+    'unknown names only' => [['jekyll', 'hugo', 'Gatsby', 'react-router-dom'], null],
+    'non-string items' => [[42, null, true, ['gatsby']], null],
+    'not a list' => ['gatsby', null],
+    'null' => [null, null],
+    'one known among unknown' => [['jekyll', 'gatsby'], VariableBuildReason::PrerenderFramework],
+]);
+
+test('the inspection result keeps known frameworks, sorted and unique, and null from an older agent', function (array $result, ?array $expected): void {
+    expect(ProjectInspectionResultData::fromArray($result)->toArray()['frameworks'])->toBe($expected);
+})->with([
+    'sorted and unique' => [['frameworks' => ['vitepress', 'next', 'astro', 'next']], ['astro', 'next', 'vitepress']],
+    'unknown and non-string dropped' => [['frameworks' => ['hugo', 'gatsby', 7, null, 'NEXT']], ['gatsby']],
+    'none found' => [['frameworks' => []], []],
+    'nothing known left' => [['frameworks' => ['hugo']], []],
+    'older agent' => [[], null],
+    'not a list' => [['frameworks' => 'next'], null],
+]);
+
+test('the detected framework enum lists exactly the contract values', function (): void {
+    expect(array_map(static fn (DetectedFramework $framework): string => $framework->value, DetectedFramework::cases()))
+        ->toBe(['next', 'nuxt', 'astro', 'sveltekit', 'gatsby', 'remix', 'react-router', 'tanstack-start', 'eleventy', 'docusaurus', 'vitepress']);
+});
+
 test('a project start command stops an SPA from being served as files', function (string $stack, ?VariableBuildReason $expected): void {
     expect(VariableBuildPolicy::reasonFor(policyProjectFor($stack, ['start_command' => 'npm run preview'])))->toBe($expected);
 })->with([
@@ -175,7 +239,7 @@ test('a plain server keeps the v0.9.0 build fingerprint, so its live deployments
     expect(DeploymentConfigFingerprint::forBuild($project, policyVariables()))
         ->toBe(policyV090BuildFingerprint($project, policyVariables()))
         ->toBe(POLICY_V090_FINGERPRINT);
-})->with(['express', 'laravel', 'dockerfile']);
+})->with(['express', 'laravel', 'dockerfile', 'express-without-frameworks', 'dockerfile-with-frameworks']);
 
 test('the v0.9.0 formula still holds with build settings', function (): void {
     config(['app.key' => POLICY_APP_KEY]);
@@ -198,7 +262,7 @@ test('a static, prerendered, or unknown stack gets a fingerprint of every variab
         ->not->toBe(DeploymentConfigFingerprint::forBuild($project, $changed))
         // …while the plain-server fingerprint ignores it.
         ->and(DeploymentConfigFingerprint::forBuild(policyProjectFor('express'), $changed))->toBe(POLICY_V090_FINGERPRINT);
-})->with(['vite-spa', 'next', 'shell']);
+})->with(['vite-spa', 'next', 'gatsby', 'shell']);
 
 test('every-variable fingerprints are sorted by key and ignore ciphertext', function (): void {
     $project = policyProjectFor('vite-spa');

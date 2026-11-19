@@ -518,6 +518,54 @@ test('changing a non-prefixed variable at the same commit reuses the image of a 
     expectReuse(reuseDeploy($project, $team['owner']), $live->id);
 })->with(REUSE_PLAIN_SERVER_STACKS)->with(['added', 'changed', 'removed']);
 
+test('a framework the agent found in package.json builds on a non-prefixed variable change, though Railpack reports node', function (string $stack): void {
+    reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(['API_URL' => 'before'], reuseStackAttributes($stack));
+    $live = reuseGoLive($project, $team['owner']);
+
+    expectReuse(reuseMakeLive(reuseDeploy($project, $team['owner'])), $live->id);
+
+    reuseChangeVariable($project, 'API_URL', 'changed');
+
+    expectBuild(reuseDeploy($project, $team['owner']));
+})->with([
+    'Gatsby' => ['gatsby'],
+    'Astro in server mode' => ['astro-server'],
+    'Eleventy' => ['eleventy'],
+    'SvelteKit without a Vite config' => ['sveltekit-without-vite-config'],
+]);
+
+test('frameworks do not change a plain server or a Dockerfile build: a non-prefixed variable change reuses', function (string $stack): void {
+    reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(['API_URL' => 'before'], reuseStackAttributes($stack));
+    $live = reuseGoLive($project, $team['owner']);
+
+    reuseChangeVariable($project, 'API_URL', 'changed');
+
+    expectReuse(reuseDeploy($project, $team['owner']), $live->id);
+})->with([
+    'Express, none found' => ['express-without-frameworks'],
+    'Dockerfile with frameworks' => ['dockerfile-with-frameworks'],
+]);
+
+test('a Gatsby project inspected by an older agent keeps reusing, then builds once after a re-inspection reports it', function (): void {
+    reuseNode();
+    $older = railpackStackInspection('gatsby');
+    unset($older['frameworks']);
+    ['team' => $team, 'project' => $project] = reuseProject(['API_URL' => 'before'], inspectedProjectAttributes($older));
+    $live = reuseGoLive($project, $team['owner']);
+
+    reuseChangeVariable($project, 'API_URL', 'changed');
+    $reused = reuseMakeLive(reuseDeploy($project, $team['owner']));
+    expectReuse($reused, $live->id);
+
+    $project->update(reuseStackAttributes('gatsby'));
+
+    $rebuilt = reuseMakeLive(reuseDeploy($project, $team['owner']));
+    expectBuild($rebuilt);
+    expectReuse(reuseDeploy($project, $team['owner']), $rebuilt->id);
+});
+
 test('a build-time prefix still builds a plain server', function (string $stack): void {
     reuseNode();
     ['team' => $team, 'project' => $project] = reuseProject(['VITE_API_URL' => 'before'], reuseStackAttributes($stack));

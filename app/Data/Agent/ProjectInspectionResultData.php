@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Data\Agent;
 
+use App\Enums\DetectedFramework;
+
 /**
  * Typed view of the `ProjectInspection` result an agent sends when
  * completing InspectProject. Tolerant of missing keys (the noop runtime
  * sends `null`, and older agents omit `exposed_ports`, `workspace`,
- * `env_example`, and `database_hint`).
+ * `env_example`, `database_hint`, and `frameworks`).
  */
 final readonly class ProjectInspectionResultData
 {
@@ -21,6 +23,8 @@ final readonly class ProjectInspectionResultData
      * @param  array<string, mixed>|null  $railpack
      * @param  EnvExampleData|null  $envExample  keys of the example environment file; null without one and from older agents
      * @param  DatabaseHintData|null  $databaseHint  null from older agents
+     * @param  list<DetectedFramework>|null  $frameworks  build-time rendering frameworks the inspected
+     *                                                    `package.json` depends on; null from older agents
      */
     public function __construct(
         public ?string $repositoryUrl,
@@ -35,6 +39,7 @@ final readonly class ProjectInspectionResultData
         public ?array $railpack,
         public ?EnvExampleData $envExample = null,
         public ?DatabaseHintData $databaseHint = null,
+        public ?array $frameworks = null,
     ) {}
 
     /**
@@ -61,6 +66,7 @@ final readonly class ProjectInspectionResultData
             railpack: is_array($railpack) ? $railpack : null,
             envExample: EnvExampleData::fromArray($result['env_example'] ?? null),
             databaseHint: DatabaseHintData::fromArray($result['database_hint'] ?? null),
+            frameworks: DetectedFramework::listFrom($result['frameworks'] ?? null),
         );
     }
 
@@ -111,6 +117,9 @@ final readonly class ProjectInspectionResultData
             'railpack' => $this->railpack,
             'env_example' => $this->envExample?->toArray(),
             'database_hint' => $this->databaseHint?->toArray(),
+            'frameworks' => $this->frameworks === null
+                ? null
+                : array_map(static fn (DetectedFramework $framework): string => $framework->value, $this->frameworks),
         ];
     }
 }
