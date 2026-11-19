@@ -42,9 +42,9 @@ class StoreDatabaseRequest extends FormRequest
             'project_id' => ['sometimes', 'nullable', 'uuid'],
             /**
              * Deploy the project as the caller once the database is ready, through the normal deployment path with
-             * every limit. Defaults to `false`; only with `project_id`.
+             * every limit. Defaults to `false`; `true` only with `project_id`.
              */
-            'deploy_when_ready' => ['sometimes', 'boolean', Rule::prohibitedIf(fn (): bool => $this->input('project_id') === null)],
+            'deploy_when_ready' => ['sometimes', 'boolean', Rule::prohibitedIf(fn (): bool => $this->input('project_id') === null && $this->boolean('deploy_when_ready'))],
         ];
     }
 

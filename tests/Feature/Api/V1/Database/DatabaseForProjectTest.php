@@ -323,6 +323,7 @@ test('while no database server is available a database for a project is refused,
     expect(ManagedDatabase::query()->count())->toBe(0);
 
     createDatabaseFor($team['workspace'], ['name' => 'Tanpa proyek'])->assertCreated();
+    createDatabaseFor($team['workspace'], ['name' => 'Tanpa proyek juga', 'deploy_when_ready' => false])->assertCreated();
 });
 
 test('deploy_when_ready needs a project and a boolean, and name is required without a project', function (array $body, string $field): void {
@@ -338,7 +339,6 @@ test('deploy_when_ready needs a project and a boolean, and name is required with
     expect(ManagedDatabase::query()->count())->toBe(0);
 })->with([
     'deploy_when_ready without project' => [['name' => 'Data', 'deploy_when_ready' => true], 'deploy_when_ready'],
-    'deploy_when_ready false without project' => [['name' => 'Data', 'deploy_when_ready' => false], 'deploy_when_ready'],
     'deploy_when_ready with a null project' => [['name' => 'Data', 'project_id' => null, 'deploy_when_ready' => true], 'deploy_when_ready'],
     'deploy_when_ready not a boolean' => [['project_id' => 'PROJECT', 'deploy_when_ready' => 'yes'], 'deploy_when_ready'],
     'no name and no project' => [[], 'name'],
