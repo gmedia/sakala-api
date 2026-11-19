@@ -214,9 +214,53 @@ Deployment yang hanya mengubah konfigurasi runtime tidak perlu mem-build ulang i
 5. deployment baru dipin ke node deployment aktif, dan node itu mengiklankan capability `image-reuse`;
 6. deployment yang mem-build image itu diketahui: deployment aktif sendiri, atau sumbernya bila deployment aktif juga memakai ulang image, sehingga rantai pakai ulang selalu menunjuk deployment yang mem-build.
 
-Selain itu deployment di-build seperti biasa. Jadi deploy ulang setelah rotasi password database (`database_password_rotated`), setelah memasang atau melepas database, setelah mengubah variabel runtime, dan tombol Redeploy selagi head branch masih commit yang live, memakai ulang image. Commit baru, perubahan yang memengaruhi build, atau `force_build: true` mem-build. Pemanggil lain (deploy ulang setelah rotasi, webhook `push`) tidak mengirim `force_build` dan ikut keputusan otomatis ini.
+Selain itu deployment di-build seperti biasa. Jadi deploy ulang setelah rotasi password database (`database_password_rotated`), setelah memasang atau melepas database, setelah mengubah variabel runtime server biasa, dan tombol Redeploy selagi head branch masih commit yang live, memakai ulang image. Commit baru, perubahan yang memengaruhi build, atau `force_build: true` mem-build. Pemanggil lain (deploy ulang setelah rotasi, webhook `push`) tidak mengirim `force_build` dan ikut keputusan otomatis ini.
 
-Yang memengaruhi build, dan masuk build fingerprint (`deployments.build_fingerprint`, HMAC-SHA256 dengan `APP_KEY` seperti fingerprint konfigurasi): `root_directory`, `build_command`, `start_command` (Railpack menanamnya di image; string kosong sama dengan tidak diisi), dan variabel build-time beserta nilainya. Variabel dianggap build-time bila key-nya diawali `NEXT_PUBLIC_`, `NUXT_PUBLIC_`, `VITE_`, `REACT_APP_`, `VUE_APP_`, `GATSBY_`, `EXPO_PUBLIC_`, `PUBLIC_` (SvelteKit, Astro), atau `RAILPACK_`, atau tepat `NODE_ENV` (`BuildTimeVariable`, peka huruf besar-kecil). Alasannya: Railpack memberikan semua variabel ke setiap langkah build, tetapi hanya awalan itu yang ditanam framework ke hasil build atau mengatur builder, dan `NODE_ENV` mengubah cara project JavaScript di-build. Menambah, mengubah, atau menghapus variabel seperti itu membuat deployment berikutnya mem-build. Variabel lain, dan variabel koneksi database yang terpasang, hanya dibaca saat runtime. Project yang menanam variabel lain ke image saat build memakai "Build ulang dari awal" (`force_build: true`). `builder` di payload selalu `auto`, dan tidak ada setelan path Dockerfile, jadi keduanya tidak ikut. Deployment dari sebelum rilis ini tidak punya build fingerprint, sehingga redeploy konfigurasi pertama setelah upgrade mem-build sekali.
+Yang memengaruhi build, dan masuk build fingerprint (`deployments.build_fingerprint`, HMAC-SHA256 dengan `APP_KEY` seperti fingerprint konfigurasi): `root_directory`, `build_command`, `start_command` (Railpack menanamnya di image; string kosong sama dengan tidak diisi), dan variabel build-time project beserta nilainya. Variabel mana yang build-time bergantung pada stack project, lihat [Variabel yang memengaruhi build](#variabel-yang-memengaruhi-build). Menambah, mengubah, atau menghapus variabel build-time membuat deployment berikutnya mem-build. Project yang menanam variabel lain ke image saat build memakai "Build ulang dari awal" (`force_build: true`). `builder` di payload selalu `auto`, dan tidak ada setelan path Dockerfile, jadi keduanya tidak ikut. Deployment dari sebelum image reuse (v0.9.0) tidak punya build fingerprint, sehingga redeploy konfigurasi pertama setelah upgrade ke versi itu mem-build sekali.
+
+#### Variabel yang memengaruhi build
+
+Satu kelas memutuskan ini, `VariableBuildPolicy`, dari data yang sudah disimpan API (tanpa perubahan agent). Ada lima aturan:
+
+1. **Situs statis** (`static_site`): disajikan sebagai file tanpa proses server, jadi semua variabel dibaca saat build. Perubahan variabel project apa pun mem-build.
+2. **Framework prerender** (`prerender_framework`): framework yang bisa membuat halaman saat build, misalnya Astro `import.meta.env.X`, Next.js `getStaticProps`, Nuxt generate, atau SvelteKit `$env/static/*`. Perubahan variabel project apa pun mem-build.
+3. **Server biasa**: variabel dibaca saat runtime dan image dipakai ulang, kecuali variabel yang key-nya diawali `NEXT_PUBLIC_`, `NUXT_PUBLIC_`, `VITE_`, `REACT_APP_`, `VUE_APP_`, `GATSBY_`, `EXPO_PUBLIC_`, `PUBLIC_` (SvelteKit, Astro), atau `RAILPACK_`, atau tepat `NODE_ENV` (`BuildTimeVariable`, peka huruf besar-kecil). Framework menanam awalan itu ke hasil build, `RAILPACK_` mengatur builder, dan `NODE_ENV` mengubah cara project JavaScript di-build.
+4. **Variabel koneksi database** yang disuntikkan Sakala dari database terkelola yang terpasang (`DATABASE_URL`, `DB_*`; termasuk memasang, melepas, dan rotasi password) tidak pernah memengaruhi build, untuk stack apa pun. Build memang tidak bisa menjangkau database: `pg_hba` host database hanya menerima jaringan runtime, bukan jaringan build, jadi variabel itu runtime-only sejak awal. Variabel project yang di-set user sendiri dengan nama yang sama tetap variabel project dan mengikuti aturan 1 sampai 3 atau 5.
+5. **Stack tidak dikenal** (`unknown_stack`): tanpa inspeksi yang bisa dipakai, atau stack yang tidak bisa diklasifikasikan, semua variabel dianggap build-time. Kalau ragu, build.
+
+Klasifikasi hanya membaca `projects.inspection`, dan hanya bila inspeksi itu bisa dipakai menurut aturan yang sama dengan `stack` (status `succeeded` dan `root_directory`-nya sama dengan milik project); selain itu `unknown_stack`. Label dibaca dengan sanitasi dan huruf kecil yang sama dengan `stack`. Sinyalnya dari Railpack v0.23.0, versi yang di-pin agent: `railpack.detectedProviders[0]` (provider), serta `railpack.metadata.nodeRuntime`, `nodeSPAFramework`, dan `nodeIsSPA` (string `"true"`/`"false"`; boolean juga diterima). Urutan evaluasinya:
+
+| Urutan | Kondisi | Hasil |
+| --- | --- | --- |
+| a | `inspection.dockerfile_found` `true` (builder `dockerfile`) | Server biasa (aturan 3). Sakala tidak pernah mengirim variabel sebagai build arg; Dockerfile hanya melihat variabel lewat `RUN --mount=type=secret,id=NAME` yang eksplisit. Awalan build-time tetap berlaku. |
+| b | `start_command` project kosong, dan salah satu dari: `nodeIsSPA` true; provider `staticfile`; `nodeRuntime` `static`; `inspection.workspace.static_output_directory` terisi (agent menyajikan paket Vite di workspace JavaScript sebagai file) | `static_site`. `start_command` yang terisi mematikan baris ini, karena Railpack tidak menyajikan SPA lewat Caddy bila start command di-set; evaluasi lanjut ke c. |
+| c | Provider `node`, dan `nodeRuntime` atau `nodeSPAFramework` salah satu dari `next`, `nuxt`, `remix`, `react-router`, `tanstack-start`, `astro`, `vite` | `prerender_framework`. `vite` tanpa SPA mencakup SvelteKit, yang dilaporkan Railpack sebagai vite, dan `vite preview`. |
+| d | Provider `node` dengan `nodeRuntime` `node`, `bun`, atau tanpa `nodeRuntime`; atau provider `php`, `golang`, `java`, `rust`, `ruby`, `elixir`, `python`, `deno`, `dotnet`, `gleam`, `cpp` | Server biasa (aturan 3). |
+| e | Selain itu: provider `shell`, provider tidak dikenal, atau tanpa provider | `unknown_stack`. |
+
+Celah yang diketahui: Railpack melaporkan Gatsby dan Astro mode server sebagai `node` biasa, jadi keduanya masuk aturan 3 sampai agent melaporkan dependency framework (lanjutan setelah agent PR #117). Untuk project seperti itu, "Build ulang dari awal" tetap jalan keluarnya.
+
+Build fingerprint mengikuti keputusan ini. Untuk situs statis, framework prerender, dan stack tidak dikenal, fingerprint meng-hash semua variabel project (key dan nilai plaintext, urut menurut key) dengan penanda scope tersendiri. Untuk server biasa, input fingerprint persis sama dengan v0.9.0, jadi deployment server biasa yang sedang live tetap cocok dan tidak di-build tanpa perlu setelah upgrade. Fingerprint situs statis, framework prerender, dan stack tidak dikenal berubah sekali, sehingga redeploy pertama mereka setelah upgrade ke rilis ini mem-build sekali (sengaja, demi aman). Hal yang sama terjadi bila inspeksi ulang memindahkan project ke kelas lain. Variabel koneksi database tidak pernah masuk fingerprint (aturan 4).
+
+`ProjectResource.variable_changes` selalu ada, supaya Console bisa memberi tahu sebelum user menyimpan perubahan variabel apakah redeploy berikutnya akan mem-build. Daftar project dan response pembuatan project tidak memuatnya.
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `requires_build` | boolean | `true` bila perubahan apa pun pada variabel project membuat deployment berikutnya mem-build (aturan 1, 2, 5). `false` untuk server biasa (aturan 3). |
+| `reason` | enum `static_site`, `prerender_framework`, `unknown_stack`, atau `null` | Alasan `requires_build` bernilai `true`; `null` bila `false`. Enum OpenAPI `VariableBuildReason` juga memuat `build_time_prefix`, yang tidak pernah muncul di sini: itu alasan per variabel yang ditampilkan Console untuk server biasa. |
+| `build_time_prefixes` | array string | Awalan aturan 3, sama dan seurutan dengan `BuildTimeVariable::PREFIXES`. Dicocokkan peka huruf besar-kecil di awal key. |
+| `build_time_keys` | array string | Key aturan 3 yang build-time secara utuh, saat ini `["NODE_ENV"]`. |
+
+Untuk server biasa, Console menentukan sendiri apakah satu key build-time dari dua daftar itu, lalu menampilkan alasan `build_time_prefix`. Variabel koneksi database tidak pernah didaftarkan; Console menganggapnya runtime-only.
+
+```json
+"variable_changes": {
+  "requires_build": true,
+  "reason": "static_site",
+  "build_time_prefixes": ["NEXT_PUBLIC_", "NUXT_PUBLIC_", "VITE_", "REACT_APP_", "VUE_APP_", "GATSBY_", "EXPO_PUBLIC_", "PUBLIC_", "RAILPACK_"],
+  "build_time_keys": ["NODE_ENV"]
+}
+```
 
 Deployment yang memakai ulang image tetap menjalankan `release_command` (memasang database baru berarti migrasinya harus berjalan di database itu), health check, semua replika, dan pergantian tanpa downtime seperti biasa, dan tetap tunduk pada batas deployment berjalan dan container berjalan. Agent melewati checkout, analisis, dan build, jadi `status` melompat dari `queued` ke `deploying`, dan timeline memuat event `deployment.image.reused`.
 
@@ -299,6 +343,7 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 | `suspension` | object atau `null` | Terisi selama `status` bernilai `suspended`, dan `null` di luar itu, termasuk setelah penangguhan dibuka. Ada juga di `GET /api/v1/app/projects`. Lihat "Pemberitahuan dan Membuka Penangguhan". |
 | `redeploy_required` | boolean | `true` bila deployment aktif dibuat dengan konfigurasi yang relevan untuk deploy yang berbeda dari sekarang: `branch`, port (`effective_port`), konfigurasi build (`build_command`, `start_command`, `release_command`, `root_directory`), `replicas`, environment variable (key dan nilai), atau database terpasang (pasang, lepas, dan password yang dirotasi). Mengembalikan nilainya seperti semula membuatnya `false` lagi. `name`, `thumbnail_url`, `auto_deploy`, `region`, dan `is_secret` tidak pernah membuatnya `true`. Selalu `false` bila tidak ada deployment aktif. |
 | `stack` | object atau `null` | Lihat "Inspeksi". |
+| `variable_changes` | object | Apakah perubahan variabel project membuat redeploy berikutnya mem-build, dan kenapa. Selalu ada. Lihat [Variabel yang memengaruhi build](#variabel-yang-memengaruhi-build). |
 | `databases` | array | Database terkelola yang terpasang, paling banyak satu: `id`, `name`, `status`, `region`, `variables` (nama variabel yang diterima deployment berikutnya dari database itu, tanpa nilai), dan `overridden_variables` (nama yang di-set proyek sendiri, sehingga nilai proyek yang dipakai; Console sebaiknya memperingatkannya). `[]` tanpa database. Daftar project (`GET /api/v1/app/projects`) memuat versi ringan dengan `id`, `name`, dan `status` saja, supaya dialog pemasangan bisa menandai proyek yang sudah memakai database. Lihat [Database](#database). |
 | `workspace` | object atau `null` | Workspace pemilik project: `id`, `name`, `slug`, `type` (`personal` atau `team`). Ada juga di daftar project dan respons pembuatan project. `null` hanya untuk project yang sedang menunggu purge tanpa workspace. Peran pemanggil ada di `GET /api/v1/app/workspaces`. |
 
