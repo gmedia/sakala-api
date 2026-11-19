@@ -13,8 +13,7 @@ use App\Models\DatabaseAttachment;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Models\User;
-use App\Services\Agent\AgentNodeSchedulerService;
-use App\Support\Database\DatabaseAudit;
+use App\Services\Database\ProjectDatabaseAttacher;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -23,12 +22,13 @@ use InvalidArgumentException;
  * deployment receives the connection variables, so the project's database
  * fingerprint changes and `redeploy_required` turns true. Attaching again is
  * a no-op. The database row is locked before the project row, the order every
- * database path takes.
+ * database path takes. Only a ready database attaches here; a database still
+ * being created is attached only by CreateDatabaseAction, for its project.
  */
 final class AttachDatabaseAction
 {
     public function __construct(
-        private readonly AgentNodeSchedulerService $scheduler,
+        private readonly ProjectDatabaseAttacher $attacher,
     ) {}
 
     /**
@@ -51,7 +51,7 @@ final class AttachDatabaseAction
             /** @var Project $lockedProject */
             $lockedProject = Project::query()->whereKey($project->id)->lockForUpdate()->firstOrFail();
 
-            $existing = DatabaseAttachment::query()->where('project_id', $lockedProject->id)->first();
+            $existing = $this->attacher->attachmentOf($lockedProject);
 
             if ($existing?->database_id === $lockedDatabase->id) {
                 return ['attachment' => $existing, 'created' => false];
@@ -65,40 +65,12 @@ final class AttachDatabaseAction
                 throw new DatabaseNotReadyException($lockedDatabase->status);
             }
 
-            if ($existing !== null) {
-                throw new ProjectDatabaseAlreadyAttachedException($existing->database()->withTrashed()->firstOrFail());
-            }
+            $this->attacher->ensureNoneAttached($existing);
+            $this->attacher->ensureSameRegion($lockedDatabase->region, $lockedProject);
 
-            $this->ensureSameRegion($lockedDatabase, $lockedProject);
-
-            $attachment = DatabaseAttachment::query()->create([
-                'database_id' => $lockedDatabase->id,
-                'project_id' => $lockedProject->id,
-                'created_by' => $actor->id,
-            ]);
-
-            $lockedProject->refreshDatabaseFingerprint();
-            $lockedProject->save();
-
-            DatabaseAudit::record($actor, DatabaseAudit::ATTACHED, $lockedDatabase, ['project_id' => $lockedProject->id]);
+            $attachment = $this->attacher->attach($actor, $lockedDatabase, $lockedProject);
 
             return ['attachment' => $attachment, 'created' => true];
         });
-    }
-
-    /**
-     * Until a private network joins regions, a project only reaches databases
-     * of its own region. Either region unknown means any region, which cannot
-     * conflict.
-     *
-     * @throws DatabaseCrossRegionUnsupportedException
-     */
-    private function ensureSameRegion(ManagedDatabase $database, Project $project): void
-    {
-        $projectRegion = $this->scheduler->regionOf($project);
-
-        if ($database->region !== null && $projectRegion !== null && $database->region !== $projectRegion) {
-            throw new DatabaseCrossRegionUnsupportedException($database->region, $projectRegion);
-        }
     }
 }

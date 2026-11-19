@@ -101,12 +101,13 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `DATABASE_LIMIT_EXCEEDED` | `422` | Workspace sudah punya database sebanyak `max_databases` efektifnya. `limit` `0` berarti workspace itu belum boleh membuat database sama sekali. Lihat [Database](#database). | `limit`, `current` |
 | `DATABASE_STORAGE_LIMIT_EXCEEDED` | `422` | Membuat database saat ukuran database workspace sudah mencapai `max_database_storage_mb`; database baru akan langsung dikunci. | `limit_mb`, `current_bytes` |
 | `DATABASE_REGION_UNAVAILABLE` | `409` | Membuat database di region yang tidak punya node `managed-postgres` yang diizinkan menerima pekerjaan, atau di mana pun bila `region` `null`. | `region` (string atau `null`) |
-| `DATABASE_CROSS_REGION_UNSUPPORTED` | `409` | Memasang database ke proyek yang berjalan, atau harus berjalan, di region lain. | `database_region`, `project_region` |
-| `DATABASE_NOT_READY` | `409` | Memasang, membaca kredensial, atau merotasi password database yang masih `provisioning`, `failed`, atau `deleting`. | `status` |
+| `DATABASE_CROSS_REGION_UNSUPPORTED` | `409` | Memasang database ke proyek yang berjalan, atau harus berjalan, di region lain, atau membuat database untuk proyek itu (`project_id`) dengan `region` lain. | `database_region`, `project_region` |
+| `DATABASE_NOT_READY` | `409` | Memasang, membaca kredensial, atau merotasi password database yang masih `provisioning`, `failed`, atau `deleting`. Juga deploy proyek yang database terpasangnya masih `provisioning` atau `failed`; push webhook dilewati dengan `reason` `database_not_ready`. Lihat [Membuat Database untuk Proyek](#membuat-database-untuk-proyek). | `status` |
 | `DATABASE_LOCKED` | `409` | Memasang database yang `locked` karena penyimpanan workspace penuh. | - |
 | `DATABASE_IN_USE` | `409` | Menghapus database yang masih terpasang ke proyek. | `projects` (`id`, `name`, `slug`) |
 | `DATABASE_BUSY` | `409` | Merotasi password saat rotasi sebelumnya belum selesai, atau menghapus database yang sedang dibuat node. Aman diulang setelahnya. | - |
-| `PROJECT_DATABASE_ALREADY_ATTACHED` | `409` | Memasang database ke proyek yang sudah memakai database lain. | `database` (`id`, `name`) |
+| `PROJECT_DATABASE_ALREADY_ATTACHED` | `409` | Memasang database ke proyek, atau membuat database untuk proyek (`project_id`), yang sudah memakai database lain. | `database` (`id`, `name`) |
+| `DATABASE_UNAVAILABLE` | `409` | Membuat database untuk proyek (`project_id`) saat tidak ada server database yang bisa menerima database baru (`databases.available` `false`). Membuat database tanpa proyek tidak kena. | - |
 | `DATABASE_ENDPOINT_UNAVAILABLE` | `409` | Deploy proyek yang database terpasangnya ada di node yang belum melaporkan alamatnya (`metadata.database.endpoint`). | `database` (`id`, `name`) |
 
 Anggota workspace project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
@@ -136,7 +137,7 @@ Scramble menginfer dokumentasi dari route, validation rules pada Form Request, r
 
 Instalasi GitHub App selalu kembali ke `/projects/new` di console: `?github_installation=connected` saat berhasil, atau `?github_installation=error&error=<kode>` dengan kode `github_app_not_configured`, `github_invalid_state`, `github_invalid_installation`, `github_access_denied`, atau `github_provider_failure`. Tamu diarahkan ke `/login` di console, bukan ke halaman error API.
 
-Webhook `push` membuat deployment untuk project yang `auto_deploy`-nya aktif bila repository, installation, dan branch cocok, memakai commit dari payload dengan `trigger = webhook`. Deployment itu atas nama pemilik workspace pribadi, atau di tim atas nama pembuat project selama ia masih owner atau member, lalu owner tim yang paling lama. Signature diverifikasi lebih dulu, dan `X-GitHub-Delivery` membuat pengiriman ulang tidak melakukan apa-apa. Project yang ditangguhkan, yang kena batas deployment aktif, yang workspace-nya sudah mencapai batas build per jam, atau yang `release_command`-nya tidak bisa dijalankan node mana pun dilewati: webhook tetap `200`, tindakan dicatat di audit (`project.auto_deploy_skipped`, dengan `reason` seperti `build_rate_limit` atau `release_command_unsupported`), dan owner serta member workspace mendapat notifikasi `project_issue`. Notifikasi batas build menyebut kapan bisa deploy lagi. Pengiriman yang dilewati tidak dicoba ulang. GitHub App harus berlangganan event `push`.
+Webhook `push` membuat deployment untuk project yang `auto_deploy`-nya aktif bila repository, installation, dan branch cocok, memakai commit dari payload dengan `trigger = webhook`. Deployment itu atas nama pemilik workspace pribadi, atau di tim atas nama pembuat project selama ia masih owner atau member, lalu owner tim yang paling lama. Signature diverifikasi lebih dulu, dan `X-GitHub-Delivery` membuat pengiriman ulang tidak melakukan apa-apa. Project yang ditangguhkan, yang kena batas deployment aktif, yang workspace-nya sudah mencapai batas build per jam, atau yang `release_command`-nya tidak bisa dijalankan node mana pun dilewati: webhook tetap `200`, tindakan dicatat di audit (`project.auto_deploy_skipped`, dengan `reason` seperti `build_rate_limit`, `release_command_unsupported`, atau `database_not_ready`), dan owner serta member workspace mendapat notifikasi `project_issue`. Notifikasi batas build menyebut kapan bisa deploy lagi. Pengiriman yang dilewati tidak dicoba ulang. GitHub App harus berlangganan event `push`.
 
 ### Push di Monorepo
 
@@ -180,7 +181,7 @@ Console memanggilnya dengan `since` berisi `created_at` deployment tertua di hal
 
 ## Project Preview
 
-`ProjectResource` dan `CreateProjectResource` menyertakan `preview_status` (`pending` | `succeeded` | `failed` | `unavailable`), `inspection` (hanya saat `succeeded`: `repository_url`, `commit_sha`, `dockerfile_found`, `env_example_found`, `compose_found`, `manifests`, `package_manager`, `inspected_at`), dan `inspection_error_code`. Preview diminta otomatis saat project dibuat dan tidak pernah menggagalkan pembuatan; `unavailable` dengan kode `branch_not_found`, `repository_access_denied`, atau `github_unavailable` berarti tidak ada command inspeksi yang dibuat. Inspeksi ulang tersedia lewat `POST /api/v1/app/projects/{project}/inspection`; lihat "Inspeksi".
+`ProjectResource` dan `CreateProjectResource` menyertakan `preview_status` (`pending` | `succeeded` | `failed` | `unavailable`), `inspection` (hanya saat `succeeded`: `repository_url`, `commit_sha`, `dockerfile_found`, `env_example_found`, `compose_found`, `manifests`, `package_manager`, `inspected_at`, `env_example`, `database_hint`; dua yang terakhir dijelaskan di "Inspeksi"), dan `inspection_error_code`. Preview diminta otomatis saat project dibuat dan tidak pernah menggagalkan pembuatan; `unavailable` dengan kode `branch_not_found`, `repository_access_denied`, atau `github_unavailable` berarti tidak ada command inspeksi yang dibuat. Inspeksi ulang tersedia lewat `POST /api/v1/app/projects/{project}/inspection`; lihat "Inspeksi".
 
 ## Deployment Representation
 
@@ -457,6 +458,40 @@ Retensi: baris per menit disimpan `SAKALA_METRICS_MINUTE_RETENTION_HOURS` (defau
 | `static_output_directory` | string atau `null` | Hasil build SPA Vite relatif terhadap root workspace, yang disajikan sebagai situs statis. |
 
 Perintah di inspeksi adalah turunan dari script package, karena inspeksi tidak membawa `build_command` dan `start_command` project. Perintah yang benar-benar dipakai sebuah deployment ada di metadata event `deployment.workspace.detected` pada timeline deployment, dengan bentuk yang sama. Event itu tidak mengubah status (tetap `analyzing`).
+
+#### Contoh environment dan petunjuk database
+
+`inspection.env_example` dan `inspection.database_hint` selalu ada saat `preview_status` `succeeded`, supaya Console bisa menyarankan variabel yang belum diisi dan menawarkan database saat proyek disiapkan. Keduanya `null` untuk inspeksi oleh agent sebelum field ini (lihat [Agent API](AGENT_API.md#inspectproject)).
+
+`env_example` berisi kunci dari file contoh environment di direktori yang diinspeksi, atau `null` bila tidak ada file seperti itu atau file-nya tidak bisa dibaca dengan aman. `.env` tidak pernah dibaca.
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `file` | string | Salah satu dari `.env.example`, `.env.sample`, `.env.dist`: yang pertama ditemukan. |
+| `entries` | array | Paling banyak 200, urut seperti di file. Setiap item `{ key, example_value }`. |
+| `entries[].key` | string | Nama variabel yang lolos aturan variabel proyek (`^[A-Z_][A-Z0-9_]*$`, paling panjang 128). Kunci lain dibuang, dan kunci yang berulang hanya diambil yang pertama. |
+| `entries[].example_value` | string atau `null` | Nilai contoh, paling panjang 200 karakter. `null` bila kosong, multi-baris, atau terlihat seperti kredensial (agent membuangnya). Ini contoh dari repository, bukan rahasia, tetapi Console sebaiknya tidak mengisinya otomatis sebagai nilai. |
+| `truncated` | boolean | `true` bila ada lebih banyak kunci dari yang dikirim. |
+
+`database_hint` menjawab apakah proyek tampaknya butuh database:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `likely` | boolean | `true` bila `signals` tidak kosong. Dihitung ulang oleh API. |
+| `engine` | string | `postgresql`, `mysql`, `sqlite`, atau `unknown`. Hanya petunjuk: database terkelola selalu PostgreSQL. |
+| `signals` | array | Paling banyak 16 item `{ kind, file, name }`: `kind` string, `file` path relatif terhadap direktori yang diinspeksi, `name` string atau `null`. |
+| `suggested_release_command` | string atau `null` | Hanya salah satu dari `php artisan migrate --force`, `python manage.py migrate`, `npx prisma migrate deploy`, `bin/rails db:migrate`, untuk dipakai sebagai `release_command` lewat `PATCH /projects/{project}`. |
+
+| `kind` | `name` |
+| --- | --- |
+| `env_variable` | Kunci seperti `DATABASE_URL`, `DB_HOST`, atau `PGHOST` di `env_example`. |
+| `laravel_migrations` | `null`; `file` adalah `database/migrations`. |
+| `prisma_schema` | Provider `datasource`, misalnya `postgresql`. |
+| `django_settings` | `DATABASES` atau `dj_database_url`. |
+| `rails_database_config` | `adapter` pertama di `config/database.yml`, atau `null`. |
+| `package_dependency` | Nama package, misalnya `pg` atau `@prisma/client`. |
+
+Nilai `kind` stabil, tetapi agent boleh menambah jenis baru; API membuang jenis yang belum dikenalnya, dan Console mengabaikan jenis yang tidak dikenal. API tidak memercayai hasil agent: kunci, jumlah, panjang, `engine`, dan `suggested_release_command` diperiksa ulang saat disimpan dan saat dibaca, jadi nilai di luar aturan di atas tidak pernah sampai ke Console.
 
 `null` berarti tidak diketahui, bukan tebakan. Output railpack mentah tetap di server. Field yang dibaca sudah dicocokkan dengan output `railpack info` sungguhan (`detectedProviders`, `metadata.nodeSPAFramework`, `metadata.nodeRuntime`, `metadata.nodePackageManager`); contohnya ada di `tests/Fixtures/railpack/`.
 
@@ -735,7 +770,7 @@ Semua endpoint berada di `/api/v1/app/workspaces/{workspace}/databases` dan mema
 | Endpoint | Owner | Member | Viewer | Admin | Hasil |
 | --- | --- | --- | --- | --- | --- |
 | `GET .../databases` | ya | ya | ya | ya | Database workspace, terbaru dulu, tanpa pagination (jumlahnya dibatasi kuota). |
-| `POST .../databases` | ya | ya | `403` | ya | `201`. Body `name` (wajib, paling panjang 100, unik di antara database workspace yang masih ada) dan `region` opsional (format region, `null` memakai `default_region` profil workspace, atau region mana pun bila kosong). Status awal `provisioning`. |
+| `POST .../databases` | ya | ya | `403` | ya | `201`. Body `name` (wajib tanpa `project_id`, paling panjang 100, unik di antara database workspace yang masih ada), `region` opsional (format region, `null` memakai `default_region` profil workspace, atau region mana pun bila kosong), `project_id` opsional (uuid atau `null`), dan `deploy_when_ready` opsional (boolean; `true` hanya bersama `project_id`). Status awal `provisioning`. Lihat "Membuat Database untuk Proyek". |
 | `GET .../databases/{database}` | ya | ya | ya | ya | Satu database. |
 | `PATCH .../databases/{database}` | ya | ya | `403` | ya | Body `name`. Nama di node tidak pernah berubah. |
 | `DELETE .../databases/{database}` | ya | ya | `403` | ya | `202` dengan status `deleting`, lalu hilang dari API setelah node menghapusnya. Lihat "Menghapus". |
@@ -745,7 +780,7 @@ Semua endpoint berada di `/api/v1/app/workspaces/{workspace}/databases` dan mema
 | `POST .../databases/{database}/rotate-password` | ya | ya | `403` | ya | `202`. Body `redeploy_attached` opsional. Lihat "Rotasi Password". |
 | `POST .../databases/{database}/extensions` | ya | ya | `403` | ya | `202`. Body `extension`. Lihat "Extension". |
 
-Memasang dan melepas juga memeriksa hak mengubah proyek itu, yang di workspace yang sama berarti owner atau member.
+Memasang, melepas, dan membuat database dengan `project_id` juga memeriksa hak mengubah proyek itu, yang di workspace yang sama berarti owner atau member.
 
 `DatabaseResource` berisi `id`, `name`, `engine` (`postgresql`), `status`, `region` (region node database, `null` bila node itu tidak punya region), `size_bytes` dan `size_checked_at` (dari pembacaan ukuran terakhir node database, `null` sampai node melaporkan; database kosong sekitar 7,5 MiB karena katalog sistem ikut terhitung), `projects` (proyek yang terpasang: `id`, `name`, `slug`, urut nama), `connection`, `last_failure`, `password_rotation` (lihat "Rotasi Password"), `created_at`, dan `updated_at`.
 
@@ -782,7 +817,7 @@ Memasang dan melepas juga memeriksa hak mengubah proyek itu, yang di workspace y
 
 ### Ketersediaan
 
-`databases.available` di `GET app/pilot-limits` bernilai `true` selama ada setidaknya satu node yang online, boleh menerima `CreateDatabase` (capability `managed-postgres`, kelayakan yang sama dengan penempatan), dan pada pembacaan terakhirnya melaporkan `metadata.database.available: true`. Instalasi tanpa server database, node database yang offline atau di-drain, dan instance yang tidak menjawab membuatnya `false`; node yang belum pernah melaporkan `available` juga belum dihitung. Nilai ini dipakai Console untuk menyembunyikan tombol buat database dan menjelaskan bahwa database terkelola belum tersedia. API tidak menolak pembuatan karenanya (penempatan tetap mengikuti aturan di bawah), dan database yang sudah ada tetap tampil. Dihitung setiap request tanpa cache.
+`databases.available` di `GET app/pilot-limits` bernilai `true` selama ada setidaknya satu node yang online, boleh menerima `CreateDatabase` (capability `managed-postgres`, kelayakan yang sama dengan penempatan), dan pada pembacaan terakhirnya melaporkan `metadata.database.available: true`. Instalasi tanpa server database, node database yang offline atau di-drain, dan instance yang tidak menjawab membuatnya `false`; node yang belum pernah melaporkan `available` juga belum dihitung. Nilai ini dipakai Console untuk menyembunyikan tombol buat database dan menjelaskan bahwa database terkelola belum tersedia. API tidak menolak pembuatan database tanpa proyek karenanya (penempatan tetap mengikuti aturan di bawah), dan database yang sudah ada tetap tampil. Pembuatan untuk proyek (`project_id`) ditolak `409 DATABASE_UNAVAILABLE` selama nilainya `false`, karena proyek yang menunggu deployment pertamanya tidak boleh tertahan di belakang instance yang diketahui mati. Dihitung setiap request tanpa cache.
 
 ### Penempatan
 
@@ -809,10 +844,40 @@ Aturan memasang:
 
 * Proyek dan database harus satu workspace; selain itu `404`.
 * Satu proyek memakai satu database pada satu waktu, karena nama variabelnya tetap: `409 PROJECT_DATABASE_ALREADY_ATTACHED`. Satu database boleh dipasang ke beberapa proyek, dan `CONNECTION LIMIT` database (5) berlaku bersama untuk semua replika semua proyek itu, termasuk sesi superuser: backup yang sedang berjalan memakai satu dari lima.
-* Database harus `ready`: `locked` dijawab `409 DATABASE_LOCKED`, `provisioning`, `failed`, dan `deleting` dijawab `409 DATABASE_NOT_READY`.
+* Database harus `ready`: `locked` dijawab `409 DATABASE_LOCKED`, `provisioning`, `failed`, dan `deleting` dijawab `409 DATABASE_NOT_READY`. Database yang masih dibuat hanya terpasang lewat pembuatan untuk proyek ("Membuat Database untuk Proyek").
 * Region proyek, yaitu region node yang melayani deployment `succeeded` terakhirnya, atau bila belum ada, region yang harus ditempatinya (`region` proyek, lalu `default_region` profil), harus sama dengan region database: `409 DATABASE_CROSS_REGION_UNSUPPORTED` sampai ada jaringan privat antar region. Region yang tidak diketahui di salah satu sisi tidak memblokir. Mengganti region proyek setelah dipasang tidak diperiksa ulang.
 
 Memasang, melepas, dan rotasi password yang sukses mengubah fingerprint deploy proyek (`projects.database_fingerprint`), jadi `redeploy_required` menjadi `true` sampai deployment berikutnya; melepas database yang baru dipasang mengembalikannya ke `false`. Alamat node database tidak termasuk fingerprint: alamat itu dibaca dari heartbeat saat deployment dibuat. Bila node database belum pernah melaporkan alamatnya, deploy proyek yang database-nya terpasang ditolak `409 DATABASE_ENDPOINT_UNAVAILABLE`, dan push webhook dilewati dengan `reason` `database_endpoint_unavailable`, supaya aplikasi tidak berjalan tanpa database-nya. Menghapus proyek melepas database-nya (audit `database.detached` dengan `reason` `project_deleted`); database-nya tetap ada.
+
+### Membuat Database untuk Proyek
+
+`POST .../databases` dengan `project_id` membuat database dan langsung memasangnya ke proyek itu dalam satu transaksi: baris database, command `CreateDatabase`, baris attachment, fingerprint proyek, dan audit tersimpan bersama atau tidak sama sekali. Ini satu-satunya cara memasang database yang masih `provisioning`. Kunci diambil berurutan: workspace, lalu proyek, sama seperti deployment. Aturannya:
+
+* Proyek harus milik workspace yang sama dan masih ada; selain itu `404`. Pemanggil harus boleh mengubah proyek itu (owner atau member, atau admin); viewer menerima `403`.
+* Proyek belum memakai database: `409 PROJECT_DATABASE_ALREADY_ATTACHED`.
+* `name` boleh kosong: dipakai nama proyek, ditambah ` 2`, ` 3`, dan seterusnya bila sudah dipakai database lain di workspace yang masih ada, dan dipotong supaya tetap paling panjang 100 karakter.
+* `region` kosong atau `null` memakai region proyek (region node deployment `succeeded` terakhirnya, lalu `region` proyek), lalu `default_region` profil workspace. `region` yang diisi dan berbeda dari region proyek yang diketahui dijawab `409 DATABASE_CROSS_REGION_UNSUPPORTED`.
+* Selama `databases.available` `false` dijawab `409 DATABASE_UNAVAILABLE`, tanpa field tambahan.
+* Kuota sama persis dengan pembuatan biasa (`DATABASE_LIMIT_EXCEEDED`, `DATABASE_STORAGE_LIMIT_EXCEEDED`, `DATABASE_REGION_UNAVAILABLE`), diperiksa di bawah row lock workspace.
+
+Selama database terpasang masih `provisioning` atau `failed`, membuat deployment untuk proyek itu (manual atau push webhook) ditolak `409 DATABASE_NOT_READY` dengan `status`, karena aplikasi akan berjalan tanpa database-nya. Push webhook dilewati dengan `reason` `database_not_ready`, dicatat di audit `project.auto_deploy_skipped`, dan owner serta member mendapat notifikasi `project_issue`, sama seperti `database_endpoint_unavailable`. Database `ready` dan `locked` tidak menahan deployment. Database yang `failed` perlu dilepas dulu sebelum proyek bisa di-deploy lagi.
+
+#### Deploy setelah database siap
+
+`deploy_when_ready: true` (boolean, default `false`; `true` tanpa `project_id` atau nilai bukan boolean dijawab `422`) mencatat di attachment bahwa pemanggil ingin proyek di-deploy begitu database siap (audit `database.project_deploy_requested`). Saat node melaporkan `CreateDatabase` sukses, job antrean membuat deployment lewat jalur deploy biasa, atas nama orang yang meminta, dari head branch proyek, dengan `trigger` `manual` dan semua batas yang berlaku. Laporan node tidak menunggu GitHub. Setiap permintaan diselesaikan sekali: idempotency key deployment-nya per attachment (`database-ready:{id attachment}`), jadi job yang berjalan dua kali tidak membuat deployment kedua. Hasilnya dicatat di audit `database.project_deploy_started` (dengan `deployment_id`) atau `database.project_deploy_skipped` (dengan `reason`).
+
+Bila pembuatan database gagal atau kedaluwarsa, permintaan diselesaikan sebagai dilewati dengan `database_provisioning_failed`, dan orang yang meminta mendapat notifikasi in-app `project_issue` ("Database gagal dibuat") selama ia masih owner atau member; bila tidak lagi, owner dan member workspace yang mendapatkannya. Melepas database sebelum siap menghapus permintaannya bersama attachment, jadi tidak ada yang di-deploy.
+
+`databases[].deploy_when_ready` di `ProjectResource` menunjukkan permintaan itu, atau `null` bila tidak ada:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `status` | string | `waiting` selama database dibuat, `started` setelah deployment dibuat, `skipped` bila tidak ada deployment. |
+| `requested_at` | string ISO 8601 | Waktu permintaan. |
+| `deployment_id` | string atau `null` | Deployment yang dibuat; hanya saat `started`. |
+| `skipped_reason` | string atau `null` | Hanya saat `skipped`: nilai yang sama dengan `skipped_reason` di "Rotasi Password" (kecuali `no_active_deployment`), ditambah `database_provisioning_failed`. |
+
+Console cukup memeriksa ulang proyek selama `status` `waiting`.
 
 ### Kredensial
 
@@ -840,12 +905,13 @@ Body `redeploy_attached` (boolean, opsional, default `false`; nilai lain `422`) 
 | `skipped_reason` | Arti |
 | --- | --- |
 | `no_active_deployment` | Proyek belum pernah di-deploy atau sedang dihentikan; deployment berikutnya otomatis memakai password baru. |
-| `requester_cannot_deploy` | Akun yang meminta rotasi sudah tidak ada atau tidak lagi boleh men-deploy proyek itu. |
+| `requester_cannot_deploy` | Akun yang meminta rotasi (atau deploy setelah database siap) sudah tidak ada atau tidak lagi boleh men-deploy proyek itu. |
 | `legal_acceptance_required` | Akun itu harus menyetujui syarat terbaru dulu. |
 | `project_suspended` | Proyek ditangguhkan. |
 | `active_deployment_limit`, `active_container_limit`, `build_rate_limit` | Batas workspace atau proyek tercapai, misalnya karena deployment yang diantrekan sebelum rotasi masih berjalan. |
 | `repository_access_revoked`, `database_endpoint_unavailable`, `release_command_unsupported` | Sama artinya dengan error deploy bernama sama. |
 | `failed` | Kesalahan lain, misalnya GitHub tidak menjawab; dilaporkan ke error tracker. |
+| `database_provisioning_failed` | Hanya untuk `deploy_when_ready`: pembuatan database gagal atau kedaluwarsa. |
 
 Console cukup memeriksa ulang database selama `status` `pending`, atau selama `completed` dengan `redeploy_attached` dan `redeploys` masih `null`.
 
@@ -882,11 +948,11 @@ Database yang lock atau unlock-nya masih berjalan tidak dimintai lagi; yang gaga
 
 ### Audit
 
-Setiap perubahan dicatat di `audit_events` dengan subject database (`App\Models\ManagedDatabase`), berisi ID, nama di node, `command_id`, dan kode, tanpa password atau URL: `database.created`, `database.provisioned`, `database.provisioning_failed`, `database.renamed`, `database.delete_requested`, `database.deleted`, `database.drop_failed`, `database.attached`, `database.detached`, `database.credentials_viewed`, `database.password_rotation_requested` (dengan `redeploy_attached`), `database.password_rotated`, `database.password_rotation_failed`, `database.password_rotation_redeploys_queued` (dengan `redeploys`, actor orang yang meminta rotasi), `database.lock_requested`, `database.locked`, `database.lock_failed`, `database.unlock_requested`, `database.unlocked`, `database.unlock_failed`, `database.extension_install_requested`, `database.extension_installed`, dan `database.extension_install_failed`. Peringatan 80% dicatat dengan subject workspace (`workspace.database_storage_warning`). Hasil dari node dicatat dengan actor node itu; command yang kedaluwarsa dengan actor `system`/`agent:expire-commands`, dan sapuan kuota dengan `system`/`databases:enforce-storage-quota`.
+Setiap perubahan dicatat di `audit_events` dengan subject database (`App\Models\ManagedDatabase`), berisi ID, nama di node, `command_id`, dan kode, tanpa password atau URL: `database.created` (dengan `project_id` bila dibuat untuk proyek), `database.provisioned`, `database.provisioning_failed`, `database.renamed`, `database.delete_requested`, `database.deleted`, `database.drop_failed`, `database.attached`, `database.detached`, `database.project_deploy_requested` (dengan `project_id` dan `attachment_id`, actor orang yang meminta), `database.project_deploy_started` (dengan `deployment_id`), `database.project_deploy_skipped` (dengan `reason`; actor node atau `system`/`agent:expire-commands` bila pembuatan gagal), `database.credentials_viewed`, `database.password_rotation_requested` (dengan `redeploy_attached`), `database.password_rotated`, `database.password_rotation_failed`, `database.password_rotation_redeploys_queued` (dengan `redeploys`, actor orang yang meminta rotasi), `database.lock_requested`, `database.locked`, `database.lock_failed`, `database.unlock_requested`, `database.unlocked`, `database.unlock_failed`, `database.extension_install_requested`, `database.extension_installed`, dan `database.extension_install_failed`. Peringatan 80% dicatat dengan subject workspace (`workspace.database_storage_warning`). Hasil dari node dicatat dengan actor node itu; command yang kedaluwarsa dengan actor `system`/`agent:expire-commands`, dan sapuan kuota dengan `system`/`databases:enforce-storage-quota`.
 
 ## Notifikasi
 
-Notifikasi in-app memakai database notification Laravel; sebagian juga dikirim lewat email (lihat [Email notifikasi](#email-notifikasi)). Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email), dan `workspace` (tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`, default `true`.
+Notifikasi in-app memakai database notification Laravel; sebagian juga dikirim lewat email (lihat [Email notifikasi](#email-notifikasi)). Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati, database yang diminta untuk deploy proyek gagal dibuat), `account_security` (kata sandi dan email), dan `workspace` (tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`, default `true`.
 
 Kategori `workspace` dikirim untuk:
 

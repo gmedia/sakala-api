@@ -4,22 +4,29 @@ declare(strict_types=1);
 
 namespace App\Actions\Database;
 
+use App\Data\Database\CreateDatabaseData;
 use App\Enums\DatabaseEngine;
 use App\Enums\DatabaseStatus;
+use App\Exceptions\Database\DatabaseCrossRegionUnsupportedException;
 use App\Exceptions\Database\DatabaseLimitExceededException;
 use App\Exceptions\Database\DatabaseRegionUnavailableException;
 use App\Exceptions\Database\DatabaseStorageLimitExceededException;
+use App\Exceptions\Database\DatabaseUnavailableException;
+use App\Exceptions\Database\ProjectDatabaseAlreadyAttachedException;
 use App\Models\ManagedDatabase;
+use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Agent\AgentNodeSchedulerService;
 use App\Services\Database\DatabaseCommandService;
+use App\Services\Database\ProjectDatabaseAttacher;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\Database\DatabaseAudit;
 use App\Support\Database\DatabaseSize;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 
 /**
  * Creates a managed database in a workspace: random names and password, a
@@ -27,33 +34,68 @@ use Illuminate\Validation\ValidationException;
  * database is `provisioning` until the node reports. Quotas are checked under
  * the workspace row lock, so two requests cannot both take the last slot;
  * admins acting are not limited, as with projects.
+ *
+ * With a project, the database is attached to it in the same transaction, the
+ * only way a database that is still being created gets attached, and the
+ * project may ask to be deployed once the database is ready. Locks follow the
+ * workspace, then the project, as deployments take them; the new database
+ * row is invisible to everyone else until commit.
  */
 final class CreateDatabaseAction
 {
+    /** Separates a project's name from the number that makes a database name unique. */
+    private const NAME_SUFFIX_SEPARATOR = ' ';
+
+    /** The first number appended when the project's name is taken. */
+    private const FIRST_NAME_SUFFIX = 2;
+
     public function __construct(
         private readonly PilotRuntimeLimitService $limits,
         private readonly AgentNodeSchedulerService $scheduler,
         private readonly DatabaseCommandService $commands,
+        private readonly ProjectDatabaseAttacher $attacher,
     ) {}
 
     /**
+     * @throws DatabaseUnavailableException
+     * @throws ProjectDatabaseAlreadyAttachedException
      * @throws DatabaseLimitExceededException
      * @throws DatabaseStorageLimitExceededException
+     * @throws DatabaseCrossRegionUnsupportedException
      * @throws DatabaseRegionUnavailableException
      */
-    public function handle(User $actor, Workspace $workspace, string $name, ?string $region): ManagedDatabase
+    public function handle(User $actor, Workspace $workspace, CreateDatabaseData $data): ManagedDatabase
     {
-        return DB::transaction(function () use ($actor, $workspace, $name, $region): ManagedDatabase {
+        $project = $data->project;
+
+        if ($project !== null && $project->workspace_id !== $workspace->id) {
+            throw new InvalidArgumentException('A database is created only for projects of its own workspace.');
+        }
+
+        if ($project !== null && ! $this->scheduler->databasesAvailable()) {
+            throw new DatabaseUnavailableException;
+        }
+
+        return DB::transaction(function () use ($actor, $workspace, $data, $project): ManagedDatabase {
             /** @var Workspace $locked */
             $locked = Workspace::query()->whereKey($workspace->id)->lockForUpdate()->firstOrFail();
+            /** @var Project|null $lockedProject */
+            $lockedProject = $project === null ? null : Project::query()->whereKey($project->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedProject !== null) {
+                $this->attacher->ensureNoneAttached($this->attacher->attachmentOf($lockedProject));
+            }
 
             if (! $actor->isAdmin()) {
                 $this->checkLimits($locked);
             }
 
-            // The request checked too; this one holds under the lock.
-            if (ManagedDatabase::query()->where('workspace_id', $locked->id)->where('name', $name)->exists()) {
-                throw ValidationException::withMessages(['name' => [__('validation.unique', ['attribute' => __('validation.attributes.name')])]]);
+            $name = $this->nameFor($locked, $data->name, $lockedProject);
+            $region = $data->region;
+
+            if ($lockedProject !== null) {
+                $this->attacher->ensureSameRegion($region, $lockedProject);
+                $region ??= $this->scheduler->regionOf($lockedProject);
             }
 
             $node = $this->scheduler->selectDatabaseNode($region ?? $this->limits->defaultRegionOf($locked));
@@ -81,10 +123,48 @@ final class CreateDatabaseAction
                 'node_id' => $node->id,
                 'region' => $database->region,
                 'pg_database' => $database->pg_database,
+                ...($lockedProject === null ? [] : ['project_id' => $lockedProject->id]),
             ]);
+
+            if ($lockedProject !== null) {
+                $this->attacher->attach($actor, $database, $lockedProject, $data->deployWhenReady ? $actor : null);
+            }
 
             return $database;
         });
+    }
+
+    /**
+     * The requested name, still free under the lock (the request checked
+     * too), or without one the project's name, followed by ` 2`, ` 3`, ...
+     * until no live database of the workspace has it, cut to fit.
+     */
+    private function nameFor(Workspace $workspace, ?string $requested, ?Project $project): string
+    {
+        /** @var array<string, true> $taken */
+        $taken = array_fill_keys(ManagedDatabase::query()->where('workspace_id', $workspace->id)->pluck('name')->all(), true);
+
+        if ($requested !== null) {
+            if (isset($taken[$requested])) {
+                throw ValidationException::withMessages(['name' => [__('validation.unique', ['attribute' => __('validation.attributes.name')])]]);
+            }
+
+            return $requested;
+        }
+
+        if ($project === null) {
+            throw new InvalidArgumentException('A database without a project needs a name.');
+        }
+
+        $base = trim(mb_substr(trim($project->name), 0, ManagedDatabase::MAX_NAME_LENGTH));
+        $name = $base;
+
+        for ($number = self::FIRST_NAME_SUFFIX; isset($taken[$name]); $number++) {
+            $suffix = self::NAME_SUFFIX_SEPARATOR.$number;
+            $name = rtrim(mb_substr($base, 0, ManagedDatabase::MAX_NAME_LENGTH - mb_strlen($suffix))).$suffix;
+        }
+
+        return $name;
     }
 
     /**

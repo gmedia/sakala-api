@@ -7,7 +7,8 @@ namespace App\Data\Agent;
 /**
  * Typed view of the `ProjectInspection` result an agent sends when
  * completing InspectProject. Tolerant of missing keys (the noop runtime
- * sends `null`, and older agents omit `exposed_ports` and `workspace`).
+ * sends `null`, and older agents omit `exposed_ports`, `workspace`,
+ * `env_example`, and `database_hint`).
  */
 final readonly class ProjectInspectionResultData
 {
@@ -18,6 +19,8 @@ final readonly class ProjectInspectionResultData
      * @param  JavaScriptWorkspaceData|null  $workspace  set when the root directory is a package of a
      *                                                   JavaScript workspace; null without one and from older agents
      * @param  array<string, mixed>|null  $railpack
+     * @param  EnvExampleData|null  $envExample  keys of the example environment file; null without one and from older agents
+     * @param  DatabaseHintData|null  $databaseHint  null from older agents
      */
     public function __construct(
         public ?string $repositoryUrl,
@@ -30,6 +33,8 @@ final readonly class ProjectInspectionResultData
         public ?array $exposedPorts,
         public ?JavaScriptWorkspaceData $workspace,
         public ?array $railpack,
+        public ?EnvExampleData $envExample = null,
+        public ?DatabaseHintData $databaseHint = null,
     ) {}
 
     /**
@@ -54,6 +59,8 @@ final readonly class ProjectInspectionResultData
             exposedPorts: is_array($exposedPorts) ? self::ports($exposedPorts) : null,
             workspace: JavaScriptWorkspaceData::fromArray($result['workspace'] ?? null),
             railpack: is_array($railpack) ? $railpack : null,
+            envExample: EnvExampleData::fromArray($result['env_example'] ?? null),
+            databaseHint: DatabaseHintData::fromArray($result['database_hint'] ?? null),
         );
     }
 
@@ -102,6 +109,8 @@ final readonly class ProjectInspectionResultData
             'exposed_ports' => $this->exposedPorts,
             'workspace' => $this->workspace?->toArray(),
             'railpack' => $this->railpack,
+            'env_example' => $this->envExample?->toArray(),
+            'database_hint' => $this->databaseHint?->toArray(),
         ];
     }
 }

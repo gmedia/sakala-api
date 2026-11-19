@@ -291,6 +291,7 @@ class Project extends Model
     public function databases(): BelongsToMany
     {
         return $this->belongsToMany(ManagedDatabase::class, 'database_attachments', 'project_id', 'database_id')
+            ->withPivot(DatabaseAttachment::DEPLOY_REQUEST_COLUMNS)
             ->withTimestamps();
     }
 

@@ -35,6 +35,15 @@ final class DatabaseAudit
 
     public const DETACHED = 'database.detached';
 
+    /** A database created for a project with `deploy_when_ready`: deploy the project once the database is ready. */
+    public const PROJECT_DEPLOY_REQUESTED = 'database.project_deploy_requested';
+
+    /** That deployment was created (`deployment_id`). */
+    public const PROJECT_DEPLOY_STARTED = 'database.project_deploy_started';
+
+    /** That deployment was not created (`reason`, a DatabaseRedeploySkipReason value). */
+    public const PROJECT_DEPLOY_SKIPPED = 'database.project_deploy_skipped';
+
     public const CREDENTIALS_VIEWED = 'database.credentials_viewed';
 
     public const PASSWORD_ROTATION_REQUESTED = 'database.password_rotation_requested';

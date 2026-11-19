@@ -11,6 +11,7 @@ use App\Actions\Deployment\GetDeploymentEventAction;
 use App\Actions\Deployment\GetDeploymentLogAction;
 use App\Enums\DeploymentStatus;
 use App\Exceptions\Database\DatabaseEndpointUnavailableException;
+use App\Exceptions\Database\DatabaseNotReadyException;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\GitHub\GithubUnavailableException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
@@ -40,6 +41,7 @@ final class DeploymentController extends Controller
      * @throws GithubRateLimitedException
      * @throws BuildRateLimitExceededException
      * @throws DatabaseEndpointUnavailableException
+     * @throws DatabaseNotReadyException
      */
 
     // Untuk Testing

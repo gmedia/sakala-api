@@ -599,6 +599,45 @@ dipercaya: `manager` di luar `npm`, `pnpm`, `yarn`, `bun`, atau `root_directory`
 objek; field opsional yang tidak cocok (perintah multi-baris atau di atas 2000
 karakter, nama package di atas 214 karakter, path tidak aman) menjadi `null`.
 
+Result juga boleh memuat `env_example` dan `database_hint`, tambahan pada revisi 4
+(kontrak bersama sakala-agent untuk wizard env dan database). Agent yang mengenalnya
+selalu mengirim keduanya, jadi result tanpa field berasal dari agent lama dan disimpan
+sebagai `null`. API menyimpannya di `projects.inspection` dan menampilkannya di
+`inspection` (lihat [API Conventions](API_CONVENTIONS.md#contoh-environment-dan-petunjuk-database)).
+Yang dibaca API:
+
+```json
+"env_example": {
+  "file": ".env.example",
+  "entries": [{ "key": "APP_NAME", "example_value": "Buku tamu Sakala" }, { "key": "APP_KEY", "example_value": null }],
+  "truncated": false
+},
+"database_hint": {
+  "likely": true,
+  "engine": "postgresql",
+  "signals": [{ "kind": "env_variable", "file": ".env.example", "name": "DATABASE_URL" }],
+  "suggested_release_command": "npx prisma migrate deploy"
+}
+```
+
+- `env_example` (objek atau `null`): `file` harus salah satu dari `.env.example`,
+  `.env.sample`, `.env.dist`, dan `entries` harus array; selain itu seluruh objek
+  dibuang. Item yang `key`-nya tidak cocok dengan aturan variabel proyek
+  (`^[A-Z_][A-Z0-9_]*$`, paling panjang 128; agent boleh mengirim huruf kecil, API
+  membuangnya) atau mengulang kunci sebelumnya dibuang. `example_value` yang bukan
+  string menjadi `null`, yang lebih dari 200 karakter dipotong. Paling banyak 200 item;
+  `truncated` menjadi `true` bila agent mengirimnya atau masih ada kunci valid setelah
+  item ke-200.
+- `database_hint` (objek atau `null`): `engine` di luar `postgresql`, `mysql`,
+  `sqlite`, `unknown` menjadi `unknown`. Signal dengan `kind` yang tidak dikenal
+  (`env_variable`, `laravel_migrations`, `prisma_schema`, `django_settings`,
+  `rails_database_config`, `package_dependency`), atau `file` yang bukan string satu
+  baris paling panjang 255, dibuang; `name` yang bukan string satu baris paling panjang
+  214 menjadi `null`; duplikat digabung; paling banyak 16. `suggested_release_command`
+  di luar `php artisan migrate --force`, `python manage.py migrate`,
+  `npx prisma migrate deploy`, `bin/rails db:migrate` menjadi `null`. `likely` selalu
+  dihitung ulang dari signal yang tersisa.
+
 ### ReconcileWorkload dan CleanupRuntime
 
 Keduanya hanya dibuat atas permintaan admin; API tidak pernah menyimpulkan
