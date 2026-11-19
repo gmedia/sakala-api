@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\GitHub\CreatePushDeploymentsAction;
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
 use App\Enums\GithubInstallationStatus;
@@ -156,6 +157,18 @@ test('a suspended project is skipped, audited, and the owner is told', function 
     expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0)
         ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe('project_suspended')
         ->and($project->user->notifications()->sole()->data['category'])->toBe('project_issue');
+});
+
+test('a project whose database node has not reported its endpoint is skipped, audited, and the owner is told', function (): void {
+    $project = pushProject();
+    $database = databaseIn($project->workspace, databaseNode(endpoint: false));
+    attachDatabase($database, $project);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0)
+        ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe(CreatePushDeploymentsAction::SKIP_DATABASE_ENDPOINT_UNAVAILABLE)
+        ->and($project->user->notifications()->sole()->data['message'])->toContain($database->name);
 });
 
 test('a project with a release command no node runs is skipped, audited, and the owner is told', function (): void {

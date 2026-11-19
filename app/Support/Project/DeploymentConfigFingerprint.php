@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Project;
 
 use App\Models\EnvironmentVariable;
+use App\Models\ManagedDatabase;
 use App\Models\Project;
 
 /**
@@ -17,9 +18,11 @@ use App\Models\Project;
  * Deploy-relevant: the branch, the effective port (what `container_port`
  * gets, so a newly detected port counts while none is configured), the build,
  * start, and release commands, the root directory, the project's `replicas`
- * setting, and the environment variables' keys and values. Not: the name,
- * thumbnail, auto-deploy, region, or `is_secret`. Resources are requested
- * per deployment, not stored on the project.
+ * setting, the environment variables' keys and values, and the attached
+ * managed database's credentials. Not: the name, thumbnail, auto-deploy,
+ * region, or `is_secret`. Resources are requested per deployment, not stored
+ * on the project. The database node's address is not either: it comes from a
+ * heartbeat at deploy time, and a node that moves needs a redeploy anyway.
  *
  * Both fingerprints are HMAC-SHA256 keyed with APP_KEY, because environment
  * values are secrets and a bare hash of a short one can be guessed from a
@@ -49,7 +52,24 @@ final class DeploymentConfigFingerprint
             // Appended only when set, so a project without one keeps the
             // fingerprint its deployments stored before the field existed.
             ...($project->hasReleaseCommand() ? [$project->release_command] : []),
+            // Same for an attached database: detaching it gives back the
+            // fingerprint of before it was attached.
+            ...($project->database_fingerprint !== null ? ['database', $project->database_fingerprint] : []),
         ]);
+    }
+
+    /**
+     * What an attached database hands a deployment: its identity, names, and
+     * password, so attaching, detaching, and rotating the password all change
+     * it. Null without a database.
+     */
+    public static function forDatabase(?ManagedDatabase $database): ?string
+    {
+        if ($database === null) {
+            return null;
+        }
+
+        return self::sign([$database->id, $database->pg_database, $database->pg_role, (string) $database->password]);
     }
 
     /**

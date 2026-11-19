@@ -20,6 +20,10 @@ final readonly class PilotQuotaLimitsData
         public int $max_active_containers,
         public int $current_active_containers_count,
         public WorkspaceLimitsData $limits,
+        /** Managed databases that count towards `limits->max_databases`. */
+        public int $current_databases_count = 0,
+        /** Reported size of the workspace's managed databases, in bytes. */
+        public int $current_database_storage_bytes = 0,
     ) {}
 
     /**

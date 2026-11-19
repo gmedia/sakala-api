@@ -16,7 +16,7 @@ class StoreLimitProfileRequest extends FormRequest
 {
     use RequiresAdminReason;
 
-    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region'];
+    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region', 'max_databases', 'max_database_storage_mb'];
 
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
@@ -49,6 +49,16 @@ class StoreLimitProfileRequest extends FormRequest
              * default) places them in any region. Lowercase letters, digits, and single inner hyphens, up to 32 characters.
              */
             'default_region' => ['sometimes', 'nullable', 'string', 'max:'.RegionSlug::MAX_LENGTH, new RegionSlug],
+            /**
+             * Managed databases the workspace may hold. `null` (the default) follows `SAKALA_DATABASE_DEFAULT_MAX_COUNT`;
+             * `0` allows none.
+             */
+            'max_databases' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_DATABASES_CEILING],
+            /**
+             * Total size of the workspace's managed databases, in MB. `null` (the default) follows
+             * `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB`; `0` allows none, so every database of the workspace is locked.
+             */
+            'max_database_storage_mb' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_DATABASE_STORAGE_MB_CEILING],
         ];
     }
 

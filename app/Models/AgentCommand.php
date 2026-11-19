@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 
 /**
+ * @property string|null $database_id The managed database a database command acts on.
  * @property AgentCommandType $type
  * @property AgentCommandStatus $status
  * @property array<string, mixed>|null $payload
@@ -41,6 +42,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 #[Fillable([
     'project_id',
     'deployment_id',
+    'database_id',
     'agent_node_id',
     'type',
     'status',
@@ -191,6 +193,12 @@ class AgentCommand extends Model
     public function deployment(): BelongsTo
     {
         return $this->belongsTo(Deployment::class);
+    }
+
+    /** @return BelongsTo<ManagedDatabase, $this> */
+    public function database(): BelongsTo
+    {
+        return $this->belongsTo(ManagedDatabase::class, 'database_id')->withTrashed();
     }
 
     /** @return BelongsTo<AgentNode, $this> */

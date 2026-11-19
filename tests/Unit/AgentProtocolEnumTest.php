@@ -24,6 +24,12 @@ test('agent command types match the shared Rust protocol', function () {
         'CleanupRuntime',
         'DrainNode',
         'ResumeNode',
+        'CreateDatabase',
+        'DropDatabase',
+        'RotateDatabasePassword',
+        'LockDatabase',
+        'UnlockDatabase',
+        'InstallDatabaseExtension',
     ]);
 });
 

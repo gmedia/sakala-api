@@ -159,6 +159,16 @@ return [
         'hourly_retention_days' => max(1, (int) env('SAKALA_METRICS_HOURLY_RETENTION_DAYS', 30)),
     ],
 
+    'databases' => [
+        // Managed PostgreSQL databases (ADR-020). Defaults for a workspace whose
+        // limit profile leaves the field empty, and for a workspace without a
+        // profile, personal or team. 0 allows none: no database can be created,
+        // and with no storage every database of the workspace is locked. Empty
+        // values fall back to the defaults below.
+        'default_max_count' => env('SAKALA_DATABASE_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_DATABASES),
+        'default_max_storage_mb' => env('SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB', PilotRuntimeLimitService::DEFAULT_MAX_DATABASE_STORAGE_MB),
+    ],
+
     'workspaces' => [
         // Teams one user may own; users.max_owned_teams overrides it per user.
         'max_owned_teams_per_user' => (int) env('SAKALA_MAX_OWNED_TEAMS_PER_USER', 2),

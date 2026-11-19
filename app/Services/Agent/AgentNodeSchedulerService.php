@@ -10,11 +10,13 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\DeploymentStatus;
+use App\Exceptions\Database\DatabaseRegionUnavailableException;
 use App\Exceptions\Runtime\ProjectRegionUnavailableException;
 use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectReplicasUnsupportedException;
 use App\Models\AgentNode;
 use App\Models\Deployment;
+use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use Illuminate\Support\Collection;
@@ -165,6 +167,72 @@ final class AgentNodeSchedulerService
     }
 
     /**
+     * The database node a new managed database goes to (ADR-020): a node with
+     * the `managed-postgres` capability in `$region`, or in any region when it
+     * is null. Among eligible nodes (online, active, supported protocol) those
+     * whose instance answered at the last reading (`metadata.database.available`)
+     * come first, then the one hosting the fewest live databases, then the
+     * freshest heartbeat.
+     * When none is online, a node of the region that is allowed work and last
+     * advertised the capability is chosen anyway, and the database waits for
+     * it like a deployment waits for its node. A database never moves, so the
+     * choice is final.
+     *
+     * @throws DatabaseRegionUnavailableException when no node of the region may ever host it.
+     */
+    public function selectDatabaseNode(?string $region): AgentNode
+    {
+        $online = $this->inRegion($this->eligibleNodes(AgentCommandType::CreateDatabase), $region);
+
+        if ($online->isNotEmpty()) {
+            /** @var AgentNode */
+            return $this->rankByDatabaseLoad($online)->first();
+        }
+
+        /** @var Collection<int, AgentNode> $allowed */
+        $allowed = AgentNode::query()
+            ->where('auth_status', AgentAuthStatus::Active)
+            ->where('desired_state', AgentNodeDesiredState::Active)
+            ->get()
+            ->filter(static fn (AgentNode $node): bool => $node->hasCapability(AgentCommandType::MANAGED_POSTGRES_CAPABILITY));
+
+        $node = $this->rankByDatabaseLoad($this->inRegion($allowed, $region))->first();
+
+        if ($node === null) {
+            throw new DatabaseRegionUnavailableException($region);
+        }
+
+        return $node;
+    }
+
+    /**
+     * Available instances first, then fewest live databases, then the freshest
+     * heartbeat. One query for the counts, whatever the number of nodes.
+     *
+     * @param  Collection<int, AgentNode>  $nodes
+     * @return Collection<int, AgentNode>
+     */
+    private function rankByDatabaseLoad(Collection $nodes): Collection
+    {
+        /** @var array<string, int> $counts */
+        $counts = ManagedDatabase::query()
+            ->whereIn('node_id', $nodes->pluck('id')->all())
+            ->groupBy('node_id')
+            ->selectRaw('node_id, count(*) as aggregate')
+            ->pluck('aggregate', 'node_id')
+            ->map(static fn (mixed $count): int => (int) $count)
+            ->all();
+
+        return $nodes
+            ->sortBy([
+                static fn (AgentNode $a, AgentNode $b): int => $b->databaseAvailable() <=> $a->databaseAvailable(),
+                static fn (AgentNode $a, AgentNode $b): int => ($counts[$a->id] ?? 0) <=> ($counts[$b->id] ?? 0),
+                static fn (AgentNode $a, AgentNode $b): int => ($b->last_seen_at?->getTimestamp() ?? 0) <=> ($a->last_seen_at?->getTimestamp() ?? 0),
+            ])
+            ->values();
+    }
+
+    /**
      * Nodes whose effective region is `$region`; all of them when it is null.
      *
      * @param  Collection<int, AgentNode>  $nodes
@@ -234,6 +302,23 @@ final class AgentNodeSchedulerService
                 ['last_seen_at', 'desc'],
             ])
             ->values();
+    }
+
+    /**
+     * The region the project runs in: that of the node serving its latest
+     * successful deployment, where it stays, else the region it must be placed
+     * in (PilotRuntimeLimitService::regionFor()). Null when neither is known,
+     * which means any region.
+     */
+    public function regionOf(Project $project): ?string
+    {
+        $currentNodeId = $this->currentNodeIdOf($project);
+
+        if ($currentNodeId !== null) {
+            return AgentNode::query()->find($currentNodeId)?->effectiveRegion();
+        }
+
+        return $this->limits->regionFor($project);
     }
 
     /**

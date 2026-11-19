@@ -19,6 +19,7 @@ use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
 use App\Models\Deployment;
 use App\Models\LimitProfile;
+use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
@@ -34,6 +35,12 @@ class PilotRuntimeLimitService
 
     /** Builds per hour of a workspace that follows the global setting, when that is unset or empty. */
     public const DEFAULT_MAX_BUILDS_PER_HOUR = 20;
+
+    /** Managed databases of a workspace that follows the global setting, when that is unset or empty (ADR-020). */
+    public const DEFAULT_MAX_DATABASES = 2;
+
+    /** Managed database storage in MB of a workspace that follows the global setting, when that is unset or empty. */
+    public const DEFAULT_MAX_DATABASE_STORAGE_MB = 512;
 
     /** The rolling window the build rate limit counts deployments in: one hour. */
     public const BUILD_RATE_WINDOW_SECONDS = 3600;
@@ -55,6 +62,8 @@ class PilotRuntimeLimitService
                 $this->idleSleepMinutesFor($profile),
                 $this->maxReplicasFor($profile),
                 $this->maxBuildsPerHourFor($profile),
+                $this->maxDatabasesFor($profile),
+                $this->maxDatabaseStorageMbFor($profile),
             );
         }
 
@@ -68,6 +77,8 @@ class PilotRuntimeLimitService
             max_builds_per_hour: $this->maxBuildsPerHourFor(null),
             idle_sleep_minutes: $this->idleSleepMinutesFor(null),
             max_replicas: $this->maxReplicasFor(null),
+            max_databases: $this->maxDatabasesFor(null),
+            max_database_storage_mb: $this->maxDatabaseStorageMbFor(null),
         );
 
         if ($workspace->type === WorkspaceType::Personal) {
@@ -85,7 +96,34 @@ class PilotRuntimeLimitService
             max_builds_per_hour: $personal->max_builds_per_hour,
             idle_sleep_minutes: $personal->idle_sleep_minutes,
             max_replicas: $personal->max_replicas,
+            max_databases: $personal->max_databases,
+            max_database_storage_mb: $personal->max_database_storage_mb,
         );
+    }
+
+    /**
+     * Managed databases a workspace under this profile may hold. A profile
+     * without its own value, and a workspace without a profile (personal or
+     * team), follow `sakala.databases.default_max_count`: unset or empty means
+     * DEFAULT_MAX_DATABASES. 0 allows none. This is the only place that decides.
+     */
+    public function maxDatabasesFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_databases
+            ?? self::configuredOr('sakala.databases.default_max_count', self::DEFAULT_MAX_DATABASES));
+    }
+
+    /**
+     * Total size in MB of the managed databases of a workspace under this
+     * profile. A profile without its own value, and a workspace without a
+     * profile, follow `sakala.databases.default_max_storage_mb`: unset or empty
+     * means DEFAULT_MAX_DATABASE_STORAGE_MB. 0 allows none. This is the only
+     * place that decides.
+     */
+    public function maxDatabaseStorageMbFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_database_storage_mb
+            ?? self::configuredOr('sakala.databases.default_max_storage_mb', self::DEFAULT_MAX_DATABASE_STORAGE_MB));
     }
 
     /**
@@ -160,7 +198,16 @@ class PilotRuntimeLimitService
             return $project->region;
         }
 
-        $workspace = $project->workspace;
+        return $this->defaultRegionOf($project->workspace);
+    }
+
+    /**
+     * The workspace profile's `default_region`, or null for any region: where
+     * the workspace's projects run unless they set their own, and where its
+     * managed databases are created unless the request names a region.
+     */
+    public function defaultRegionOf(?Workspace $workspace): ?string
+    {
         $profile = $workspace?->limit_profile_id === null ? null : $workspace->limitProfile;
 
         return $profile?->default_region;
@@ -416,6 +463,8 @@ class PilotRuntimeLimitService
             max_active_containers: $limits->max_active_containers,
             current_active_containers_count: $this->activeContainersIn($workspace),
             limits: $limits,
+            current_databases_count: ManagedDatabase::countIn($workspace->id),
+            current_database_storage_bytes: ManagedDatabase::storageBytesIn($workspace->id),
         );
     }
 

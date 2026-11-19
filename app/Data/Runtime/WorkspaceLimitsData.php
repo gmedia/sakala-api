@@ -26,9 +26,13 @@ final readonly class WorkspaceLimitsData
         public int $idle_sleep_minutes = 0,
         /** Effective most replicas per project. */
         public int $max_replicas = Project::DEFAULT_REPLICAS,
+        /** Effective managed databases the workspace may hold; 0 = none. */
+        public int $max_databases = 0,
+        /** Effective total managed database storage in MB; 0 = none. */
+        public int $max_database_storage_mb = 0,
     ) {}
 
-    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas, ?int $maxBuildsPerHour): self
+    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas, ?int $maxBuildsPerHour, int $maxDatabases, int $maxDatabaseStorageMb): self
     {
         return new self(
             max_projects: $profile->max_projects,
@@ -40,6 +44,8 @@ final readonly class WorkspaceLimitsData
             profile: $profile,
             idle_sleep_minutes: $idleSleepMinutes,
             max_replicas: $maxReplicas,
+            max_databases: $maxDatabases,
+            max_database_storage_mb: $maxDatabaseStorageMb,
         );
     }
 }

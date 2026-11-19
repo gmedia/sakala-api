@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Database\DatabaseAttachmentController;
+use App\Http\Controllers\Api\V1\Database\DatabaseController;
 use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
 use App\Http\Controllers\Api\V1\Feedback\FeedbackController;
 use App\Http\Controllers\Api\V1\GitHub\GithubInstallationController;
@@ -158,6 +160,35 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
             ->name('api.v1.app.workspaces.invitations.store');
         Route::delete('/workspaces/{workspace}/invitations/{invitation}', [WorkspaceInvitationController::class, 'destroy'])
             ->name('api.v1.app.workspaces.invitations.destroy');
+    });
+
+    // Managed databases of a workspace (ADR-020)
+    Route::scopeBindings()->whereUuid(['workspace', 'database'])->group(function (): void {
+        Route::get('/workspaces/{workspace}/databases', [DatabaseController::class, 'index'])
+            ->name('api.v1.app.workspaces.databases.index');
+        Route::post('/workspaces/{workspace}/databases', [DatabaseController::class, 'store'])
+            ->name('api.v1.app.workspaces.databases.store');
+        Route::get('/workspaces/{workspace}/databases/{database}', [DatabaseController::class, 'show'])
+            ->name('api.v1.app.workspaces.databases.show');
+        Route::patch('/workspaces/{workspace}/databases/{database}', [DatabaseController::class, 'update'])
+            ->name('api.v1.app.workspaces.databases.update');
+        Route::delete('/workspaces/{workspace}/databases/{database}', [DatabaseController::class, 'destroy'])
+            ->name('api.v1.app.workspaces.databases.destroy');
+        Route::get('/workspaces/{workspace}/databases/{database}/credentials', [DatabaseController::class, 'credentials'])
+            ->name('api.v1.app.workspaces.databases.credentials');
+        Route::post('/workspaces/{workspace}/databases/{database}/rotate-password', [DatabaseController::class, 'rotatePassword'])
+            ->name('api.v1.app.workspaces.databases.rotate-password');
+        Route::post('/workspaces/{workspace}/databases/{database}/extensions', [DatabaseController::class, 'installExtension'])
+            ->name('api.v1.app.workspaces.databases.extensions.store');
+    });
+
+    // The project is not a child of the database before it is attached, so
+    // the controller checks that both belong to the workspace.
+    Route::whereUuid(['workspace', 'database', 'project'])->group(function (): void {
+        Route::post('/workspaces/{workspace}/databases/{database}/attachments/{project}', [DatabaseAttachmentController::class, 'store'])
+            ->name('api.v1.app.workspaces.databases.attachments.store');
+        Route::delete('/workspaces/{workspace}/databases/{database}/attachments/{project}', [DatabaseAttachmentController::class, 'destroy'])
+            ->name('api.v1.app.workspaces.databases.attachments.destroy');
     });
 
     // Invitations addressed to the caller

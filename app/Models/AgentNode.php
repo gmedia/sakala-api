@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Data\Agent\NodeCapacityData;
+use App\Data\Database\DatabaseEndpointData;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
 use App\Rules\EdgeAddress;
+use App\Rules\NetworkHost;
 use App\Rules\RegionSlug;
 use Carbon\CarbonImmutable;
 use Database\Factories\AgentNodeFactory;
@@ -117,6 +119,21 @@ class AgentNode extends Model
      */
     public const MAXIMUM_ACTIVE_WORKLOADS_METADATA_KEY = 'maximum_active_workloads';
 
+    /**
+     * Heartbeat `metadata.database`, sent by nodes with the `managed-postgres`
+     * capability (additive in protocol revision 4).
+     */
+    public const DATABASE_METADATA_KEY = 'database';
+
+    /** `metadata.database.endpoint`: `{host, port}` where attached projects reach the instance. */
+    public const DATABASE_ENDPOINT_METADATA_KEY = 'endpoint';
+
+    /** `metadata.database.available`: whether the agent's last size reading of the instance worked. */
+    public const DATABASE_AVAILABLE_METADATA_KEY = 'available';
+
+    /** Highest TCP port. */
+    public const MAX_PORT = 65535;
+
     /** `metadata.resources` keys the scheduler reads. */
     public const MEMORY_TOTAL_METADATA_KEY = 'memory_total_bytes';
 
@@ -156,6 +173,42 @@ class AgentNode extends Model
         $address = $this->runtimeMetadata()[self::EDGE_ADDRESS_METADATA_KEY] ?? null;
 
         return EdgeAddress::isValid($address) ? $address : null;
+    }
+
+    /**
+     * Where attached projects reach this node's PostgreSQL instance, from its
+     * last heartbeat; null when it reported none or a malformed one.
+     */
+    public function databaseEndpoint(): ?DatabaseEndpointData
+    {
+        $database = $this->metadata[self::DATABASE_METADATA_KEY] ?? null;
+        $endpoint = is_array($database) ? ($database[self::DATABASE_ENDPOINT_METADATA_KEY] ?? null) : null;
+
+        if (! is_array($endpoint)) {
+            return null;
+        }
+
+        $host = $endpoint['host'] ?? null;
+        $port = $endpoint['port'] ?? null;
+
+        if (! NetworkHost::isValid($host) || ! is_int($port) || $port < 1 || $port > self::MAX_PORT) {
+            return null;
+        }
+
+        /** @var string $host */
+        return new DatabaseEndpointData($host, $port);
+    }
+
+    /**
+     * Whether the node's PostgreSQL instance answered its agent at the last
+     * reading (`metadata.database.available`). A node that does not report it
+     * counts as available.
+     */
+    public function databaseAvailable(): bool
+    {
+        $database = $this->metadata[self::DATABASE_METADATA_KEY] ?? null;
+
+        return ! is_array($database) || ($database[self::DATABASE_AVAILABLE_METADATA_KEY] ?? true) !== false;
     }
 
     /** Free memory and container slots from the last heartbeat. */
@@ -265,6 +318,16 @@ class AgentNode extends Model
     public function commands(): HasMany
     {
         return $this->hasMany(AgentCommand::class);
+    }
+
+    /**
+     * Managed databases hosted on the node, not counting dropped ones.
+     *
+     * @return HasMany<ManagedDatabase, $this>
+     */
+    public function databases(): HasMany
+    {
+        return $this->hasMany(ManagedDatabase::class, 'node_id');
     }
 
     /** @return HasMany<AgentNodeControlRequest, $this> */

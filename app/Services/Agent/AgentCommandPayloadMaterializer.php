@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\Crypt;
  */
 final class AgentCommandPayloadMaterializer
 {
+    /** Key of the encrypted password in CreateDatabase and RotateDatabasePassword payloads. */
+    public const PASSWORD_KEY = 'password';
+
     /**
      * @return array<string, mixed>|object
      */
@@ -39,6 +42,18 @@ final class AgentCommandPayloadMaterializer
 
             // serde expects a map here; an empty PHP array would serialise as `[]`.
             $payload['environment'] = $environment === [] ? (object) [] : $environment;
+        }
+
+        if ($command->type->carriesDatabasePassword()) {
+            if ($command->agent_node_id !== $viewer->id) {
+                // Database commands are pinned to the database's node; the
+                // password never leaves for another one.
+                throw new CommandConflictException($command);
+            }
+
+            if (is_string($payload[self::PASSWORD_KEY] ?? null)) {
+                $payload[self::PASSWORD_KEY] = Crypt::decryptString($payload[self::PASSWORD_KEY]);
+            }
         }
 
         return $payload === [] ? (object) [] : $payload;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Console\Commands\AssignAgentCommandsCommand;
 use App\Console\Commands\CheckEdgeHealthCommand;
 use App\Console\Commands\CollectUsageSignalsCommand;
+use App\Console\Commands\EnforceDatabaseStorageQuotaCommand;
 use App\Console\Commands\ExpireAgentCommandsCommand;
 use App\Console\Commands\MarkOfflineAgentNodesCommand;
 use App\Console\Commands\PruneDeploymentLogsCommand;
@@ -39,6 +40,13 @@ Schedule::command(SleepIdleProjectsCommand::class)
     ->onOneServer();
 
 Schedule::command(CheckEdgeHealthCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// Database nodes report sizes with every heartbeat, so a minute keeps a
+// workspace at most about a minute past its storage quota before the lock.
+Schedule::command(EnforceDatabaseStorageQuotaCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();

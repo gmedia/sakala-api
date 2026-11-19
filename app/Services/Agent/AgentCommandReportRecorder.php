@@ -15,6 +15,7 @@ use App\Exceptions\Agent\CommandConflictException;
 use App\Exceptions\Agent\ReportIdempotencyConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentCommandReport;
+use App\Services\Security\ProjectSecretValues;
 use App\Services\Security\SecretRedactionService;
 use Illuminate\Validation\ValidationException;
 
@@ -32,10 +33,14 @@ final class AgentCommandReportRecorder
         private readonly AgentReportIdempotencyService $idempotency,
         private readonly SecretRedactionService $redaction,
         private readonly AgentCommandProgressService $progress,
+        private readonly ProjectSecretValues $secrets,
     ) {}
 
     public function recordEvents(AgentCommand $command, ReportDeploymentEventData $data): AgentReportAcknowledgementData
     {
+        // A database command's password is known exactly; redact it before
+        // anything is stored.
+        $knownSecrets = $this->secrets->forCommand($command);
         $prepared = [];
 
         foreach ($data->items as $index => $item) {
@@ -55,8 +60,8 @@ final class AgentCommandReportRecorder
                     'kind' => AgentCommandReportKind::Event,
                     'level' => $item->level,
                     'type' => $item->type,
-                    'message' => $this->redaction->redactString($item->message),
-                    'metadata' => $this->redaction->redactArray($item->metadata),
+                    'message' => $this->redaction->redactString($item->message, $knownSecrets),
+                    'metadata' => $this->redaction->redactArray($item->metadata, $knownSecrets),
                     'occurred_at' => $item->occurredAt,
                 ],
             ];
@@ -67,6 +72,7 @@ final class AgentCommandReportRecorder
 
     public function recordLogs(AgentCommand $command, ReportDeploymentLogData $data): AgentReportAcknowledgementData
     {
+        $knownSecrets = $this->secrets->forCommand($command);
         $prepared = [];
 
         foreach ($data->items as $index => $item) {
@@ -83,7 +89,7 @@ final class AgentCommandReportRecorder
                 'attributes' => [
                     'kind' => AgentCommandReportKind::Log,
                     'stream' => $item->stream,
-                    'message' => $this->redaction->redactString($item->message),
+                    'message' => $this->redaction->redactString($item->message, $knownSecrets),
                     'occurred_at' => $item->recordedAt,
                 ],
             ];

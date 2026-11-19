@@ -43,6 +43,10 @@ final class WorkspaceQuotaResource extends JsonResource
                 'idle_sleep_minutes' => $limits->idle_sleep_minutes,
                 /** Effective most replicas per project, from the profile; 1 without one. */
                 'max_replicas' => $limits->max_replicas,
+                /** Effective managed databases, from the profile or the global setting. `0` allows none. */
+                'max_databases' => $limits->max_databases,
+                /** Effective total managed database storage in MB, from the profile or the global setting. `0` allows none. */
+                'max_database_storage_mb' => $limits->max_database_storage_mb,
                 /** Global, the same for every workspace. */
                 'max_active_deployments_per_project' => $this->resource->max_active_deployments_per_project,
             ],
@@ -51,6 +55,10 @@ final class WorkspaceQuotaResource extends JsonResource
                 /** Replicas of the projects that serve or are being deployed; sleeping projects do not count. */
                 'active_containers' => $this->resource->current_active_containers_count,
                 'active_deployments' => $this->resource->current_active_deployments_count,
+                /** Managed databases that count towards `max_databases`. */
+                'databases' => $this->resource->current_databases_count,
+                /** Reported size of the workspace's managed databases, in bytes. */
+                'database_storage_bytes' => $this->resource->current_database_storage_bytes,
             ],
         ];
     }
