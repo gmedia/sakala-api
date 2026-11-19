@@ -160,7 +160,7 @@ Webhook `push` membuat deployment untuk project yang `auto_deploy`-nya aktif bil
 | `detail` | string atau `null` | Pesan agent yang sudah diredaksi, paling panjang 500 karakter. `null` bila deployment ditutup control plane atau gagal sebelum field ini ada. |
 | `stage` | enum atau `null` | Tahap saat gagal: `queued`, `cloning`, `analyzing`, `building`, `deploying`, `routing`, `health_checking`. `queued` berarti gagal sebelum tahap pertama dilaporkan. `null` hanya untuk deployment yang gagal sebelum field ini ada. |
 
-`detail` dan `stage` disimpan pada `deployments`, jadi tetap terbaca setelah event dan log dipangkas oleh retensi 7 hari. Kategori `release` mencakup `release_command_failed` dan `release_command_timeout` (lihat [Perintah Rilis](#perintah-rilis)). Kategori `node` mencakup runtime node yang tidak siap dan deployment yang dibatalkan (`runtime_cancelled`), `timeout` mencakup `command_lease_expired` (node tidak menyelesaikan command sebelum lease habis), dan `scheduling` mencakup `command_expired` (command tidak diambil node sebelum batas ketersediaan).
+`detail` dan `stage` disimpan pada `deployments`, jadi tetap terbaca setelah event dan log dipangkas oleh retensi 7 hari. Kategori `release` mencakup `release_command_failed` dan `release_command_timeout` (lihat [Perintah Rilis](#perintah-rilis)). Kategori `start` mencakup `runtime_app_host_blocked`: aplikasi menjawab, tetapi framework-nya menolak domain project (server preview atau dev Vite menjawab 403, halaman debug Django menjawab 400), jadi setiap pengunjung akan ditolak. Kode ini `user_fixable: true`, versi sebelumnya tetap melayani, dan `detail` memuat domain, framework, dan perbaikan dari agent. `recovery_hint` menyebut `preview.allowedHosts` (atau `server.allowedHosts`) dengan `.` diikuti `SAKALA_PROJECT_DEFAULT_DOMAIN`, mengosongkan Start command supaya hasil build disajikan sebagai situs statis (di monorepo dengan Root directory folder package), dan `ALLOWED_HOSTS` untuk Django. Kategori `node` mencakup runtime node yang tidak siap dan deployment yang dibatalkan (`runtime_cancelled`), `timeout` mencakup `command_lease_expired` (node tidak menyelesaikan command sebelum lease habis), dan `scheduling` mencakup `command_expired` (command tidak diambil node sebelum batas ketersediaan).
 
 ## Pembacaan GitHub Publik
 
@@ -370,6 +370,21 @@ Retensi: baris per menit disimpan `SAKALA_METRICS_MINUTE_RETENTION_HOURS` (defau
 | `provider` | string atau `null` | Provider pertama yang dideteksi railpack, misalnya `node`. |
 | `framework` | string atau `null` | Dari `nodeSPAFramework` railpack, lalu `nodeRuntime` kecuali `node`, `bun`, dan `deno`. Selain itu `null`. |
 | `package_manager` | string atau `null` | Dari lockfile yang ditemukan agent, lalu `metadata.nodePackageManager` railpack. |
+| `monorepo` | object atau `null` | Ada bila root directory project adalah package workspace JavaScript, jadi build berjalan dari root workspace. `null` tanpa workspace dan untuk inspeksi oleh agent sebelum sakala-agent #113. Isinya di bawah. |
+
+`monorepo` adalah objek `workspace` dari agent, dengan field yang selalu ada:
+
+| Field | Nilai | Keterangan |
+| --- | --- | --- |
+| `manager` | `npm`, `pnpm`, `yarn`, atau `bun` | Package manager workspace. |
+| `root_directory` | string | Root workspace relatif terhadap root repository, `.` untuk root repository. Ini konteks build. |
+| `package_directory` | string | Root directory project, relatif terhadap root workspace. |
+| `package_name` | string atau `null` | `name` di `package.json` package. |
+| `build_command` | string atau `null` | Perintah build yang berjalan di root workspace, diturunkan dari script `build` package. `null` tanpa script `build`. |
+| `start_command` | string atau `null` | Perintah start image. `null` bila hasil build disajikan sebagai situs statis, atau tidak ada script `start`. |
+| `static_output_directory` | string atau `null` | Hasil build SPA Vite relatif terhadap root workspace, yang disajikan sebagai situs statis. |
+
+Perintah di inspeksi adalah turunan dari script package, karena inspeksi tidak membawa `build_command` dan `start_command` project. Perintah yang benar-benar dipakai sebuah deployment ada di metadata event `deployment.workspace.detected` pada timeline deployment, dengan bentuk yang sama. Event itu tidak mengubah status (tetap `analyzing`).
 
 `null` berarti tidak diketahui, bukan tebakan. Output railpack mentah tetap di server. Field yang dibaca sudah dicocokkan dengan output `railpack info` sungguhan (`detectedProviders`, `metadata.nodeSPAFramework`, `metadata.nodeRuntime`, `metadata.nodePackageManager`); contohnya ada di `tests/Fixtures/railpack/`.
 

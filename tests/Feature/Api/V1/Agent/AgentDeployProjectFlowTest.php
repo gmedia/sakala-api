@@ -235,6 +235,37 @@ test('a current agent walks every status in order, and it stays forward-only', f
     expect($deployment->fresh()->status)->toBe(DeploymentStatus::Succeeded);
 });
 
+test('a detected JavaScript workspace lands on the timeline with its metadata and keeps the deployment analyzing', function (): void {
+    $node = flowNode('workspace-token');
+    ['project' => $project, 'deployment' => $deployment, 'command' => $command] = deployThroughConsole();
+    $headers = flowHeaders($node, 'workspace-token');
+    $url = "/api/agent/v1/commands/{$command->id}/events";
+    $workspace = [
+        'manager' => 'pnpm',
+        'root_directory' => '.',
+        'package_directory' => 'apps/web',
+        'package_name' => '@facility-reporting/web',
+        'build_command' => "pnpm --filter '@facility-reporting/web...' run build",
+        'start_command' => null,
+        'static_output_directory' => 'apps/web/dist',
+    ];
+
+    $this->withHeaders($headers)->postJson("/api/agent/v1/commands/{$command->id}/claim", [])->assertOk();
+    $this->withHeaders($headers)->postJson($url, phaseEvent('deployment.analysis.started'))->assertOk();
+    $this->withHeaders($headers)->postJson($url, phaseEvent('deployment.workspace.detected', $workspace))->assertOk();
+
+    expect($deployment->fresh()->status)->toBe(DeploymentStatus::Analyzing);
+
+    $events = $this->actingAs($project->user, 'web')
+        ->getJson("/api/v1/app/projects/{$project->id}/deployments/{$deployment->id}/events")
+        ->assertOk()
+        ->json('data');
+    $detected = collect($events)->firstWhere('type', 'deployment.workspace.detected');
+
+    expect($detected)->not->toBeNull()
+        ->and($detected['metadata'])->toBe($workspace);
+});
+
 test('a Dockerfile build skips analyzing and still moves forward', function (): void {
     $node = flowNode('dockerfile-token');
     ['deployment' => $deployment, 'command' => $command] = deployThroughConsole();

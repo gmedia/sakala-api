@@ -7,7 +7,7 @@ namespace App\Data\Agent;
 /**
  * Typed view of the `ProjectInspection` result an agent sends when
  * completing InspectProject. Tolerant of missing keys (the noop runtime
- * sends `null`, and older agents omit `exposed_ports`).
+ * sends `null`, and older agents omit `exposed_ports` and `workspace`).
  */
 final readonly class ProjectInspectionResultData
 {
@@ -15,6 +15,8 @@ final readonly class ProjectInspectionResultData
      * @param  list<string>  $manifests
      * @param  list<int>|null  $exposedPorts  TCP ports from `EXPOSE` in the final
      *                                        Dockerfile stage; null when the agent did not report them
+     * @param  JavaScriptWorkspaceData|null  $workspace  set when the root directory is a package of a
+     *                                                   JavaScript workspace; null without one and from older agents
      * @param  array<string, mixed>|null  $railpack
      */
     public function __construct(
@@ -26,6 +28,7 @@ final readonly class ProjectInspectionResultData
         public array $manifests,
         public ?string $packageManager,
         public ?array $exposedPorts,
+        public ?JavaScriptWorkspaceData $workspace,
         public ?array $railpack,
     ) {}
 
@@ -49,6 +52,7 @@ final readonly class ProjectInspectionResultData
             manifests: is_array($manifests) ? array_values(array_filter($manifests, 'is_string')) : [],
             packageManager: is_string($result['package_manager'] ?? null) ? $result['package_manager'] : null,
             exposedPorts: is_array($exposedPorts) ? self::ports($exposedPorts) : null,
+            workspace: JavaScriptWorkspaceData::fromArray($result['workspace'] ?? null),
             railpack: is_array($railpack) ? $railpack : null,
         );
     }
@@ -96,6 +100,7 @@ final readonly class ProjectInspectionResultData
             'manifests' => $this->manifests,
             'package_manager' => $this->packageManager,
             'exposed_ports' => $this->exposedPorts,
+            'workspace' => $this->workspace?->toArray(),
             'railpack' => $this->railpack,
         ];
     }
