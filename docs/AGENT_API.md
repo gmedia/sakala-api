@@ -638,6 +638,38 @@ Yang dibaca API:
   `npx prisma migrate deploy`, `bin/rails db:migrate` menjadi `null`. `likely` selalu
   dihitung ulang dari signal yang tersisa.
 
+Result juga boleh memuat `frameworks`, tambahan pada revisi 4: framework yang bisa
+membuat halaman saat build, yang namanya ada di `dependencies` atau `devDependencies`
+`package.json` direktori yang diinspeksi (direktori yang sama yang dibaca
+`database_hint`). Agent yang mengenalnya selalu mengirimnya, `[]` bila tidak ada atau
+`package.json` tidak terbaca, jadi result tanpa field berasal dari agent lama dan
+disimpan sebagai `null`. API menyimpannya di `projects.inspection.frameworks` untuk
+[`VariableBuildPolicy`](API_CONVENTIONS.md#variabel-yang-memengaruhi-build); field ini
+tidak ditampilkan ke Console.
+
+```json
+"frameworks": ["astro", "gatsby"]
+```
+
+| Nilai | Nama package |
+| --- | --- |
+| `next` | `next` |
+| `nuxt` | `nuxt`, `nuxt3` |
+| `astro` | `astro` |
+| `sveltekit` | `@sveltejs/kit` |
+| `gatsby` | `gatsby` |
+| `remix` | `@remix-run/dev` |
+| `react-router` | `@react-router/dev` (framework mode; library `react-router` saja tidak) |
+| `tanstack-start` | `@tanstack/react-start`, `@tanstack/solid-start`, `@tanstack/start` |
+| `eleventy` | `@11ty/eleventy` |
+| `docusaurus` | `@docusaurus/core` |
+| `vitepress` | `vitepress` |
+
+- `frameworks` (array string atau `null`): nilai di luar tabel (enum `DetectedFramework`)
+  dan item yang bukan string dibuang, duplikat digabung, lalu diurutkan. Nilai yang bukan
+  array disimpan sebagai `null`, sama seperti agent lama. Array yang tersisa kosong
+  berarti tidak ada framework yang dikenal, dan klasifikasi lanjut ke sinyal Railpack.
+
 ### ReconcileWorkload dan CleanupRuntime
 
 Keduanya hanya dibuat atas permintaan admin; API tidak pernah menyimpulkan

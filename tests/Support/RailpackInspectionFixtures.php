@@ -40,7 +40,8 @@ function railpackInspection(?string $provider, array $metadata = [], array $over
 /**
  * The inspection Railpack v0.23.0 produces for a named stack. Node projects
  * carry `nodeRuntime`, `nodeIsSPA` ("true"/"false"), and, for an SPA,
- * `nodeSPAFramework`, the way its node provider writes them.
+ * `nodeSPAFramework`, the way its node provider writes them. Stacks without
+ * a `frameworks` key are what an agent before that field stored.
  *
  * @return array<string, mixed>
  */
@@ -76,7 +77,14 @@ function railpackStackInspection(string $stack): array
         'react-router' => $node('react-router'),
         'tanstack-start' => $node('tanstack-start'),
         'sveltekit' => $node('vite'),
+        // Railpack reports these as plain `node`; only the agent's
+        // `frameworks` (revision 4) names them.
+        'gatsby' => $node('node', overrides: ['frameworks' => ['gatsby']]),
+        'astro-server' => $node('node', overrides: ['frameworks' => ['astro']]),
+        'eleventy' => $node('node', overrides: ['frameworks' => ['eleventy']]),
+        'sveltekit-without-vite-config' => $node('node', overrides: ['frameworks' => ['sveltekit']]),
         'express' => $node('node'),
+        'express-without-frameworks' => $node('node', overrides: ['frameworks' => []]),
         'bun' => railpackInspection('node', ['nodeRuntime' => 'bun', 'nodePackageManager' => 'bun', 'nodeIsSPA' => 'false'], ['manifests' => ['package.json'], 'package_manager' => 'bun']),
         'node-without-runtime' => railpackInspection('node', ['nodePackageManager' => 'npm']),
         'laravel' => railpackInspection('php', ['phpVersion' => '8.4'], ['manifests' => ['composer.json']]),
@@ -84,6 +92,8 @@ function railpackStackInspection(string $stack): array
         'go' => railpackInspection('golang', [], ['manifests' => ['go.mod']]),
         'rails' => railpackInspection('ruby', [], ['manifests' => ['Gemfile']]),
         'dockerfile' => $node('next', overrides: ['dockerfile_found' => true]),
+        'dockerfile-with-frameworks' => $node('node', overrides: ['dockerfile_found' => true, 'frameworks' => ['astro', 'next']]),
+        'astro-spa-with-frameworks' => $node('astro', spa: true, overrides: ['frameworks' => ['astro']]),
         'shell' => railpackInspection('shell', ['shellScript' => 'start.sh']),
         'unknown-provider' => railpackInspection('cobol'),
         'no-provider' => railpackInspection(null),
