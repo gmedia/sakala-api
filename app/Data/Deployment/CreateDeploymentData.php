@@ -16,5 +16,7 @@ final readonly class CreateDeploymentData
         public DeploymentTrigger $trigger = DeploymentTrigger::Manual,
         public ?string $commit_sha = null,
         public ?string $commit_message = null,
+        // True always builds; false lets PlanDeploymentBuildAction reuse the live image.
+        public bool $forceBuild = false,
     ) {}
 }

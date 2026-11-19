@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Deployment;
 
+use App\Enums\DeploymentBuildFallbackReason;
+use App\Enums\DeploymentBuildMode;
 use App\Enums\DeploymentQueueState;
 use App\Enums\DeploymentStatus;
 use App\Enums\FinalizationDeferredReason;
@@ -33,6 +35,12 @@ final class DeploymentResource extends JsonResource
      *     commit_sha: string|null,
      *     commit_message: string|null,
      *     image_reference: string|null,
+     *     build: array{
+     *         mode: DeploymentBuildMode,
+     *         image_source_deployment_id: string|null,
+     *         image_source_sequence: int|null,
+     *         fallback_reason: DeploymentBuildFallbackReason|null
+     *     },
      *     requested_resources: array{
      *         memory_mb: int|null,
      *         cpu_millis: int|null,
@@ -156,6 +164,7 @@ final class DeploymentResource extends JsonResource
             'commit_sha' => $this->resource->commit_sha,
             'commit_message' => $this->resource->commit_message,
             'image_reference' => $this->resource->image_reference,
+            'build' => $this->build(),
             'requested_resources' => $requestedResources,
             'effective_resources' => $effectiveResources,
             'applied_resources' => $appliedResources,
@@ -190,6 +199,34 @@ final class DeploymentResource extends JsonResource
             'updated_at' => $this->resource->updated_at
                 ? $this->resource->updated_at->toAtomString()
                 : null,
+        ];
+    }
+
+    /**
+     * How the deployment got its image. `mode` is `reused` while a planned
+     * reuse stands (and once confirmed), `built` otherwise, including after a
+     * fallback and for every deployment from before image reuse. The source
+     * is the deployment that built the image this one asked to reuse, null
+     * when reuse was never planned or that deployment was deleted;
+     * `fallback_reason` is set only when reuse was planned and the agent built
+     * instead. Lists eager-load `imageSource` (GetDeploymentCollectionAction).
+     *
+     * @return array{
+     *     mode: DeploymentBuildMode,
+     *     image_source_deployment_id: string|null,
+     *     image_source_sequence: int|null,
+     *     fallback_reason: DeploymentBuildFallbackReason|null
+     * }
+     */
+    private function build(): array
+    {
+        $sourceId = $this->resource->image_source_deployment_id;
+
+        return [
+            'mode' => $this->resource->build_mode,
+            'image_source_deployment_id' => $sourceId,
+            'image_source_sequence' => $sourceId === null ? null : $this->resource->imageSource?->sequence,
+            'fallback_reason' => $this->resource->build_fallback_reason,
         ];
     }
 

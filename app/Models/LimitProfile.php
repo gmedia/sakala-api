@@ -23,7 +23,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $max_active_deployments
  * @property int $max_memory_mb
  * @property int $max_cpu_millis
- * @property int|null $max_builds_per_hour Deployments the workspace may create per rolling hour. Null follows the global setting (PilotRuntimeLimitService::maxBuildsPerHourFor()).
+ * @property int|null $max_builds_per_hour Deployments that build an image the workspace may create per rolling hour; one that reuses the live image does not count. Null follows the global setting (PilotRuntimeLimitService::maxBuildsPerHourFor()).
  * @property int|null $idle_sleep_minutes Null follows the global setting, 0 never sleeps, N sleeps after N idle minutes.
  * @property int|null $max_replicas Most replicas per project. Null allows one (Project::DEFAULT_REPLICAS), so replicas stay off unless an admin allows more.
  * @property string|null $default_region Region the workspace's projects run in unless a project sets its own; null for any region.

@@ -29,10 +29,17 @@ use App\Models\Project;
  * database dump. Rotating APP_KEY therefore changes every environment
  * fingerprint and shows one needless redeploy hint per project; that is
  * acceptable, since the environment values need the key anyway.
+ *
+ * The build fingerprint (forBuild()) is a narrower definition: what changes
+ * the image a build produces, so a deployment whose build fingerprint and
+ * commit match the live one may reuse its image.
  */
 final class DeploymentConfigFingerprint
 {
     private const ALGORITHM = 'sha256';
+
+    /** Leads the build fingerprint's input, so it never equals another fingerprint over the same values. */
+    private const BUILD_SCOPE = 'build';
 
     /**
      * Pure: reads only the project's own attributes, so a list of projects
@@ -90,6 +97,43 @@ final class DeploymentConfigFingerprint
         ksort($pairs, SORT_STRING);
 
         return self::sign(array_values($pairs));
+    }
+
+    /**
+     * What decides the image a build produces: the root directory, the build
+     * command, the start command (Railpack bakes it into the image), and the
+     * build-time variables (BuildTimeVariable) with their plaintext values,
+     * sorted by key. An empty command counts as none, as in the payload.
+     * Stored as `deployments.build_fingerprint` and compared by
+     * PlanDeploymentBuildAction. Pass the variables already loaded for the
+     * payload, so both see the same values.
+     *
+     * @param  iterable<EnvironmentVariable>  $variables
+     */
+    public static function forBuild(Project $project, iterable $variables): string
+    {
+        $pairs = [];
+
+        foreach ($variables as $variable) {
+            if (BuildTimeVariable::matches($variable->key)) {
+                $pairs[$variable->key] = [$variable->key, (string) $variable->encrypted_value];
+            }
+        }
+
+        ksort($pairs, SORT_STRING);
+
+        return self::sign([
+            self::BUILD_SCOPE,
+            self::presentOrNull($project->root_directory),
+            self::presentOrNull($project->build_command),
+            self::presentOrNull($project->start_command),
+            array_values($pairs),
+        ]);
+    }
+
+    private static function presentOrNull(?string $value): ?string
+    {
+        return $value === null || $value === '' ? null : $value;
     }
 
     /** @param  list<mixed>  $canonical */
