@@ -363,7 +363,10 @@ lifecycle command lain hanya membawa identitas.
 
 `DeployProject` yang payload-nya membawa `replicas` lebih dari 1 juga butuh
 capability `replicas`, dan yang membawa `release_command` juga butuh capability
-`release-command`; lihat [DeployProject](#deployproject).
+`release-command`; lihat [DeployProject](#deployproject). API hanya mengirim
+`reuse_image_from_deployment_id` ke node yang mengiklankan capability
+`image-reuse`, tetapi capability ini tidak memengaruhi penempatan: tanpa itu
+deployment tetap dibuat dan di-build seperti biasa.
 
 ### Pembatalan command
 
@@ -454,6 +457,28 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   melewati batas waktu dengan `release_command_timeout`; dalam kedua kasus versi
   baru tidak menerima traffic dan versi sebelumnya tetap melayani. Field ini tidak
   pernah ada di payload `WakeProject`, `RestartProject`, atau `ReconcileWorkload`.
+- `reuse_image_from_deployment_id` adalah field opsional tambahan (revisi
+  protocol tetap 4): UUID deployment yang **mem-build** image yang dipakai ulang,
+  tidak pernah deployment yang dirinya sendiri memakai ulang image. API hanya
+  mengirimnya ke node yang mengiklankan capability `image-reuse`, dan hanya bila
+  `PlanDeploymentBuildAction` memutuskan pakai ulang: tidak ada `force_build`,
+  commit sama dengan deployment aktif project (apa pun status runtime-nya), build
+  fingerprint deployment aktif ada dan sama, dan deployment baru dipin ke node
+  deployment aktif (lihat
+  [Redeploy tanpa build](API_CONVENTIONS.md#redeploy-tanpa-build)). Tanpa field
+  ini, atau bernilai `null`, agent mem-build seperti biasa. Agent membacanya
+  longgar: nilai yang bukan string UUID tidak menggagalkan payload, agent
+  mem-build dan melaporkan alasan `invalid_reference`. Agent lama mengabaikannya
+  dan mem-build. Agent menurunkan nama image sendiri dari project yang meminta,
+  `sakala/project-<project_id>:<commit12>-<source8>`, dan hanya memakainya bila
+  label `dev.sakala.project-id` sama dengan `project_id` command, label
+  `dev.sakala.deployment-id` sama dengan field ini (UUID penuh), dan label
+  `dev.sakala.builder` bernilai `dockerfile` atau `railpack`; referensi image
+  tidak pernah diterima dari payload. Pakai ulang melewati checkout, analisis,
+  dan build, tetapi tetap menjalankan `release_command`, health check, replika,
+  dan pergantian tanpa downtime seperti biasa. Deployment pakai ulang yang gagal
+  tidak boleh menghapus image itu, karena image itu milik deployment yang sedang
+  melayani.
 - `domain` adalah `projects.default_domain` saat deployment dibuat, yaitu
   `<slug>.<SAKALA_PROJECT_DEFAULT_DOMAIN>` (hosted: `<slug>.sakala.app`,
   staging: `<slug>.staging.sakala.app`). Agent hanya menerima domain satu label
@@ -504,6 +529,8 @@ Event fase dari agent menggerakkan status deployment (maju saja, retry aman):
 | `deployment.route.started` | `routing` |
 | `deployment.runtime.ready` | tidak mengubah status; mengisi `image_reference` dari `metadata.image` |
 | `deployment.workspace.detected` | tidak mengubah status; disimpan di timeline dengan metadata berbentuk `workspace` hasil `InspectProject`, berisi perintah yang benar-benar dipakai (sakala-agent #113, hanya build Railpack dari package workspace JavaScript) |
+| `deployment.image.reused` | tidak mengubah status; disimpan di timeline. Level `info`, metadata `{ "image": "<ref>", "source_deployment_id": "<uuid>", "builder": "dockerfile" \| "railpack" }`. Dikirim sebagai ganti `checkout.started`, `analysis.started`, `workspace.detected`, dan `build.started` pada deployment yang memakai ulang image, sehingga statusnya melompat dari `queued` ke `deploying` |
+| `deployment.image.reuse_skipped` | tidak mengubah status; disimpan di timeline. Level `warning`, metadata `{ "source_deployment_id": "<uuid>" \| null, "reason": "<alasan>" }`, dikirim sebelum `checkout.started` lalu build berjalan normal. Pada deployment `build_mode = reused` API mengubahnya menjadi `built` dan mengisi `build_fallback_reason`; `image_source_deployment_id` tetap. Alasan: `image_missing` (image tidak ada di node ini), `image_not_owned` (label menyebut project atau deployment lain), `image_metadata_missing` (tanpa label `dev.sakala.builder` yang dikenal, dibuat agent sebelum rilis ini), `invalid_reference` (field bukan string UUID; `source_deployment_id` `null`). Alasan lain disimpan sebagai `image_unavailable`. Bukan kegagalan, dan tidak ada kode error baru |
 
 Urutan statusnya `queued`, `cloning`, `analyzing`, `building`, `deploying`,
 `health_checking`, `routing`, karena agent memeriksa kesehatan aplikasi sebelum
@@ -994,3 +1021,12 @@ menolak pembuatan database dengan `409 DATABASE_REGION_UNAVAILABLE`):
    `metadata.databases` setelah pembacaan baru, dan keenam command di
    [Perintah database](#perintah-database), dengan urutan `CommandType` yang sama
    seperti di bagian Enum.
+
+Tambahan untuk redeploy tanpa build (opsional; node tanpa capability ini tidak
+pernah menerima field-nya dan selalu mem-build):
+
+10. Iklankan capability `image-reuse` (driver `docker` saja), tulis label
+    `dev.sakala.builder` dan, untuk build dari root workspace JavaScript,
+    `dev.sakala.package-directory` pada setiap image, pakai ulang image sesuai
+    `reuse_image_from_deployment_id` di [DeployProject](#deployproject), dan
+    kirim `deployment.image.reused` atau `deployment.image.reuse_skipped`.

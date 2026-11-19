@@ -19,7 +19,7 @@ final class GetDeploymentCollectionAction
         GetDeploymentCollectionData $data
     ): LengthAwarePaginator {
         $query = Deployment::query()
-            ->with(['project', 'agentNode'])
+            ->with(['project', 'agentNode', 'imageSource:id,sequence'])
             ->whereBelongsTo($project)
             ->when(
                 filled($data->search),

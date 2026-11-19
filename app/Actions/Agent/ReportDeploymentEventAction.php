@@ -11,6 +11,8 @@ use App\Data\Agent\DeploymentEventReportItemData;
 use App\Data\Agent\ReportDeploymentEventData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
+use App\Enums\DeploymentBuildFallbackReason;
+use App\Enums\DeploymentBuildMode;
 use App\Enums\DeploymentStatus;
 use App\Events\Deployment\DeploymentEventCreated;
 use App\Exceptions\Agent\CommandConflictException;
@@ -30,6 +32,24 @@ use Illuminate\Validation\ValidationException;
 
 final class ReportDeploymentEventAction
 {
+    /** Carries the image the deployment runs in `metadata.image`. */
+    public const RUNTIME_READY_EVENT = 'deployment.runtime.ready';
+
+    /**
+     * The agent built a deployment planned to reuse an image; `metadata.reason`
+     * says why (DeploymentBuildFallbackReason).
+     */
+    public const IMAGE_REUSE_SKIPPED_EVENT = 'deployment.image.reuse_skipped';
+
+    /** Key of the image reference in a `deployment.runtime.ready` event's metadata. */
+    private const IMAGE_METADATA_KEY = 'image';
+
+    /** Key of the fallback reason in a `deployment.image.reuse_skipped` event's metadata. */
+    private const REASON_METADATA_KEY = 'reason';
+
+    /** Bound (in characters) of `deployments.image_reference`, a varchar(255). */
+    private const MAX_IMAGE_REFERENCE_LENGTH = 255;
+
     public function __construct(
         private readonly AgentReportBoundsService $bounds,
         private readonly AgentReportIdempotencyService $idempotency,
@@ -183,16 +203,28 @@ final class ReportDeploymentEventAction
      * Agent phase events drive the deployment status forward. Duplicate or
      * out-of-order events (retries, restarts) never move it backwards, and
      * `succeeded` is only ever set by the command completion. The
-     * `deployment.runtime.ready` event also carries the built image.
+     * `deployment.runtime.ready` event also carries the image the deployment
+     * runs (built or reused). `deployment.image.reuse_skipped` turns a planned
+     * reuse into a build, keeping the source so the console can name it;
+     * neither it nor `deployment.image.reused` changes the status.
      */
     private function advanceDeployment(Deployment $deployment, DeploymentEventReportItemData $item): Deployment
     {
-        if ($item->type === 'deployment.runtime.ready') {
-            $image = $item->metadata['image'] ?? null;
+        if ($item->type === self::RUNTIME_READY_EVENT) {
+            $image = $item->metadata[self::IMAGE_METADATA_KEY] ?? null;
 
-            if (is_string($image) && $image !== '' && strlen($image) <= 255) {
+            if (is_string($image) && $image !== '' && strlen($image) <= self::MAX_IMAGE_REFERENCE_LENGTH) {
                 $deployment->update(['image_reference' => $image]);
             }
+        }
+
+        if ($item->type === self::IMAGE_REUSE_SKIPPED_EVENT && $deployment->build_mode === DeploymentBuildMode::Reused) {
+            $deployment->update([
+                'build_mode' => DeploymentBuildMode::Built,
+                'build_fallback_reason' => DeploymentBuildFallbackReason::fromAgentReason(
+                    $item->metadata[self::REASON_METADATA_KEY] ?? null,
+                ),
+            ]);
         }
 
         $next = DeploymentStatus::fromAgentEventType($item->type);

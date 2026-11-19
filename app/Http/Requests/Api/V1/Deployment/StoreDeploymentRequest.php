@@ -27,6 +27,12 @@ final class StoreDeploymentRequest extends FormRequest
             'resources.memory_mb' => ['nullable', 'integer', 'min:1'],
             'resources.cpu_millis' => ['nullable', 'integer', 'min:1'],
             'resources.pids_limit' => ['nullable', 'integer', 'min:1'],
+            /**
+             * `true` always builds a fresh image. Without it, a deployment of the
+             * live commit with no build-affecting change reuses the live image.
+             * Defaults to `false`.
+             */
+            'force_build' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -50,6 +56,7 @@ final class StoreDeploymentRequest extends FormRequest
             branch: $branch,
             idempotencyKey: $idempotencyKey,
             requested_resources: $requestedResources,
+            forceBuild: (bool) $this->validated('force_build', false),
         );
     }
 }

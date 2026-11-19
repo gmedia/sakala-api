@@ -86,6 +86,15 @@ class AgentNode extends Model
     public const RELEASE_COMMAND_CAPABILITY = 'release-command';
 
     /**
+     * Capability of a node that can start a deployment from an image an
+     * earlier deployment of the project built there
+     * (`reuse_image_from_deployment_id`). Only sent to a node that advertises
+     * it; an older agent would ignore the field and build, which is correct
+     * but slow, so the API does not count on that.
+     */
+    public const IMAGE_REUSE_CAPABILITY = 'image-reuse';
+
+    /**
      * Key under the heartbeat's `metadata.workloads` where an agent with
      * REPLICAS_CAPABILITY reports the most replicas it runs per project
      * (`SAKALA_MAX_REPLICAS_PER_PROJECT`), or null when its driver cannot run
