@@ -28,8 +28,10 @@ use Illuminate\Support\Facades\DB;
  * project that cannot be redeployed is skipped with a reason and keeps
  * `redeploy_required`. The rotation is complete either way.
  *
- * A redeploy rebuilds the commit that is live, not the branch head, so
- * nobody ships unreviewed commits by rotating a password. Running again does
+ * A redeploy runs the commit that is live, not the branch head, so
+ * nobody ships unreviewed commits by rotating a password; with nothing
+ * build-affecting changed it usually reuses the live image
+ * (PlanDeploymentBuildAction). Running again does
  * nothing: the outcome is recorded once, and each deployment has an
  * idempotency key per rotation.
  */

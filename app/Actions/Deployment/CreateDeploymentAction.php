@@ -33,6 +33,7 @@ use App\Services\GitHub\GithubBranchService;
 use App\Services\GitHub\GithubRepositoryAccessService;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\GitHub\CommitMessage;
+use App\Support\Project\DeploymentConfigFingerprint;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -94,6 +95,7 @@ final class CreateDeploymentAction
         private readonly AgentNodeSchedulerService $scheduler,
         private readonly GithubRepositoryAccessService $repositoryAccess,
         private readonly DatabaseConnectionEnvironment $databaseEnvironment,
+        private readonly PlanDeploymentBuildAction $planBuild,
     ) {}
 
     /**
@@ -201,11 +203,6 @@ final class CreateDeploymentAction
                     $lockedProject,
                 );
 
-                $this->runtimeLimitService->checkBuildRateLimit(
-                    $user,
-                    $lockedProject,
-                );
-
                 // Resolve effective runtime limits
                 $effectiveLimits = $this->runtimeLimitService->resolveEffectiveLimits(
                     $data->requested_resources,
@@ -238,6 +235,29 @@ final class CreateDeploymentAction
 
                 $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas, $releaseCommand);
 
+                // Loaded once: the build fingerprint and the payload must see
+                // the same variables.
+                $variables = $lockedProject->environmentVariables;
+                $buildFingerprint = DeploymentConfigFingerprint::forBuild($lockedProject, $variables);
+
+                $buildPlan = $this->planBuild->handle(
+                    lockedProject: $lockedProject,
+                    node: $node,
+                    commitSha: $commit['sha'],
+                    buildFingerprint: $buildFingerprint,
+                    forceBuild: $data->forceBuild,
+                );
+
+                // Only a build counts against the build rate: a deployment
+                // that reuses the live image builds nothing. Still under the
+                // workspace lock, and nothing has been written yet.
+                if (! $buildPlan->reuses()) {
+                    $this->runtimeLimitService->checkBuildRateLimit(
+                        $user,
+                        $lockedProject,
+                    );
+                }
+
                 // A project from before environment fingerprints gets one now,
                 // under the lock, so it and this deployment agree from here on.
                 if ($lockedProject->environment_fingerprint === null) {
@@ -269,6 +289,9 @@ final class CreateDeploymentAction
                     // What `redeploy_required` compares with the project later,
                     // taken from the same locked row as the payload below.
                     'config_fingerprint' => $lockedProject->deploymentConfigFingerprint(),
+                    'build_fingerprint' => $buildFingerprint,
+                    'build_mode' => $buildPlan->mode,
+                    'image_source_deployment_id' => $buildPlan->imageSourceDeploymentId,
                     'requested_resources' => $data->requested_resources?->toArray(),
                     'effective_resources' => $effectiveLimits->toArray(),
                 ]);
@@ -285,7 +308,7 @@ final class CreateDeploymentAction
                     'container_port' => $deployment->container_port,
                     'builder' => 'auto',
                     'environment' => [
-                        ...$lockedProject->environmentVariables
+                        ...$variables
                             ->mapWithKeys(fn (EnvironmentVariable $env): array => [
                                 $env->key => (string) (
                                     $env->getRawOriginal('encrypted_value')
@@ -315,6 +338,12 @@ final class CreateDeploymentAction
                     // Optional addition to protocol revision 4, only above one,
                     // and only to a node with the `replicas` capability.
                     ...($replicas > Project::DEFAULT_REPLICAS ? ['replicas' => $replicas] : []),
+                    // Optional addition to protocol revision 4, only for a
+                    // reuse plan, which only targets a node with the
+                    // `image-reuse` capability: the deployment that built the
+                    // image. The agent derives the image name and checks its
+                    // labels itself.
+                    ...($buildPlan->reuses() ? ['reuse_image_from_deployment_id' => $buildPlan->imageSourceDeploymentId] : []),
                 ];
 
                 AgentCommand::create([

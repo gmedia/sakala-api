@@ -10,6 +10,7 @@ use App\Data\Runtime\PilotQuotaLimitsData;
 use App\Data\Runtime\RuntimeResourceLimitsData;
 use App\Data\Runtime\RuntimeTimeoutLimitsData;
 use App\Data\Runtime\WorkspaceLimitsData;
+use App\Enums\DeploymentBuildMode;
 use App\Enums\WorkspaceType;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
@@ -142,12 +143,13 @@ class PilotRuntimeLimitService
     }
 
     /**
-     * Deployments a workspace under this profile may create in the rolling
-     * hour; null means no limit. A profile without its own value, and a
-     * workspace without a profile (personal or team), follow
-     * `sakala.project.max_builds_per_hour`: unset or empty means
-     * DEFAULT_MAX_BUILDS_PER_HOUR, and 0 turns the limit off. This is the only
-     * place that decides.
+     * Deployments that build an image a workspace under this profile may
+     * create in the rolling hour; null means no limit. One that reuses the
+     * live image does not count (checkBuildRateLimit()). A profile without
+     * its own value, and a workspace without a profile (personal or team),
+     * follow `sakala.project.max_builds_per_hour`: unset or empty means
+     * DEFAULT_MAX_BUILDS_PER_HOUR, and 0 turns the limit off. This is the
+     * only place that decides.
      */
     public function maxBuildsPerHourFor(?LimitProfile $profile): ?int
     {
@@ -372,10 +374,13 @@ class PilotRuntimeLimitService
     }
 
     /**
-     * Whether the workspace may start another build. Every deployment builds a
-     * fresh image, so every deployment of the workspace's projects created in
-     * the rolling window counts, whatever its status, including those of
-     * deleted projects so deleting and recreating does not reset the window.
+     * Whether the workspace may start another build. Every deployment that
+     * builds an image counts: those of the workspace's projects created in the
+     * rolling window, whatever their status, including those of deleted
+     * projects so deleting and recreating does not reset the window. A
+     * deployment that reuses the live image builds nothing, so the caller does
+     * not check it and it does not count; one whose reuse fell back to a build
+     * counts from then on (it is `built`), without being checked again.
      * Admins acting are not limited, like checkActiveDeploymentLimit(). The
      * caller holds the workspace row lock inside a transaction, so two
      * deployments cannot both read the count below the limit.
@@ -478,8 +483,9 @@ class PilotRuntimeLimitService
 
     /**
      * Deployments of the workspace's projects, deleted ones included, created
-     * within BUILD_RATE_WINDOW_SECONDS. Served by `deployments (project_id,
-     * created_at)`.
+     * within BUILD_RATE_WINDOW_SECONDS that build an image (not `reused`).
+     * Served by `deployments (project_id, created_at)`; `build_mode` is read
+     * from those rows.
      *
      * @return Builder<Deployment>
      */
@@ -487,7 +493,8 @@ class PilotRuntimeLimitService
     {
         return Deployment::query()
             ->whereIn('project_id', Project::withTrashed()->select('id')->where('workspace_id', $workspace->id))
-            ->where('created_at', '>', now()->subSeconds(self::BUILD_RATE_WINDOW_SECONDS));
+            ->where('created_at', '>', now()->subSeconds(self::BUILD_RATE_WINDOW_SECONDS))
+            ->where('build_mode', '!=', DeploymentBuildMode::Reused->value);
     }
 
     private function activeDeploymentsIn(Workspace $workspace): int

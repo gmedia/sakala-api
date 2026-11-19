@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\DeploymentBuildFallbackReason;
+use App\Enums\DeploymentBuildMode;
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
 use App\Enums\FinalizationDeferredReason;
@@ -30,11 +32,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $commit_sha
  * @property string|null $commit_message
  * @property string|null $image_reference
+ * @property DeploymentBuildMode $build_mode `reused` when planned to start an earlier deployment's image (PlanDeploymentBuildAction), `built` otherwise and after the agent fell back to a build.
+ * @property string|null $image_source_deployment_id The deployment that built the image this one asked to reuse; kept after a fallback. Null when reuse was never planned, or once that deployment is deleted.
+ * @property DeploymentBuildFallbackReason|null $build_fallback_reason Why the agent built a deployment planned as reuse. Null otherwise.
  * @property int|null $container_port
  * @property int $replicas Containers this deployment was asked to run, fixed at creation like `container_port`.
  * @property int|null $replicas_desired Containers the node runs for it, from heartbeats. Null until reported.
  * @property int|null $replicas_ready Of those, how many pass the router's health check, from heartbeats. Null until reported.
  * @property string|null $config_fingerprint DeploymentConfigFingerprint::forProject() of the project when this deployment was created. Null for deployments created before it existed.
+ * @property string|null $build_fingerprint DeploymentConfigFingerprint::forBuild() when this deployment was created. Null for deployments created before image reuse, which are never reused.
  * @property string|null $idempotency_key
  * @property array{
  *     memory_mb: int|null,
@@ -87,11 +93,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'commit_sha',
     'commit_message',
     'image_reference',
+    'build_mode',
+    'image_source_deployment_id',
+    'build_fallback_reason',
     'container_port',
     'replicas',
     'replicas_desired',
     'replicas_ready',
     'config_fingerprint',
+    'build_fingerprint',
     'requested_resources',
     'effective_resources',
     'applied_resources',
@@ -107,7 +117,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'cancel_requested_at',
     'crash_notified_at',
 ])]
-#[Hidden(['config_fingerprint'])]
+#[Hidden(['config_fingerprint', 'build_fingerprint'])]
 class Deployment extends Model
 {
     /** @use HasFactory<DeploymentFactory> */
@@ -121,13 +131,14 @@ class Deployment extends Model
 
     /**
      * The column defaults, so a deployment answered right after it is created
-     * sends `false` and 1 instead of null.
+     * sends `false`, 1, and `built` instead of null.
      *
-     * @var array<string, bool|int>
+     * @var array<string, bool|int|string>
      */
     protected $attributes = [
         'finalization_deferred' => false,
         'replicas' => Project::DEFAULT_REPLICAS,
+        'build_mode' => DeploymentBuildMode::Built->value,
     ];
 
     /** @return BelongsTo<Project, $this> */
@@ -146,6 +157,28 @@ class Deployment extends Model
     public function agentNode(): BelongsTo
     {
         return $this->belongsTo(AgentNode::class);
+    }
+
+    /**
+     * The deployment that built the image this one asked to reuse.
+     *
+     * @return BelongsTo<Deployment, $this>
+     */
+    public function imageSource(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'image_source_deployment_id');
+    }
+
+    /**
+     * The deployment that built the image this one runs: itself when it
+     * built, its source when it reused (so chains resolve to the builder),
+     * and null when it reused and that source is gone.
+     */
+    public function imageBuilderId(): ?string
+    {
+        return $this->build_mode === DeploymentBuildMode::Reused
+            ? $this->image_source_deployment_id
+            : $this->id;
     }
 
     /** @return HasMany<AgentCommand, $this> */
@@ -191,6 +224,8 @@ class Deployment extends Model
             'status' => DeploymentStatus::class,
             'realtime_sequence' => 'integer',
             'trigger' => DeploymentTrigger::class,
+            'build_mode' => DeploymentBuildMode::class,
+            'build_fallback_reason' => DeploymentBuildFallbackReason::class,
             'container_port' => 'integer',
             'replicas' => 'integer',
             'replicas_desired' => 'integer',
