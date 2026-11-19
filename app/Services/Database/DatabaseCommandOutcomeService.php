@@ -6,11 +6,13 @@ namespace App\Services\Database;
 
 use App\Enums\AgentCommandType;
 use App\Enums\DatabaseStatus;
+use App\Jobs\Database\RedeployAfterPasswordRotationJob;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Support\Database\DatabaseAudit;
+use App\Support\Database\DatabasePasswordRotation;
 
 /**
  * What a database command's result means for its database. Called inside the
@@ -103,7 +105,8 @@ final class DatabaseCommandOutcomeService
     /**
      * The node now accepts the new password only: store it, and mark every
      * attached project for a redeploy, since its running containers still
-     * have the old one.
+     * have the old one. When the rotation asked for it, the redeploys are
+     * queued once this transaction commits.
      *
      * @param  array<string, mixed>  $metadata
      */
@@ -126,6 +129,10 @@ final class DatabaseCommandOutcomeService
         foreach ($projects as $project) {
             $project->refreshDatabaseFingerprint();
             $project->save();
+        }
+
+        if (DatabasePasswordRotation::redeploysAttached($command)) {
+            RedeployAfterPasswordRotationJob::dispatch($command->id)->afterCommit();
         }
 
         return $this->audit($agent, DatabaseAudit::PASSWORD_ROTATED, $database, [

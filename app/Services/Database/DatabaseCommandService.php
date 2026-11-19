@@ -59,12 +59,16 @@ final class DatabaseCommandService
         ]);
     }
 
-    public function rotatePassword(ManagedDatabase $database, string $password): AgentCommand
+    /**
+     * @param  array<string, mixed>|null  $requestContext  What the control plane does once the node reports
+     *                                                     (DatabasePasswordRotation); never sent to the node.
+     */
+    public function rotatePassword(ManagedDatabase $database, string $password, ?array $requestContext = null): AgentCommand
     {
         return $this->dispatch($database, AgentCommandType::RotateDatabasePassword, [
             self::ROLE_KEY => $database->pg_role,
             AgentCommandPayloadMaterializer::PASSWORD_KEY => Crypt::encryptString($password),
-        ]);
+        ], $requestContext);
     }
 
     public function lock(ManagedDatabase $database): AgentCommand
@@ -130,8 +134,11 @@ final class DatabaseCommandService
             });
     }
 
-    /** @param  array<string, string>  $payload */
-    private function dispatch(ManagedDatabase $database, AgentCommandType $type, array $payload): AgentCommand
+    /**
+     * @param  array<string, string>  $payload
+     * @param  array<string, mixed>|null  $requestContext
+     */
+    private function dispatch(ManagedDatabase $database, AgentCommandType $type, array $payload, ?array $requestContext = null): AgentCommand
     {
         return AgentCommand::query()->create([
             'database_id' => $database->id,
@@ -139,6 +146,7 @@ final class DatabaseCommandService
             'type' => $type,
             'status' => AgentCommandStatus::Pending,
             'payload' => $payload,
+            'request_context' => $requestContext,
             'idempotency_key' => (string) Str::uuid(),
             'available_at' => now(),
             // Waits for the database's node however long it is offline: the

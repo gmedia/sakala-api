@@ -18,6 +18,7 @@ use App\Exceptions\Database\DatabaseRegionUnavailableException;
 use App\Exceptions\Database\DatabaseStorageLimitExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Database\InstallDatabaseExtensionRequest;
+use App\Http\Requests\Api\V1\Database\RotateDatabasePasswordRequest;
 use App\Http\Requests\Api\V1\Database\StoreDatabaseRequest;
 use App\Http\Requests\Api\V1\Database\UpdateDatabaseRequest;
 use App\Http\Resources\Api\V1\Database\DatabaseCredentialsResource;
@@ -142,20 +143,21 @@ final class DatabaseController extends Controller
     }
 
     /**
-     * Ask the database node for a new password. Answers `202`; the old password works until the node reports success,
-     * then attached projects show `redeploy_required`.
+     * Ask the database node for a new password. Answers `202` with `password_rotation.status: pending`. The node
+     * switches at once: the old password stops connecting right away, so running applications cannot open new
+     * connections until they are redeployed. Once the node reports, `password_rotation.status` is `completed`,
+     * attached projects show `redeploy_required`, and with `redeploy_attached` the API redeploys the attached projects
+     * that have a live deployment (`password_rotation.redeploys`).
      *
      * @throws DatabaseNotReadyException
      * @throws DatabaseBusyException
      */
-    public function rotatePassword(Request $request, Workspace $workspace, ManagedDatabase $database, RotateDatabasePasswordAction $action): JsonResponse
+    public function rotatePassword(RotateDatabasePasswordRequest $request, Workspace $workspace, ManagedDatabase $database, RotateDatabasePasswordAction $action): JsonResponse
     {
-        Gate::authorize('update', $database);
-
         /** @var User $user */
         $user = $request->user();
 
-        return (new DatabaseResource($action->handle($user, $database)->load(DatabaseResource::RELATIONS)))
+        return (new DatabaseResource($action->handle($user, $database, $request->redeployAttached())->load(DatabaseResource::RELATIONS)))
             ->response()
             ->setStatusCode(202);
     }

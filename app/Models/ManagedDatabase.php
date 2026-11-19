@@ -133,6 +133,21 @@ class ManagedDatabase extends Model
         return $this->hasOne(AgentCommand::class, 'database_id')->orderByDesc('created_at')->orderByDesc('id')->limit(1);
     }
 
+    /**
+     * The newest password rotation of the database, for `password_rotation`.
+     * Ordered like latestCommand().
+     *
+     * @return HasOne<AgentCommand, $this>
+     */
+    public function latestPasswordRotation(): HasOne
+    {
+        return $this->hasOne(AgentCommand::class, 'database_id')
+            ->where('type', AgentCommandType::RotateDatabasePassword)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit(1);
+    }
+
     /** The open command of the type for this database, if any. */
     public function openCommand(AgentCommandType $type): ?AgentCommand
     {

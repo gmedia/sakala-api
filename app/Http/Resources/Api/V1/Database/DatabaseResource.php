@@ -7,6 +7,7 @@ namespace App\Http\Resources\Api\V1\Database;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Support\Database\DatabaseCommandFailure;
+use App\Support\Database\DatabasePasswordRotation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,7 +23,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 final class DatabaseResource extends JsonResource
 {
     /** Relations every response of this resource needs, so a list costs no query per database. */
-    public const RELATIONS = ['projects:id,name,slug', 'latestCommand', 'node:id,metadata'];
+    public const RELATIONS = ['projects:id,name,slug', 'latestCommand', 'latestPasswordRotation', 'node:id,metadata'];
 
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
@@ -68,6 +69,23 @@ final class DatabaseResource extends JsonResource
              * @var array{command: string, code: string, user_fixable: bool, summary: string, failed_at: string|null}|null
              */
             'last_failure' => DatabaseCommandFailure::present($database->latestCommand),
+            /**
+             * The newest password rotation; `null` when the password was never rotated. `status` is `pending` while
+             * the database node has not reported, `completed` once the new password is the only one that connects,
+             * and `failed` when the node failed it or did not finish in time (the old password still works; see
+             * `last_failure`). The node switches as soon as it runs the request, so a `pending` rotation can
+             * already have cut off the old password. `requested_at` is when it was asked for, `completed_at` and
+             * `failed_at` are set only in their status. `redeploy_attached` is what the request asked for.
+             * `redeploys` is `null` until the API has queued the redeploys after completion (and always without
+             * `redeploy_attached`), then one item per project attached at that moment: `deployment_id` of the queued
+             * deployment (trigger `database_password_rotated`), or `skipped_reason` when none was queued:
+             * `no_active_deployment`, `requester_cannot_deploy`, `legal_acceptance_required`, `project_suspended`,
+             * `active_deployment_limit`, `active_container_limit`, `build_rate_limit`, `repository_access_revoked`,
+             * `database_endpoint_unavailable`, `release_command_unsupported`, or `failed`.
+             *
+             * @var array{status: 'pending'|'completed'|'failed', requested_at: string, completed_at: string|null, failed_at: string|null, redeploy_attached: bool, redeploys: list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>|null}|null
+             */
+            'password_rotation' => DatabasePasswordRotation::present($database->latestPasswordRotation),
             'created_at' => $database->created_at?->toAtomString(),
             'updated_at' => $database->updated_at?->toAtomString(),
         ];

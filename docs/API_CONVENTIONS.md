@@ -670,12 +670,12 @@ Semua endpoint berada di `/api/v1/app/workspaces/{workspace}/databases` dan mema
 | `POST .../databases/{database}/attachments/{project}` | ya | ya | `403` | ya | `201` dengan `DatabaseAttachmentResource`, atau `200` bila sudah terpasang. Lihat "Memasang ke Proyek". |
 | `DELETE .../databases/{database}/attachments/{project}` | ya | ya | `403` | ya | `204`. Data tetap ada. `404` bila tidak terpasang. |
 | `GET .../databases/{database}/credentials` | ya | `403` | `403` | ya | Kredensial, `Cache-Control: no-store`, diaudit. Lihat "Kredensial". |
-| `POST .../databases/{database}/rotate-password` | ya | ya | `403` | ya | `202`. Lihat "Rotasi Password". |
+| `POST .../databases/{database}/rotate-password` | ya | ya | `403` | ya | `202`. Body `redeploy_attached` opsional. Lihat "Rotasi Password". |
 | `POST .../databases/{database}/extensions` | ya | ya | `403` | ya | `202`. Body `extension`. Lihat "Extension". |
 
 Memasang dan melepas juga memeriksa hak mengubah proyek itu, yang di workspace yang sama berarti owner atau member.
 
-`DatabaseResource` berisi `id`, `name`, `engine` (`postgresql`), `status`, `region` (region node database, `null` bila node itu tidak punya region), `size_bytes` dan `size_checked_at` (dari pembacaan ukuran terakhir node database, `null` sampai node melaporkan; database kosong sekitar 7,5 MiB karena katalog sistem ikut terhitung), `projects` (proyek yang terpasang: `id`, `name`, `slug`, urut nama), `connection`, `last_failure`, `created_at`, dan `updated_at`.
+`DatabaseResource` berisi `id`, `name`, `engine` (`postgresql`), `status`, `region` (region node database, `null` bila node itu tidak punya region), `size_bytes` dan `size_checked_at` (dari pembacaan ukuran terakhir node database, `null` sampai node melaporkan; database kosong sekitar 7,5 MiB karena katalog sistem ikut terhitung), `projects` (proyek yang terpasang: `id`, `name`, `slug`, urut nama), `connection`, `last_failure`, `password_rotation` (lihat "Rotasi Password"), `created_at`, dan `updated_at`.
 
 `connection` berisi `host`, `port`, `database`, dan `username`: nilai yang sama dengan `DB_HOST`, `DB_PORT`, `DB_DATABASE`, dan `DB_USERNAME` di proyek yang terpasang. Semua yang boleh melihat database menerimanya, termasuk viewer, karena nilai ini bukan rahasia dan host-nya ada di jaringan privat node database yang hanya terjangkau dari workload Sakala. `connection` bernilai `null` kecuali status `ready` atau `locked` dan node database sudah melaporkan alamatnya. Password dan `DATABASE_URL` tetap hanya di endpoint kredensial.
 
@@ -746,7 +746,32 @@ Hanya owner workspace dan admin yang boleh membaca; `host`, `port`, `database`, 
 
 ### Rotasi Password
 
-`POST .../rotate-password` membuat `RotateDatabasePassword` dengan password baru untuk node database dan menjawab `202`. Password lama tetap tersimpan dan tetap disuntikkan sampai node melaporkan sukses; setelah itu password baru disimpan dan semua proyek yang terpasang menunjukkan `redeploy_required`. Container yang sedang berjalan masih membawa password lama, dan koneksi baru dengan password itu ditolak, jadi deploy ulang setelah rotasi. Rotasi yang gagal mempertahankan password lama. Rotasi kedua selagi yang pertama belum selesai dijawab `409 DATABASE_BUSY`. Database `locked` tetap bisa dirotasi, karena password yang bocor harus bisa diganti.
+`POST .../rotate-password` membuat `RotateDatabasePassword` dengan password baru untuk node database dan menjawab `202` dengan `password_rotation.status` `pending`. Node langsung mengganti password begitu menjalankan permintaan itu, biasanya dalam beberapa detik, dan password lama berhenti diterima saat itu juga, karena password yang bocor harus segera tidak berlaku. Container yang sedang berjalan masih membawa password lama, jadi aplikasi yang terpasang tidak bisa membuka koneksi baru sampai di-deploy ulang. API menyimpan password baru saat node melaporkan sukses; sebelum itu password lama yang tersimpan dan disuntikkan. Setelah itu semua proyek yang terpasang menunjukkan `redeploy_required`. Rotasi yang gagal mempertahankan password lama. Rotasi kedua selagi yang pertama belum selesai dijawab `409 DATABASE_BUSY`. Database `locked` tetap bisa dirotasi.
+
+Body `redeploy_attached` (boolean, opsional, default `false`; nilai lain `422`) meminta API men-deploy ulang proyek yang terpasang begitu node melaporkan sukses. Setiap proyek yang punya deployment aktif mendapat deployment baru lewat jalur deploy biasa, atas nama orang yang meminta rotasi, dengan `trigger` `database_password_rotated`, dari commit yang sedang live (atau head branch bila branch proyek sudah diganti sejak deployment itu), dan dengan semua batas yang berlaku. Deployment itu dibuat oleh job antrean setelah laporan node tersimpan, jadi laporan node tidak menunggu GitHub. Proyek yang tidak bisa di-deploy ulang dilewati dengan alasan dan tetap menunjukkan `redeploy_required`; rotasinya tetap selesai. Notifikasi dan email deployment mengikuti aturan biasa. Hasilnya dicatat di audit `database.password_rotation_redeploys_queued`.
+
+`password_rotation` di `DatabaseResource` menggambarkan rotasi terbaru, atau `null` bila password belum pernah dirotasi:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `status` | string | `pending` selama node belum melapor (password lama bisa jadi sudah tidak diterima), `completed` setelah node melaporkan sukses, `failed` bila node gagal atau tidak selesai tepat waktu (password lama tetap berlaku; alasannya di `last_failure`). |
+| `requested_at` | string ISO 8601 | Waktu rotasi diminta. |
+| `completed_at` | string ISO 8601 atau `null` | Hanya terisi saat `completed`. |
+| `failed_at` | string ISO 8601 atau `null` | Hanya terisi saat `failed`. |
+| `redeploy_attached` | boolean | Nilai yang diminta saat rotasi. Rotasi sebelum field ini ada bernilai `false`. |
+| `redeploys` | array atau `null` | `null` sampai API selesai mengantrekan deploy ulang setelah `completed`, dan selalu `null` tanpa `redeploy_attached`. Setelah itu satu item per proyek yang terpasang saat itu: `project_id` (string), `deployment_id` (string deployment yang diantrekan, atau `null`), dan `skipped_reason` (string atau `null`, terisi bila tidak ada deployment). |
+
+| `skipped_reason` | Arti |
+| --- | --- |
+| `no_active_deployment` | Proyek belum pernah di-deploy atau sedang dihentikan; deployment berikutnya otomatis memakai password baru. |
+| `requester_cannot_deploy` | Akun yang meminta rotasi sudah tidak ada atau tidak lagi boleh men-deploy proyek itu. |
+| `legal_acceptance_required` | Akun itu harus menyetujui syarat terbaru dulu. |
+| `project_suspended` | Proyek ditangguhkan. |
+| `active_deployment_limit`, `active_container_limit`, `build_rate_limit` | Batas workspace atau proyek tercapai, misalnya karena deployment yang diantrekan sebelum rotasi masih berjalan. |
+| `repository_access_revoked`, `database_endpoint_unavailable`, `release_command_unsupported` | Sama artinya dengan error deploy bernama sama. |
+| `failed` | Kesalahan lain, misalnya GitHub tidak menjawab; dilaporkan ke error tracker. |
+
+Console cukup memeriksa ulang database selama `status` `pending`, atau selama `completed` dengan `redeploy_attached` dan `redeploys` masih `null`.
 
 ### Extension
 
@@ -781,7 +806,7 @@ Database yang lock atau unlock-nya masih berjalan tidak dimintai lagi; yang gaga
 
 ### Audit
 
-Setiap perubahan dicatat di `audit_events` dengan subject database (`App\Models\ManagedDatabase`), berisi ID, nama di node, `command_id`, dan kode, tanpa password atau URL: `database.created`, `database.provisioned`, `database.provisioning_failed`, `database.renamed`, `database.delete_requested`, `database.deleted`, `database.drop_failed`, `database.attached`, `database.detached`, `database.credentials_viewed`, `database.password_rotation_requested`, `database.password_rotated`, `database.password_rotation_failed`, `database.lock_requested`, `database.locked`, `database.lock_failed`, `database.unlock_requested`, `database.unlocked`, `database.unlock_failed`, `database.extension_install_requested`, `database.extension_installed`, dan `database.extension_install_failed`. Peringatan 80% dicatat dengan subject workspace (`workspace.database_storage_warning`). Hasil dari node dicatat dengan actor node itu; command yang kedaluwarsa dengan actor `system`/`agent:expire-commands`, dan sapuan kuota dengan `system`/`databases:enforce-storage-quota`.
+Setiap perubahan dicatat di `audit_events` dengan subject database (`App\Models\ManagedDatabase`), berisi ID, nama di node, `command_id`, dan kode, tanpa password atau URL: `database.created`, `database.provisioned`, `database.provisioning_failed`, `database.renamed`, `database.delete_requested`, `database.deleted`, `database.drop_failed`, `database.attached`, `database.detached`, `database.credentials_viewed`, `database.password_rotation_requested` (dengan `redeploy_attached`), `database.password_rotated`, `database.password_rotation_failed`, `database.password_rotation_redeploys_queued` (dengan `redeploys`, actor orang yang meminta rotasi), `database.lock_requested`, `database.locked`, `database.lock_failed`, `database.unlock_requested`, `database.unlocked`, `database.unlock_failed`, `database.extension_install_requested`, `database.extension_installed`, dan `database.extension_install_failed`. Peringatan 80% dicatat dengan subject workspace (`workspace.database_storage_warning`). Hasil dari node dicatat dengan actor node itu; command yang kedaluwarsa dengan actor `system`/`agent:expire-commands`, dan sapuan kuota dengan `system`/`databases:enforce-storage-quota`.
 
 ## Notifikasi
 

@@ -43,6 +43,9 @@ final class DatabaseAudit
 
     public const PASSWORD_ROTATION_FAILED = 'database.password_rotation_failed';
 
+    /** What redeploying the attached projects after a rotation did, per project. */
+    public const PASSWORD_ROTATION_REDEPLOYS_QUEUED = 'database.password_rotation_redeploys_queued';
+
     public const LOCK_REQUESTED = 'database.lock_requested';
 
     public const LOCKED = 'database.locked';
