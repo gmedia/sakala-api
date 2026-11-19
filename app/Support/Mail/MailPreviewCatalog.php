@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Support\Mail;
 
+use App\Data\Notification\ProjectAlertMailData;
+use App\Enums\DeploymentStatus;
 use App\Enums\EdgeHealthReason;
+use App\Enums\ProjectAlert;
 use App\Models\User;
 use App\Notifications\Account\AccountDeletedNotification;
 use App\Notifications\Auth\ConfirmEmailChangeNotification;
@@ -14,6 +17,7 @@ use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
 use App\Notifications\Edge\EdgeRecoveredNotification;
 use App\Notifications\Edge\EdgeUnhealthyNotification;
+use App\Notifications\Project\ProjectAlertMailNotification;
 use App\Notifications\Project\ProjectSuspendedNotification;
 use App\Notifications\Workspace\WorkspaceInvitationNotification;
 use Carbon\CarbonImmutable;
@@ -44,6 +48,19 @@ final class MailPreviewCatalog
         $newAddress = (new AnonymousNotifiable)->route('mail', 'rani.baru@example.test');
         $expiry = now()->addMinutes((int) config('auth.verification.expire', 60));
         $edgeUnhealthySince = CarbonImmutable::parse('2026-11-18 07:05:00', 'UTC');
+        $projectId = '019a0000-0000-7000-8000-000000000003';
+        $deploymentId = '019a0000-0000-7000-8000-000000000004';
+        $failedDeployment = new ProjectAlertMailData(
+            alert: ProjectAlert::DeploymentFailed,
+            projectId: $projectId,
+            projectName: 'toko-kopi-web',
+            deploymentId: $deploymentId,
+            deploymentSequence: 5,
+            failureStage: DeploymentStatus::Building,
+            summary: 'Deployment gagal saat proses build aplikasi.',
+            recoveryHint: 'Buka log deployment untuk melihat error-nya, perbaiki di repository (dependency, script build, atau Dockerfile), lalu commit dan deploy ulang.',
+            previousVersionServing: true,
+        );
 
         return [
             'verify-email' => [
@@ -117,6 +134,49 @@ final class MailPreviewCatalog
             'edge-recovered' => [
                 'trigger' => 'edge:check-health melihat Sakala Edge sehat kembali',
                 'notification' => new EdgeRecoveredNotification('edge-jkt-1', $edgeUnhealthySince, $edgeUnhealthySince->addMinutes(65)),
+                'notifiable' => $user,
+            ],
+            'project-deployment-failed' => [
+                'trigger' => 'Deployment gagal, untuk yang memintanya dan owner workspace dengan email deployment gagal aktif',
+                'notification' => new ProjectAlertMailNotification($failedDeployment),
+                'notifiable' => $user,
+            ],
+            'project-deployment-failed-repeated' => [
+                'trigger' => 'Deployment gagal lagi setelah jendela penggabungan, dengan kegagalan yang tidak dikirim di antaranya',
+                'notification' => new ProjectAlertMailNotification($failedDeployment, heldBack: 3),
+                'notifiable' => $user,
+            ],
+            'project-deployment-succeeded' => [
+                'trigger' => 'Deployment berhasil, hanya kalau email deployment berhasil dinyalakan',
+                'notification' => new ProjectAlertMailNotification(new ProjectAlertMailData(
+                    alert: ProjectAlert::DeploymentSucceeded,
+                    projectId: $projectId,
+                    projectName: 'toko-kopi-web',
+                    deploymentId: $deploymentId,
+                    deploymentSequence: 6,
+                )),
+                'notifiable' => $user,
+            ],
+            'project-app-crashed' => [
+                'trigger' => 'Heartbeat melaporkan aplikasi yang sedang berjalan berhenti sendiri',
+                'notification' => new ProjectAlertMailNotification(new ProjectAlertMailData(
+                    alert: ProjectAlert::AppCrashed,
+                    projectId: $projectId,
+                    projectName: 'toko-kopi-web',
+                    deploymentId: $deploymentId,
+                    deploymentSequence: 6,
+                )),
+                'notifiable' => $user,
+            ],
+            'project-auto-deploy-skipped' => [
+                'trigger' => 'Push ke GitHub tidak di-deploy karena batas workspace atau sebab lain',
+                'notification' => new ProjectAlertMailNotification(new ProjectAlertMailData(
+                    alert: ProjectAlert::AutoDeploySkipped,
+                    projectId: $projectId,
+                    projectName: 'toko-kopi-web',
+                    summary: 'Workspace ini sudah mencapai batas 20 build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push ulang sekitar 25 menit lagi.',
+                    previousVersionServing: true,
+                )),
                 'notifiable' => $user,
             ],
             'account-deleted' => [

@@ -4,6 +4,14 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- **Email notifications for failed deployments and app problems.** A failed deployment, a crash of the running app, and a push that auto-deploy skipped are now also emailed (queued, after commit, in the shared mail layout) to the person behind it (the deployment's requester, or the account a push deploys as) while they are still an owner or member, and to every owner of the workspace; never to viewers, never to unverified addresses, and not at all when `sakala.email_delivery_enabled` is off. A successful deployment is emailed only to people who turn that on. The failure email names the project, deployment number, failed stage, the classifier's summary and recovery hint, and links to the deployment page in the Console; log lines and `failure.detail` never reach an email. In-app recipients are unchanged.
+- `GET` and `PATCH app/notification-preferences` gain an `email` object with `deployment_success` (default `false`), `deployment_failure` and `project_issue` (default `true`), independent of the existing in-app booleans. `PATCH` accepts it partially, alone or together with in-app changes; other keys (such as `email.workspace`) or non-boolean values answer `422`. Stored in the new nullable `users.notification_email_preferences`; included in the account export.
+- Repeated alerts are coalesced: at most one email per recipient, project, and kind of alert (`deployment_failed`, `deployment_succeeded`, `app_crashed`, `auto_deploy_skipped`) per `SAKALA_NOTIFICATION_EMAIL_COALESCE_MINUTES` (default 30, `0` sends every one); the next email says how many were held back. Tracked in the new `project_alert_mail_windows` table, unique on `(user_id, project_id, alert)` and claimed under a row lock.
+- Every alert email carries a signed, non-expiring unsubscribe link and RFC 8058 `List-Unsubscribe` / `List-Unsubscribe-Post` headers. `POST api/v1/public/notifications/unsubscribe?category=&user=&signature=` turns off that category's email without a session (`403` on a bad signature, `422` for a category without email, `404` for a deleted account), rate limited per IP by `SAKALA_NOTIFICATION_UNSUBSCRIBE_RATE_LIMIT` (default 10 per minute). `GET` on the same address changes nothing and redirects to the Console page `/notifications/unsubscribe` with the same query, so link scanners cannot unsubscribe anyone.
+- Five new mail previews: `project-deployment-failed`, `project-deployment-failed-repeated`, `project-deployment-succeeded`, `project-app-crashed`, `project-auto-deploy-skipped`. `SakalaMailMessage::preferences()` adds the footer links (notification settings, unsubscribe) and the one-click headers.
+
 ## [0.8.0] - 2026-11-19
 
 ### Added

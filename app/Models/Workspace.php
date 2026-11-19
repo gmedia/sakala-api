@@ -77,6 +77,23 @@ class Workspace extends Model
             ->get();
     }
 
+    /**
+     * The workspace's owners; in a personal workspace, its user. They hear about
+     * problems on every project of the workspace by email.
+     *
+     * @return Collection<int, User>
+     */
+    public function owners(): Collection
+    {
+        return User::query()
+            ->whereIn('id', WorkspaceMember::query()
+                ->select('user_id')
+                ->where('workspace_id', $this->id)
+                ->where('role', WorkspaceRole::Owner->value))
+            ->orderBy('id')
+            ->get();
+    }
+
     /** @return HasMany<WorkspaceMember, $this> */
     public function members(): HasMany
     {

@@ -7,6 +7,7 @@ namespace App\Notifications\Messages;
 use DateTimeInterface;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Carbon;
+use Symfony\Component\Mime\Email;
 
 /**
  * A mail in the shared Sakala layout (resources/views/vendor/mail). On top of
@@ -40,6 +41,30 @@ final class SakalaMailMessage extends MailMessage
         $this->viewData['reason'] = $text;
 
         return $this;
+    }
+
+    /**
+     * Footer links for an email the reader opted into: the settings page, and a
+     * signed link that turns off this category's email without signing in. The
+     * same link goes into the RFC 8058 one-click headers, so mail clients can
+     * offer their own unsubscribe button.
+     *
+     * @param  string  $category  How the footer names the category, for example "deployment gagal".
+     * @param  string  $oneClickUrl  The API address mail clients POST to.
+     * @param  string  $unsubscribeUrl  The page a reader opens to confirm.
+     */
+    public function preferences(string $category, string $settingsUrl, string $unsubscribeUrl, string $oneClickUrl): self
+    {
+        $this->viewData['preferences'] = [
+            'category' => $category,
+            'settings_url' => $settingsUrl,
+            'unsubscribe_url' => $unsubscribeUrl,
+        ];
+
+        return $this->withSymfonyMessage(static function (Email $message) use ($oneClickUrl): void {
+            $message->getHeaders()->addTextHeader('List-Unsubscribe', "<{$oneClickUrl}>");
+            $message->getHeaders()->addTextHeader('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click');
+        });
     }
 
     /** For example "12 November 2026 pukul 14.05 WIB". */

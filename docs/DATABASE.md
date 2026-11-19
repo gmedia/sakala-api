@@ -12,8 +12,9 @@ Tabel append-only berukuran besar seperti `deployment_events`, `deployment_logs`
 
 | Tabel | Tanggung jawab |
 | --- | --- |
-| `users` | Identitas console, role, onboarding, waktu login terakhir, email yang menunggu konfirmasi (`pending_email`), dan preferensi notifikasi. |
+| `users` | Identitas console, role, onboarding, waktu login terakhir, email yang menunggu konfirmasi (`pending_email`), dan preferensi notifikasi in-app (`notification_preferences`) serta email (`notification_email_preferences`, `null` berarti default). |
 | `notifications` | Notifikasi in-app (database notification Laravel). `id` UUID, isi di `data`, retensi lewat `notifications:prune`. |
+| `project_alert_mail_windows` | Kapan seorang user terakhir dikirimi email untuk satu jenis kabar (`alert`: `deployment_failed`, `deployment_succeeded`, `app_crashed`, `auto_deploy_skipped`) di satu project, dan berapa kabar sejenis yang ditahan sejak itu (`suppressed_count`). Paling banyak satu baris per user, project, dan jenis; ikut terhapus bersama user atau project. Lihat [Email notifikasi](API_CONVENTIONS.md#email-notifikasi). |
 | `oauth_accounts` | Identitas provider OAuth dan token terenkripsi, terpisah dari user. |
 | `github_installations` | Entity global GitHub App installation, metadata akun GitHub, dan status akses repository. |
 | `github_installation_user` | Relasi user Sakala dengan installation GitHub yang telah diverifikasi. |
@@ -57,6 +58,7 @@ Index dibuat dari query path yang sudah diketahui:
 - undangan untuk email pemanggil: `(email)` pada `workspace_invitations`; satu undangan tertunda per alamat: partial unique `(workspace_id, email) WHERE status = 'pending'`, karena baris yang sudah tertutup untuk alamat yang sama boleh lebih dari satu sampai dibersihkan; lookup token: unique `token_hash`;
 - project yang ikut auto-deploy pada satu repository: `(github_repository_id, auto_deploy)` pada `projects`;
 - daftar notifikasi dan jumlah belum dibaca: `(notifiable_type, notifiable_id, created_at)` dan `(notifiable_type, notifiable_id, read_at)`; retensi: `(created_at)`;
+- jendela email notifikasi: unique `(user_id, project_id, alert)` pada `project_alert_mail_windows` sebagai kunci `insertOrIgnore` lalu `SELECT ... FOR UPDATE` di setiap email, sehingga dua worker tidak sama-sama mengirim; `(project_id)` untuk cascade saat project di-purge;
 - ringkasan runtime user: `(user_id, runtime_status)`;
 - riwayat deployment: `(project_id, created_at)`. Index yang sama melayani batas build per jam, yang menghitung deployment dengan `project_id IN (project workspace, termasuk yang dihapus)` dan `created_at` di dalam jendela 60 menit di bawah row lock workspace, jadi tidak perlu index baru;
 - deployment terbaru tiap project di daftar project: satu query tambahan per halaman, dengan `(project_id, status)` atau unique `(project_id, sequence)` yang sudah ada, jadi tidak perlu index baru. Lihat [Deployment Terbaru](#deployment-terbaru);

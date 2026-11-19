@@ -6,7 +6,9 @@ namespace App\Actions\Agent;
 
 use App\Actions\Deployment\AllocateDeploymentRealtimeSequenceAction;
 use App\Data\Agent\CrashedWorkloadsData;
+use App\Data\Notification\ProjectAlertMailData;
 use App\Enums\NotificationCategory;
+use App\Enums\ProjectAlert;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Events\Deployment\DeploymentUpdated;
@@ -104,6 +106,14 @@ final class ReconcileCrashedWorkloadsAction
                     "{$project->name} berhenti sendiri dan mungkin sedang dimulai ulang, jadi aksesnya bisa terputus-putus. Buka log deployment untuk melihat penyebabnya.",
                     $deployment->id,
                 );
+
+                $this->notifier->emailProject($project, new ProjectAlertMailData(
+                    alert: ProjectAlert::AppCrashed,
+                    projectId: $project->id,
+                    projectName: $project->name,
+                    deploymentId: $deployment->id,
+                    deploymentSequence: $deployment->sequence,
+                ), $deployment->requester);
             }
         }
     }

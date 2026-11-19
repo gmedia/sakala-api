@@ -30,6 +30,6 @@ final class NotificationPreferenceController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        return new NotificationPreferenceResource($action->handle($user, $request->changes()));
+        return new NotificationPreferenceResource($action->handle($user, $request->changes(), $request->emailChanges()));
     }
 }

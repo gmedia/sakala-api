@@ -36,6 +36,7 @@ class UserFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'pending_email' => null,
             'notification_preferences' => null,
+            'notification_email_preferences' => null,
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'role' => UserRole::User,
