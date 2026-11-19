@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\GitHub\CreatePushDeploymentsAction;
+use App\Enums\DatabaseStatus;
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
 use App\Enums\GithubInstallationStatus;
@@ -170,6 +171,17 @@ test('a project whose database node has not reported its endpoint is skipped, au
         ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe(CreatePushDeploymentsAction::SKIP_DATABASE_ENDPOINT_UNAVAILABLE)
         ->and($project->user->notifications()->sole()->data['message'])->toContain($database->name);
 });
+
+test('a project whose attached database is still being created or failed is skipped, audited, and the owner is told', function (DatabaseStatus $status): void {
+    $project = pushProject();
+    attachDatabase(databaseIn($project->workspace, databaseNode(), ['status' => $status]), $project);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0)
+        ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe(CreatePushDeploymentsAction::SKIP_DATABASE_NOT_READY)
+        ->and($project->user->notifications()->sole()->data['category'])->toBe('project_issue');
+})->with([DatabaseStatus::Provisioning, DatabaseStatus::Failed]);
 
 test('a project with a release command no node runs is skipped, audited, and the owner is told', function (): void {
     $project = pushProject(['release_command' => 'php artisan migrate --force']);

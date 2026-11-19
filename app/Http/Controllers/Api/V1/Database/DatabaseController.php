@@ -11,11 +11,14 @@ use App\Actions\Database\RenameDatabaseAction;
 use App\Actions\Database\RevealDatabaseCredentialsAction;
 use App\Actions\Database\RotateDatabasePasswordAction;
 use App\Exceptions\Database\DatabaseBusyException;
+use App\Exceptions\Database\DatabaseCrossRegionUnsupportedException;
 use App\Exceptions\Database\DatabaseInUseException;
 use App\Exceptions\Database\DatabaseLimitExceededException;
 use App\Exceptions\Database\DatabaseNotReadyException;
 use App\Exceptions\Database\DatabaseRegionUnavailableException;
 use App\Exceptions\Database\DatabaseStorageLimitExceededException;
+use App\Exceptions\Database\DatabaseUnavailableException;
+use App\Exceptions\Database\ProjectDatabaseAlreadyAttachedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Database\InstallDatabaseExtensionRequest;
 use App\Http\Requests\Api\V1\Database\RotateDatabasePasswordRequest;
@@ -51,17 +54,28 @@ final class DatabaseController extends Controller
     }
 
     /**
-     * Create a database. It is `provisioning` until the database node of its region creates it.
+     * Create a database. It is `provisioning` until the database node of its region creates it. With `project_id` it is
+     * attached to that project in the same step, and with `deploy_when_ready` the project is deployed once the
+     * database is ready (`databases[].deploy_when_ready` on the project).
      *
+     * @throws DatabaseUnavailableException
+     * @throws ProjectDatabaseAlreadyAttachedException
      * @throws DatabaseLimitExceededException
      * @throws DatabaseStorageLimitExceededException
+     * @throws DatabaseCrossRegionUnsupportedException
      * @throws DatabaseRegionUnavailableException
      */
     public function store(StoreDatabaseRequest $request, Workspace $workspace, CreateDatabaseAction $action): JsonResponse
     {
+        $data = $request->toData();
+
+        if ($data->project !== null) {
+            Gate::authorize('update', $data->project);
+        }
+
         /** @var User $user */
         $user = $request->user();
-        $database = $action->handle($user, $workspace, $request->name(), $request->region());
+        $database = $action->handle($user, $workspace, $data);
 
         return (new DatabaseResource($database->load(DatabaseResource::RELATIONS)))
             ->response()

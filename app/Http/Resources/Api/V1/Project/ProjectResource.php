@@ -153,9 +153,10 @@ final class ProjectResource extends JsonResource
                 : null,
             /**
              * The managed database attached to the project, as a list of at most one: a project uses one database at a
-             * time. Its connection variables reach the next deployment; see each item's `variables`.
+             * time. Its connection variables reach the next deployment; see each item's `variables`. `deploy_when_ready`
+             * is the deployment asked for when the database was created for this project, or `null`.
              *
-             * @var list<array{id: string, name: string, status: string, region: string|null, variables: list<string>, overridden_variables: list<string>}>
+             * @var list<array{id: string, name: string, status: string, region: string|null, variables: list<string>, overridden_variables: list<string>, deploy_when_ready: array{status: 'waiting'|'started'|'skipped', requested_at: string, deployment_id: string|null, skipped_reason: string|null}|null}>
              */
             'databases' => $this->databases(),
             /**

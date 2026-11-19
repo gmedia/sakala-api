@@ -7,6 +7,7 @@ namespace App\Services\Database;
 use App\Data\Database\DatabaseCredentialsData;
 use App\Data\Database\DatabaseEndpointData;
 use App\Exceptions\Database\DatabaseEndpointUnavailableException;
+use App\Exceptions\Database\DatabaseNotReadyException;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 
@@ -77,10 +78,13 @@ final class DatabaseConnectionEnvironment
     /**
      * The variables the project's next deployment receives from its attached
      * database, without those the project sets itself. Empty without an
-     * attached database.
+     * attached database. Every way a deployment is created reads them, so
+     * this is also where a deployment is refused while the database cannot
+     * take connections.
      *
      * @return array<string, string>
      *
+     * @throws DatabaseNotReadyException while the attached database is still being created, or failed to be.
      * @throws DatabaseEndpointUnavailableException when the database node has not reported its endpoint.
      */
     public function forProject(Project $project): array
@@ -89,6 +93,12 @@ final class DatabaseConnectionEnvironment
 
         if ($database === null) {
             return [];
+        }
+
+        // Only a database created for this project is attached before it is
+        // ready; deploying now would start an app whose database is not there.
+        if (! $database->status->isProvisioned()) {
+            throw new DatabaseNotReadyException($database->status);
         }
 
         $endpoint = $database->node?->databaseEndpoint();

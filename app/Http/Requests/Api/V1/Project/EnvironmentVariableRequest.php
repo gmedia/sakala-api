@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\V1\Project;
 
 use App\Data\Project\EnvironmentVariableData;
+use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -37,8 +38,8 @@ final class EnvironmentVariableRequest extends FormRequest
             'key' => [
                 'required',
                 'string',
-                'max:128',
-                'regex:/^[A-Z_][A-Z0-9_]*$/',
+                'max:'.EnvironmentVariable::MAX_KEY_LENGTH,
+                'regex:'.EnvironmentVariable::KEY_PATTERN,
                 Rule::unique('environment_variables')->where(fn ($query) => $query->where('project_id', $project->id)),
             ],
             'value' => ['required', 'string'],

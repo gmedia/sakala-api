@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Support\Project;
 
+use App\Data\Agent\DatabaseHintData;
+use App\Data\Agent\EnvExampleData;
 use App\Data\Agent\JavaScriptWorkspaceData;
 use App\Enums\ProjectInspectionStatus;
 use App\Models\Project;
@@ -24,7 +26,10 @@ final class ProjectPreviewPresenter
     }
 
     /**
-     * @return array{repository_url: string|null, commit_sha: string|null, dockerfile_found: bool, env_example_found: bool, compose_found: bool, manifests: list<string>, package_manager: string|null, inspected_at: string|null}|null
+     * `env_example` and `database_hint` are checked again on the way out, like
+     * `stack.monorepo`, and are null for an inspection by an agent before them.
+     *
+     * @return array{repository_url: string|null, commit_sha: string|null, dockerfile_found: bool, env_example_found: bool, compose_found: bool, manifests: list<string>, package_manager: string|null, inspected_at: string|null, env_example: array{file: '.env.example'|'.env.sample'|'.env.dist', entries: list<array{key: string, example_value: string|null}>, truncated: bool}|null, database_hint: array{likely: bool, engine: 'postgresql'|'mysql'|'sqlite'|'unknown', signals: list<array{kind: string, file: string, name: string|null}>, suggested_release_command: 'php artisan migrate --force'|'python manage.py migrate'|'npx prisma migrate deploy'|'bin/rails db:migrate'|null}|null}|null
      */
     public static function inspection(Project $project): ?array
     {
@@ -45,6 +50,8 @@ final class ProjectPreviewPresenter
             'manifests' => is_array($manifests) ? array_values(array_filter($manifests, 'is_string')) : [],
             'package_manager' => is_string($inspection['package_manager'] ?? null) ? $inspection['package_manager'] : null,
             'inspected_at' => $project->inspected_at?->toAtomString(),
+            'env_example' => EnvExampleData::fromArray($inspection['env_example'] ?? null)?->toArray(),
+            'database_hint' => DatabaseHintData::fromArray($inspection['database_hint'] ?? null)?->toArray(),
         ];
     }
 

@@ -18,6 +18,18 @@ class EnvironmentVariable extends Model
     /** @use HasFactory<EnvironmentVariableFactory> */
     use HasFactory;
 
+    /** Longest variable name the API accepts. */
+    public const MAX_KEY_LENGTH = 128;
+
+    /** Variable names the API accepts: uppercase letters, digits, and `_`, not starting with a digit. */
+    public const KEY_PATTERN = '/^[A-Z_][A-Z0-9_]*$/';
+
+    /** Whether a name is one a project variable may have. */
+    public static function isValidKey(mixed $key): bool
+    {
+        return is_string($key) && strlen($key) <= self::MAX_KEY_LENGTH && preg_match(self::KEY_PATTERN, $key) === 1;
+    }
+
     /** @return BelongsTo<Project, $this> */
     public function project(): BelongsTo
     {
