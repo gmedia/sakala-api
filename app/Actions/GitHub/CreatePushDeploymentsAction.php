@@ -8,6 +8,7 @@ use App\Actions\Deployment\CreateDeploymentAction;
 use App\Data\Deployment\CreateDeploymentData;
 use App\Data\GitHub\SkippedPushData;
 use App\Data\Notification\ProjectAlertMailData;
+use App\Enums\DatabaseStatus;
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
 use App\Enums\GithubInstallationStatus;
@@ -16,6 +17,7 @@ use App\Enums\ProjectAlert;
 use App\Enums\PushSkipReason;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Database\DatabaseEndpointUnavailableException;
+use App\Exceptions\Database\DatabaseNotReadyException;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
@@ -62,6 +64,9 @@ final class CreatePushDeploymentsAction
 
     /** Audit reason of a push skipped because the attached database's node has not reported its endpoint. */
     public const SKIP_DATABASE_ENDPOINT_UNAVAILABLE = 'database_endpoint_unavailable';
+
+    /** Audit reason of a push skipped because the attached database is still being created, or failed to be. */
+    public const SKIP_DATABASE_NOT_READY = 'database_not_ready';
 
     public function __construct(
         private readonly CreateDeploymentAction $createDeployment,
@@ -253,6 +258,10 @@ final class CreatePushDeploymentsAction
             $this->skip($project, $actor, 'project_suspended', $commit, 'Proyek ini sedang ditangguhkan, jadi push terbaru tidak di-deploy.');
         } catch (DatabaseEndpointUnavailableException $e) {
             $this->skip($project, $actor, self::SKIP_DATABASE_ENDPOINT_UNAVAILABLE, $commit, "Server database untuk {$e->database->name} belum melaporkan alamatnya, jadi push terbaru tidak di-deploy. Deploy manual beberapa saat lagi.");
+        } catch (DatabaseNotReadyException $e) {
+            $this->skip($project, $actor, self::SKIP_DATABASE_NOT_READY, $commit, $e->status === DatabaseStatus::Provisioning
+                ? 'Database proyek ini masih dibuat, jadi push terbaru tidak di-deploy. Deploy manual setelah database-nya siap.'
+                : 'Database proyek ini gagal dibuat, jadi push terbaru tidak di-deploy. Lepas database itu dari proyek, buat yang baru, lalu deploy manual.');
         } catch (ProjectReleaseCommandUnsupportedException) {
             $this->skip($project, $actor, self::SKIP_RELEASE_COMMAND_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung perintah rilis, jadi push terbaru tidak di-deploy. Kosongkan perintah rilis di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
         }
