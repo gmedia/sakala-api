@@ -11,6 +11,7 @@ use App\Enums\DeploymentStatus;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
+use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
 use Illuminate\Support\Facades\DB;
@@ -29,10 +30,14 @@ final class ExpireAgentCommandsAction
 
     public const CODE_LEASE_EXPIRED = 'command_lease_expired';
 
+    /** `actor_id` of what this sweep records. */
+    public const ACTOR_ID = 'agent:expire-commands';
+
     public function __construct(
         private readonly TransitionDeploymentAction $transitionDeployment,
         private readonly DeploymentFailureClassifier $failureClassifier,
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
+        private readonly DatabaseCommandOutcomeService $databaseOutcome,
     ) {}
 
     /**
@@ -101,9 +106,13 @@ final class ExpireAgentCommandsAction
                 $this->inspectionOutcome->recordFailure($command, $code);
             }
 
+            if ($command->type->isDatabase()) {
+                $this->databaseOutcome->failed(self::ACTOR_ID, $command, $code);
+            }
+
             AuditEvent::create([
                 'actor_type' => 'system',
-                'actor_id' => 'agent:expire-commands',
+                'actor_id' => self::ACTOR_ID,
                 'action' => 'agent.command.expired',
                 'subject_type' => AgentCommand::class,
                 'subject_id' => $command->id,

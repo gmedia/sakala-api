@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace App\Actions\Project;
 
 use App\Actions\Admin\CreateStopProjectCommandAction;
+use App\Actions\Database\DetachDatabaseAction;
 use App\Actions\Deployment\CancelDeploymentAction;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
+use App\Models\DatabaseAttachment;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\Runtime\ProjectWorkloadService;
+use App\Support\Database\DatabaseAudit;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -29,6 +32,9 @@ use Illuminate\Support\Facades\DB;
  */
 final class DeleteProjectAction
 {
+    /** `actor_id` of a deletion without a user. */
+    private const SYSTEM_ACTOR_ID = 'project-delete';
+
     public function __construct(
         private readonly CreateStopProjectCommandAction $createStopCommand,
         private readonly CancelDeploymentAction $cancelDeployment,
@@ -42,12 +48,13 @@ final class DeleteProjectAction
             $locked = Project::query()->whereKey($project->id)->lockForUpdate()->firstOrFail();
 
             $stopCommandId = $this->stopServingWorkload($locked);
+            $this->detachDatabases($locked, $user);
 
             $locked->delete();
 
             AuditEvent::create([
                 'actor_type' => $user !== null ? User::class : 'system',
-                'actor_id' => $user !== null ? (string) $user->id : 'project-delete',
+                'actor_id' => $user !== null ? (string) $user->id : self::SYSTEM_ACTOR_ID,
                 'action' => 'project.deleted',
                 'subject_type' => Project::class,
                 'subject_id' => $locked->id,
@@ -73,6 +80,28 @@ final class DeleteProjectAction
                 'error_message' => 'The project was deleted before a node claimed this command.',
                 'updated_at' => now(),
             ]);
+    }
+
+    /**
+     * A managed database outlives the projects it is attached to (ADR-020):
+     * deleting the project only removes the attachment. Under the project row
+     * lock, without locking the database, so this cannot deadlock with an
+     * attach, which locks the database first.
+     */
+    private function detachDatabases(Project $project, ?User $user): void
+    {
+        $attachments = DatabaseAttachment::query()->with('database')->where('project_id', $project->id)->get();
+
+        foreach ($attachments as $attachment) {
+            $attachment->delete();
+
+            if ($attachment->database !== null) {
+                DatabaseAudit::record($user ?? self::SYSTEM_ACTOR_ID, DatabaseAudit::DETACHED, $attachment->database, [
+                    'project_id' => $project->id,
+                    'reason' => DetachDatabaseAction::REASON_PROJECT_DELETED,
+                ]);
+            }
+        }
     }
 
     /**

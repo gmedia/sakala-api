@@ -21,6 +21,7 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Project\ProjectInspectionOutcomeService;
 use App\Services\Runtime\ProjectWorkloadService;
 use Illuminate\Database\Eloquent\Collection;
@@ -34,6 +35,7 @@ final class CompleteAgentCommandAction
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateRealtimeSequence,
         private readonly ProjectWorkloadService $workloads,
+        private readonly DatabaseCommandOutcomeService $databaseOutcome,
     ) {}
 
     /**
@@ -114,6 +116,10 @@ final class CompleteAgentCommandAction
                         'log_follower_command_ids' => $followerCommandIds,
                     ],
                 ]);
+            }
+
+            if ($command->type->isDatabase()) {
+                $this->databaseOutcome->completed($agent, $command);
             }
 
             if ($command->type->isNodeLevel()) {

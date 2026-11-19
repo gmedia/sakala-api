@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Agent;
 
+use App\Actions\Database\RecordDatabaseSizesAction;
 use App\Data\Agent\AgentHeartbeatData;
 use App\Models\AgentNode;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,7 @@ final class HeartbeatAgentAction
         private readonly RecordWorkloadTrafficAction $recordWorkloadTraffic,
         private readonly RecordWorkloadReplicasAction $recordWorkloadReplicas,
         private readonly RecordWorkloadMetricsAction $recordWorkloadMetrics,
+        private readonly RecordDatabaseSizesAction $recordDatabaseSizes,
     ) {}
 
     public function handle(
@@ -52,6 +54,10 @@ final class HeartbeatAgentAction
 
             if ($data->workloadMetrics !== null) {
                 $this->recordWorkloadMetrics->handleWithinTransaction($agent, $data->workloadMetrics);
+            }
+
+            if ($data->databaseSizes !== null) {
+                $this->recordDatabaseSizes->handleWithinTransaction($agent, $data->databaseSizes);
             }
 
             return $agent->refresh();

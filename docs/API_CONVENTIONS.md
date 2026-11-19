@@ -84,8 +84,8 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `ADMIN_ACCOUNT_CANNOT_BE_DELETED` | `409` | Admin menghapus akunnya sendiri. | - |
 | `ACCOUNT_DELETION_CONFLICT` | `409` | Proyek baru terus muncul selama akun dihapus. Aman diulang. | - |
 | `WORKSPACE_IS_PERSONAL` | `409` | Mengganti nama, menghapus, meninggalkan, atau mengundang ke workspace pribadi. | - |
-| `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek. | `workspaces` (`id`, `name`, `slug`) |
-| `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek. | `projects` |
+| `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek atau database. | `workspaces` (`id`, `name`, `slug`) |
+| `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek atau database. | `projects`, `databases` |
 | `TEAM_LIMIT_EXCEEDED` | `422` | Menjadi owner satu tim lagi akan melewati batas tim yang dimiliki: membuat tim, menerima undangan owner, atau dijadikan owner. | `limit`, `current` |
 | `INVITATION_EMAIL_MISMATCH` | `403` | Menerima undangan sebagai `owner` dari akun yang email terverifikasinya bukan alamat undangan, walaupun membawa token. Saat membaca undangan, kode ini muncul di `accept_error_code`, bukan sebagai error. | - |
 | `EMAIL_VERIFICATION_REQUIRED` | `403` | Membuat atau bergabung ke tim dengan email yang belum diverifikasi. | - |
@@ -98,6 +98,16 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `ADMIN_SELF_DEMOTION` | `409` | Admin mencabut peran admin dari akunnya sendiri lewat API admin. | - |
 | `LAST_ADMIN` | `409` | Mencabut peran admin akan membuat Sakala tanpa admin. | - |
 | `LIMIT_PROFILE_IN_USE` | `409` | Menghapus profil batas yang masih dipakai workspace. | `workspaces` |
+| `DATABASE_LIMIT_EXCEEDED` | `422` | Workspace sudah punya database sebanyak `max_databases` efektifnya. `limit` `0` berarti workspace itu belum boleh membuat database sama sekali. Lihat [Database](#database). | `limit`, `current` |
+| `DATABASE_STORAGE_LIMIT_EXCEEDED` | `422` | Membuat database saat ukuran database workspace sudah mencapai `max_database_storage_mb`; database baru akan langsung dikunci. | `limit_mb`, `current_bytes` |
+| `DATABASE_REGION_UNAVAILABLE` | `409` | Membuat database di region yang tidak punya node `managed-postgres` yang diizinkan menerima pekerjaan, atau di mana pun bila `region` `null`. | `region` (string atau `null`) |
+| `DATABASE_CROSS_REGION_UNSUPPORTED` | `409` | Memasang database ke proyek yang berjalan, atau harus berjalan, di region lain. | `database_region`, `project_region` |
+| `DATABASE_NOT_READY` | `409` | Memasang, membaca kredensial, atau merotasi password database yang masih `provisioning`, `failed`, atau `deleting`. | `status` |
+| `DATABASE_LOCKED` | `409` | Memasang database yang `locked` karena penyimpanan workspace penuh. | - |
+| `DATABASE_IN_USE` | `409` | Menghapus database yang masih terpasang ke proyek. | `projects` (`id`, `name`, `slug`) |
+| `DATABASE_BUSY` | `409` | Merotasi password saat rotasi sebelumnya belum selesai, atau menghapus database yang sedang dibuat node. Aman diulang setelahnya. | - |
+| `PROJECT_DATABASE_ALREADY_ATTACHED` | `409` | Memasang database ke proyek yang sudah memakai database lain. | `database` (`id`, `name`) |
+| `DATABASE_ENDPOINT_UNAVAILABLE` | `409` | Deploy proyek yang database terpasangnya ada di node yang belum melaporkan alamatnya (`metadata.database.endpoint`). | `database` (`id`, `name`) |
 
 Anggota workspace project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
 
@@ -214,8 +224,9 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 | `public_url` | string | Alamat publik project untuk instalasi ini, dari `SAKALA_PROJECT_URL_SCHEME` dan `SAKALA_PROJECT_URL_PORT`. Console memakai ini, bukan menyusun sendiri. Ada juga di `GET /api/v1/app/projects`. |
 | `latest_deployment` | object atau `null` | Deployment dengan `sequence` terbesar, apa pun hasilnya, atau `null` bila belum pernah ada. Bisa berbeda dari `active_deployment_id`. Ada juga di `GET /api/v1/app/projects`, jadi daftar project tidak perlu request per kartu. Lihat tabel di bawah. |
 | `suspension` | object atau `null` | Terisi selama `status` bernilai `suspended`, dan `null` di luar itu, termasuk setelah penangguhan dibuka. Ada juga di `GET /api/v1/app/projects`. Lihat "Pemberitahuan dan Membuka Penangguhan". |
-| `redeploy_required` | boolean | `true` bila deployment aktif dibuat dengan konfigurasi yang relevan untuk deploy yang berbeda dari sekarang: `branch`, port (`effective_port`), konfigurasi build (`build_command`, `start_command`, `release_command`, `root_directory`), `replicas`, atau environment variable (key dan nilai). Mengembalikan nilainya seperti semula membuatnya `false` lagi. `name`, `thumbnail_url`, `auto_deploy`, `region`, dan `is_secret` tidak pernah membuatnya `true`. Selalu `false` bila tidak ada deployment aktif. |
+| `redeploy_required` | boolean | `true` bila deployment aktif dibuat dengan konfigurasi yang relevan untuk deploy yang berbeda dari sekarang: `branch`, port (`effective_port`), konfigurasi build (`build_command`, `start_command`, `release_command`, `root_directory`), `replicas`, environment variable (key dan nilai), atau database terpasang (pasang, lepas, dan password yang dirotasi). Mengembalikan nilainya seperti semula membuatnya `false` lagi. `name`, `thumbnail_url`, `auto_deploy`, `region`, dan `is_secret` tidak pernah membuatnya `true`. Selalu `false` bila tidak ada deployment aktif. |
 | `stack` | object atau `null` | Lihat "Inspeksi". |
+| `databases` | array | Database terkelola yang terpasang, paling banyak satu: `id`, `name`, `status`, `region`, `variables` (nama variabel yang diterima deployment berikutnya dari database itu, tanpa nilai), dan `overridden_variables` (nama yang di-set proyek sendiri, sehingga nilai proyek yang dipakai; Console sebaiknya memperingatkannya). `[]` tanpa database. Hanya di `ProjectResource`, tidak di daftar project. Lihat [Database](#database). |
 | `workspace` | object atau `null` | Workspace pemilik project: `id`, `name`, `slug`, `type` (`personal` atau `team`). Ada juga di daftar project dan respons pembuatan project. `null` hanya untuk project yang sedang menunggu purge tanpa workspace. Peran pemanggil ada di `GET /api/v1/app/workspaces`. |
 
 Isi `latest_deployment`:
@@ -523,7 +534,7 @@ Tim selalu punya setidaknya satu owner: pemilik terakhir tidak bisa keluar, dike
 | `POST /api/v1/app/workspaces` | Email terverifikasi | `201`. Body `name` (maks. 100) dan `slug` opsional (format username, maks. 50, unik; dibuat dari nama bila kosong). Pemanggil menjadi owner. |
 | `GET /api/v1/app/workspaces/{workspace}` | Anggota | Workspace dengan `role` pemanggil. |
 | `PATCH /api/v1/app/workspaces/{workspace}` | Owner tim | Body `name`. `slug` tidak berubah. |
-| `DELETE /api/v1/app/workspaces/{workspace}` | Owner tim | `204`, hanya bila tidak ada project; selain itu `409 WORKSPACE_NOT_EMPTY`. Project yang sudah dihapus menunggu purge tanpa workspace, dan environment variable-nya langsung dihapus. |
+| `DELETE /api/v1/app/workspaces/{workspace}` | Owner tim | `204`, hanya bila tidak ada project dan database (database yang sedang dihapus tidak dihitung); selain itu `409 WORKSPACE_NOT_EMPTY`. Project yang sudah dihapus menunggu purge tanpa workspace, dan environment variable-nya langsung dihapus. |
 | `POST /api/v1/app/workspaces/{workspace}/leave` | Anggota tim | `204`. |
 | `GET /api/v1/app/workspaces/{workspace}/members` | Anggota | `id` (ID keanggotaan), `role`, `joined_at`, `user` (`id`, `name`, `username`, `avatar_url`). `user.email` hanya untuk owner. |
 | `PATCH /api/v1/app/workspaces/{workspace}/members/{member}` | Owner tim | Body `role`. |
@@ -594,6 +605,8 @@ Batas dihitung per workspace, tidak pernah per anggota, dan datang dari profil b
 | Build per jam | `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR` (20) | sama dengan pribadi |
 | Tidur setelah sepi | `SAKALA_PROJECT_IDLE_SLEEP_MINUTES` (0, mati) | sama dengan pribadi |
 | Replika per project | 1 | 1 |
+| Database terkelola | `SAKALA_DATABASE_DEFAULT_MAX_COUNT` (2) | sama dengan pribadi |
+| Total ukuran database | `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB` (512 MB) | sama dengan pribadi |
 
 Dengan default ini tidak ada yang berubah bagi user yang sudah ada, kecuali build per jam yang sekarang ditegakkan (lihat di bawah). Default tim sengaja kecil dan tidak mengikuti nilai pribadi, supaya membuat tim tidak menggandakan kuota; tim yang butuh lebih mendapat profil batas dari admin. Nilai env yang kosong memakai default di tabel. Container berjalan adalah jumlah replika project yang melayani (`active_deployment_id` terisi dan tidak `sleeping`) atau sedang di-deploy; project yang sedang di-deploy dihitung dengan replika terbanyak antara deployment aktif dan deployment yang berjalan. Batasnya berlaku saat men-deploy project yang belum melayani atau sedang tidur, saat redeploy dengan replika lebih banyak, dan saat membangunkan project (lihat [Replika](#replika)). `max_replicas` profil (1 sampai 10, atau `null`) mengatur replika terbanyak per project; `null` dan workspace tanpa profil berarti 1, jadi replika mati sampai admin mengizinkannya. `idle_sleep_minutes` profil (0 sampai 10080, atau `null`) mengatur jendela sepi: `null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` berarti project workspace itu tidak pernah ditidurkan, dan nilai lain menidurkannya setelah sekian menit, juga saat nilai global `0`. Default memory dan CPU tidak pernah melebihi batas profil. Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
 
@@ -601,7 +614,7 @@ Build per jam membatasi berapa deployment yang boleh dibuat workspace dalam 60 m
 
 Membuat project mengunci baris user lalu baris workspace, dan membuat deployment mengunci baris workspace lalu baris project, sehingga dua request di workspace yang sama dihitung bergantian. Admin yang bertindak tidak dibatasi, sama seperti sebelumnya, termasuk oleh batas build per jam; deploy admin tetap ikut dihitung untuk deploy anggota berikutnya.
 
-`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (jumlah replika, tanpa project yang `sleeping`), `quotas.max_replicas`, `quotas.max_builds_per_hour` (batas build per jam efektif, `null` berarti tanpa batas), dan `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
+`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (jumlah replika, tanpa project yang `sleeping`), `quotas.max_replicas`, `quotas.max_builds_per_hour` (batas build per jam efektif, `null` berarti tanpa batas), `quotas.max_databases`, `quotas.current_databases_count`, `quotas.max_database_storage_mb`, `quotas.current_database_storage_bytes` (lihat [Database](#database)), dan `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
 
 ### Akses GitHub untuk Project Tim
 
@@ -624,6 +637,135 @@ Menghapus akun menghapus workspace pribadi dan project-nya seperti sebelumnya, j
 
 Perubahan dicatat di `audit_events` dengan subject workspace, hanya berisi ID dan peran, tanpa email atau nama: `workspace.created`, `workspace.renamed`, `workspace.deleted`, `workspace.member_joined`, `workspace.member_left`, `workspace.member_removed`, `workspace.member_role_changed`, `workspace.invitation_created`, `workspace.invitation_revoked`, `workspace.invitation_declined`, dan `workspace.limit_profile_changed`.
 
+## Database
+
+Database PostgreSQL terkelola mengikuti ADR-020: database milik workspace (pribadi atau tim), tinggal di instance PostgreSQL bersama milik satu node database per region, dan dipasang ke nol, satu, atau beberapa proyek di workspace yang sama. Database bisa dibuat tanpa proyek dan tetap ada saat proyek yang memakainya dihapus. Node database adalah node agent yang mengiklankan capability `managed-postgres` (lihat [Agent API](AGENT_API.md#perintah-database)).
+
+### Endpoint
+
+Semua endpoint berada di `/api/v1/app/workspaces/{workspace}/databases` dan memakai sesi Console. Peran mengikuti peran workspace, sama seperti project: semua anggota membaca, owner dan member mengubah, hanya owner yang membaca kredensial. Admin tetap punya semua kuasa, dan tidak dibatasi kuota jumlah database, sama seperti kuota project. Pengguna di luar workspace menerima `403` generik; database atau proyek milik workspace lain menerima `404`.
+
+| Endpoint | Owner | Member | Viewer | Admin | Hasil |
+| --- | --- | --- | --- | --- | --- |
+| `GET .../databases` | ya | ya | ya | ya | Database workspace, terbaru dulu, tanpa pagination (jumlahnya dibatasi kuota). |
+| `POST .../databases` | ya | ya | `403` | ya | `201`. Body `name` (wajib, paling panjang 100, unik di antara database workspace yang masih ada) dan `region` opsional (format region, `null` memakai `default_region` profil workspace, atau region mana pun bila kosong). Status awal `provisioning`. |
+| `GET .../databases/{database}` | ya | ya | ya | ya | Satu database. |
+| `PATCH .../databases/{database}` | ya | ya | `403` | ya | Body `name`. Nama di node tidak pernah berubah. |
+| `DELETE .../databases/{database}` | ya | ya | `403` | ya | `202` dengan status `deleting`, lalu hilang dari API setelah node menghapusnya. Lihat "Menghapus". |
+| `POST .../databases/{database}/attachments/{project}` | ya | ya | `403` | ya | `201` dengan `DatabaseAttachmentResource`, atau `200` bila sudah terpasang. Lihat "Memasang ke Proyek". |
+| `DELETE .../databases/{database}/attachments/{project}` | ya | ya | `403` | ya | `204`. Data tetap ada. `404` bila tidak terpasang. |
+| `GET .../databases/{database}/credentials` | ya | `403` | `403` | ya | Kredensial, `Cache-Control: no-store`, diaudit. Lihat "Kredensial". |
+| `POST .../databases/{database}/rotate-password` | ya | ya | `403` | ya | `202`. Lihat "Rotasi Password". |
+| `POST .../databases/{database}/extensions` | ya | ya | `403` | ya | `202`. Body `extension`. Lihat "Extension". |
+
+Memasang dan melepas juga memeriksa hak mengubah proyek itu, yang di workspace yang sama berarti owner atau member.
+
+`DatabaseResource` berisi `id`, `name`, `engine` (`postgresql`), `status`, `region` (region node database, `null` bila node itu tidak punya region), `size_bytes` dan `size_checked_at` (dari pembacaan ukuran terakhir node database, `null` sampai node melaporkan; database kosong sekitar 7,5 MiB karena katalog sistem ikut terhitung), `projects` (proyek yang terpasang: `id`, `name`, `slug`, urut nama), `last_failure`, `created_at`, dan `updated_at`.
+
+`last_failure` terisi selama permintaan terbaru ke node database untuk database itu gagal atau kedaluwarsa, dan `null` begitu ada permintaan baru, entah berjalan atau sukses:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `command` | string | Command agent yang gagal, misalnya `CreateDatabase` atau `InstallDatabaseExtension`. |
+| `code` | string | Kode dari agent atau control plane. Lihat tabel di bawah. |
+| `user_fixable` | boolean | `true` hanya bila pengguna bisa memperbaikinya sendiri. |
+| `summary` | string | Penjelasan berbahasa Indonesia. |
+| `failed_at` | string ISO 8601 atau `null` | Waktu gagal. |
+
+| `code` | Bisa diperbaiki pengguna | Arti |
+| --- | --- | --- |
+| `database_extension_not_allowed` | ya | Extension di luar daftar yang diizinkan. API sudah menolaknya lebih awal, jadi kode ini praktis tidak muncul. |
+| `database_extension_unavailable` | tidak | Extension diizinkan tetapi belum terpasang di server database, misalnya `vector`. Urusan operator. |
+| `database_admin_unavailable` | tidak | Agent tidak bisa menghubungi instance. Aman diulang nanti. |
+| `database_not_found`, `database_conflict`, `database_operation_failed` | tidak | Keadaan di node tidak sesuai, atau PostgreSQL menolak statement. Operator perlu memeriksa. |
+| `database_name_invalid`, `database_password_invalid`, `invalid_runtime_command`, `unsupported_runtime_command` | tidak | Bug di API atau penempatan; seharusnya tidak pernah muncul. |
+| `command_lease_expired`, `command_expired` | tidak | Node tidak menyelesaikan permintaan tepat waktu. | Nama database dan role di node, password, dan node-nya tidak pernah ada di resource ini.
+
+| `status` | Arti |
+| --- | --- |
+| `provisioning` | Menunggu atau sedang dibuat oleh node database. |
+| `ready` | Sudah dibuat dan menerima koneksi. |
+| `failed` | Pembuatan gagal atau kedaluwarsa. Tidak bisa dipakai; hapus lalu buat lagi. |
+| `deleting` | Menunggu atau sedang dihapus oleh node. |
+| `locked` | Penyimpanan database workspace mencapai kuota: node membuat role database itu `NOLOGIN` dan mengakhiri sesinya, jadi aplikasi tidak bisa terhubung sampai pemakaiannya turun atau kuotanya naik. Backup malam tetap berjalan, karena sesi superuser tidak terkena. |
+
+`deleted` hanya ada di baris yang sudah di-soft delete dan tidak pernah terlihat lewat API.
+
+### Penempatan
+
+Database ditempatkan saat dibuat di node ber-capability `managed-postgres` pada region yang diminta (`AgentNodeSchedulerService::selectDatabaseNode()`). Dari node yang online dan eligible, yang menampung database paling sedikit menang, lalu heartbeat paling baru. Bila tidak ada yang online, node region itu yang diizinkan menerima pekerjaan dan terakhir mengiklankan capability tetap dipilih, dan database menunggunya seperti deployment menunggu node-nya. Tanpa node seperti itu sama sekali, pembuatan ditolak `409 DATABASE_REGION_UNAVAILABLE`. Database tidak pernah pindah node, dan `region`-nya adalah region efektif node itu saat dibuat.
+
+Nama database dan role di node acak dan berbeda satu sama lain (masing-masing `p_` diikuti 20 huruf kecil dan angka; agent menerima `^p_[a-z0-9]{16,40}$` dan menolak role yang sudah memiliki database lain), tidak pernah diturunkan dari nama yang diketik orang dan tidak pernah dipakai ulang, karena penyewa lain di instance yang sama bisa melihat daftar nama. Password terdiri dari 40 huruf dan angka (agent menerima 24 sampai 128 karakter ASCII yang bisa dicetak), dan tetap di-encode di `DATABASE_URL`.
+
+Node yang melaporkan `metadata.database.available: false` (instance-nya tidak menjawab agent) didahulukan paling akhir, tetapi tetap bisa dipilih bila hanya itu yang ada; pembuatannya lalu bisa gagal dengan `database_admin_unavailable`.
+
+### Memasang ke Proyek
+
+Proyek menerima variabel koneksi dari deployment berikutnya. Variabel ini tidak disimpan sebagai environment variable proyek; API menyusunnya saat deployment dibuat dan menyimpannya terenkripsi di payload `DeployProject`, seperti variabel lain:
+
+| Variabel | Isi |
+| --- | --- |
+| `DATABASE_URL` | `postgresql://<username>:<password>@<host>:<port>/<database>?sslmode=require`. Host IPv6 ditulis dalam kurung siku. |
+| `DB_CONNECTION` | `pgsql` |
+| `DB_HOST`, `DB_PORT` | Alamat instance seperti dicapai node runtime, dari `metadata.database.endpoint` heartbeat node database. |
+| `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | Nama database, role, dan password di node. |
+
+Environment variable proyek dengan nama yang sama menang, per nama: proyek yang mengisi `DB_HOST` sendiri tetap menerima `DB_PASSWORD` dari database. `databases[].overridden_variables` di `ProjectResource` menyebut nama-nama itu. Nilai yang disuntik ikut diredaksi dari log deployment dan laporan command.
+
+Aturan memasang:
+
+* Proyek dan database harus satu workspace; selain itu `404`.
+* Satu proyek memakai satu database pada satu waktu, karena nama variabelnya tetap: `409 PROJECT_DATABASE_ALREADY_ATTACHED`. Satu database boleh dipasang ke beberapa proyek, dan `CONNECTION LIMIT` database (5) berlaku bersama untuk semua replika semua proyek itu, termasuk sesi superuser: backup yang sedang berjalan memakai satu dari lima.
+* Database harus `ready`: `locked` dijawab `409 DATABASE_LOCKED`, `provisioning`, `failed`, dan `deleting` dijawab `409 DATABASE_NOT_READY`.
+* Region proyek, yaitu region node yang melayani deployment `succeeded` terakhirnya, atau bila belum ada, region yang harus ditempatinya (`region` proyek, lalu `default_region` profil), harus sama dengan region database: `409 DATABASE_CROSS_REGION_UNSUPPORTED` sampai ada jaringan privat antar region. Region yang tidak diketahui di salah satu sisi tidak memblokir. Mengganti region proyek setelah dipasang tidak diperiksa ulang.
+
+Memasang, melepas, dan rotasi password yang sukses mengubah fingerprint deploy proyek (`projects.database_fingerprint`), jadi `redeploy_required` menjadi `true` sampai deployment berikutnya; melepas database yang baru dipasang mengembalikannya ke `false`. Alamat node database tidak termasuk fingerprint: alamat itu dibaca dari heartbeat saat deployment dibuat. Bila node database belum pernah melaporkan alamatnya, deploy proyek yang database-nya terpasang ditolak `409 DATABASE_ENDPOINT_UNAVAILABLE`, dan push webhook dilewati dengan `reason` `database_endpoint_unavailable`, supaya aplikasi tidak berjalan tanpa database-nya. Menghapus proyek melepas database-nya (audit `database.detached` dengan `reason` `project_deleted`); database-nya tetap ada.
+
+### Kredensial
+
+`GET .../credentials` menjawab `host`, `port`, `database`, `username`, `password`, `url` (sama dengan `DATABASE_URL`), dan `sslmode` (selalu `require`). `host`, `port`, dan `url` bernilai `null` selama node database belum melaporkan alamatnya. Database yang tidak `ready` atau `locked` dijawab `409 DATABASE_NOT_READY`.
+
+Hanya owner workspace dan admin yang boleh membaca. Ini menjauhkan password dari layar member dan viewer, bukan batas keamanan: member tetap bisa memasang database ke proyek, dan kode yang mereka deploy menerima variabel koneksinya. Setiap pembacaan mencatat `database.credentials_viewed` sebelum password dikirim, tanpa password; bila catatan gagal ditulis, password tidak dikirim. Alamat IP dan user agent hanya disimpan untuk admin yang bukan anggota workspace itu.
+
+### Rotasi Password
+
+`POST .../rotate-password` membuat `RotateDatabasePassword` dengan password baru untuk node database dan menjawab `202`. Password lama tetap tersimpan dan tetap disuntikkan sampai node melaporkan sukses; setelah itu password baru disimpan dan semua proyek yang terpasang menunjukkan `redeploy_required`. Container yang sedang berjalan masih membawa password lama, dan koneksi baru dengan password itu ditolak, jadi deploy ulang setelah rotasi. Rotasi yang gagal mempertahankan password lama. Rotasi kedua selagi yang pertama belum selesai dijawab `409 DATABASE_BUSY`. Database `locked` tetap bisa dirotasi, karena password yang bocor harus bisa diganti.
+
+### Extension
+
+`POST .../extensions` dengan body `extension`, salah satu dari `pgcrypto`, `citext`, `pg_trgm`, `unaccent`, `hstore`, dan `vector` (pgvector), meminta node database memasangnya di schema `public` database itu sebagai superuser, karena `vector` tidak ditandai trusted oleh PostgreSQL. Nilai lain dijawab `422` pada `extension`. Jawabannya `202` dengan `DatabaseResource`. Database harus `ready` atau `locked` (superuser tetap bisa terhubung ke database yang terkunci); selain itu `409 DATABASE_NOT_READY`. Permintaan yang sama selagi pemasangan sebelumnya masih berjalan tidak membuat command baru, dan memasang extension yang sudah ada tetap sukses. Hasilnya dicatat di audit (`database.extension_installed` atau `database.extension_install_failed`), dan kegagalannya tampil di `last_failure`, misalnya `database_extension_unavailable` bila server database belum memasang pgvector. Extension di luar daftar ini, termasuk PostGIS, belum tersedia.
+
+### Menghapus
+
+Database yang masih terpasang ke proyek tidak bisa dihapus (`409 DATABASE_IN_USE` dengan daftar proyeknya), supaya aplikasi yang berjalan tidak kehilangan datanya tanpa sengaja. Selain itu status menjadi `deleting` dan API membuat `DropDatabase`; setelah node melaporkan sukses, baris di-soft delete, password-nya dikosongkan, dan salinan password di payload command dihapus. Mengulang selagi drop masih berjalan tidak membuat apa pun. Drop yang gagal membiarkan status `deleting`, dan menghapus lagi mengirim drop baru. Database `failed` juga dikirim drop, karena pembuatannya bisa gagal di tengah jalan.
+
+Database `provisioning` yang `CreateDatabase`-nya belum diambil node langsung dihapus: command-nya dibatalkan dan tidak ada yang dikirim ke node. Bila node sudah mengambilnya, dijawab `409 DATABASE_BUSY` sampai pembuatan selesai.
+
+Menghapus tim membutuhkan database-nya dihapus lebih dulu (`409 WORKSPACE_NOT_EMPTY` dengan `databases`); database yang sedang dihapus tidak menahan tim, dan drop-nya selesai tanpa workspace. Menghapus akun meminta drop untuk semua database workspace pribadinya, dan pemilik tunggal tim yang masih punya database menerima `409 LAST_WORKSPACE_OWNER`. Database yang sedang dibuat node membuat penghapusan akun dijawab `409 DATABASE_BUSY`; ulangi sebentar lagi.
+
+### Kuota dan Penguncian
+
+Profil batas mengatur dua angka per workspace, keduanya dengan arti `0` yang sama, yaitu tidak boleh sama sekali:
+
+| Field profil | Global (`null` dan workspace tanpa profil) | `0` |
+| --- | --- | --- |
+| `max_databases` | `SAKALA_DATABASE_DEFAULT_MAX_COUNT` (2) | Workspace tidak bisa membuat database (`422 DATABASE_LIMIT_EXCEEDED` dengan `limit: 0`). |
+| `max_database_storage_mb` | `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB` (512) | Tanpa penyimpanan: semua database workspace dikunci, dan database baru ditolak `422 DATABASE_STORAGE_LIMIT_EXCEEDED`. |
+
+Nilai env yang kosong memakai default di tabel. Tidak ada nilai "tanpa batas". Jumlah database menghitung semua database yang masih ada kecuali yang `failed`, termasuk yang sedang dihapus sampai node menghapusnya. Penyimpanan adalah jumlah `size_bytes` semua database workspace yang masih ada, termasuk yang sedang dihapus; database yang belum pernah diukur dihitung 0. Pemeriksaan pembuatan berjalan di bawah row lock workspace, jadi dua request tidak bisa sama-sama memakai slot terakhir.
+
+PostgreSQL tidak punya kuota per database, jadi `databases:enforce-storage-quota` (setiap menit, satu server) membandingkan ukuran dari heartbeat dengan kuota setiap workspace yang punya database:
+
+* Pada 80% atau lebih, owner dan member workspace menerima notifikasi kategori `workspace` sekali per lintasan ("Penyimpanan database hampir penuh"). `workspaces.database_storage_warned_at` mencatatnya dan dikosongkan saat pemakaian turun di bawah 80%. Workspace yang langsung penuh hanya menerima notifikasi penguncian. Audit `workspace.database_storage_warning`.
+* Pada 100% atau lebih, setiap database `ready` di workspace itu mendapat `LockDatabase` (audit `database.lock_requested`): node membuat role-nya `NOLOGIN` dan mengakhiri sesinya, sementara backup tetap berjalan, dan owner serta member menerima notifikasi "Database dikunci karena penyimpanan penuh" yang mengabaikan preferensi kategori, seperti pemberitahuan penangguhan. Status menjadi `locked` saat node melaporkan sukses (`database.locked`).
+* Di bawah 100%, termasuk karena admin menaikkan kuota, setiap database `locked` mendapat `UnlockDatabase` (`database.unlock_requested`), dan kembali `ready` saat node melapor (`database.unlocked`).
+
+Database yang lock atau unlock-nya masih berjalan tidak dimintai lagi; yang gagal diminta lagi pada sapuan berikutnya. Ukuran hanya berubah saat node mengirim pembacaan baru (paling sering sekali per menit); heartbeat tanpa daftar ukuran tidak mengubah apa pun. Database `provisioning`, `failed`, dan `deleting` tidak dikunci atau dibuka. Selama terkunci, aplikasi tidak bisa terhubung, jadi data di dalamnya tidak bisa dikurangi dari aplikasi: hapus database yang tidak dipakai, atau minta admin menaikkan kuota. Ukuran yang turun setelah `DELETE` atau `VACUUM` baru terlihat setelah node melaporkannya.
+
+### Audit
+
+Setiap perubahan dicatat di `audit_events` dengan subject database (`App\Models\ManagedDatabase`), berisi ID, nama di node, `command_id`, dan kode, tanpa password atau URL: `database.created`, `database.provisioned`, `database.provisioning_failed`, `database.renamed`, `database.delete_requested`, `database.deleted`, `database.drop_failed`, `database.attached`, `database.detached`, `database.credentials_viewed`, `database.password_rotation_requested`, `database.password_rotated`, `database.password_rotation_failed`, `database.lock_requested`, `database.locked`, `database.lock_failed`, `database.unlock_requested`, `database.unlocked`, `database.unlock_failed`, `database.extension_install_requested`, `database.extension_installed`, dan `database.extension_install_failed`. Peringatan 80% dicatat dengan subject workspace (`workspace.database_storage_warning`). Hasil dari node dicatat dengan actor node itu; command yang kedaluwarsa dengan actor `system`/`agent:expire-commands`, dan sapuan kuota dengan `system`/`databases:enforce-storage-quota`.
+
 ## Notifikasi
 
 Notifikasi in-app memakai database notification Laravel. Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email), dan `workspace` (tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`, default `true`.
@@ -634,6 +776,7 @@ Kategori `workspace` dikirim untuk:
 - undangan yang diterima, ke pengundangnya, dengan `invitation_id` dan `workspace_id`;
 - perubahan peran oleh owner lain, ke anggota itu, dengan `workspace_id`;
 - dikeluarkan dari tim oleh owner, ke anggota itu, tanpa `workspace_id` karena timnya tidak bisa dibuka lagi.
+- penyimpanan database workspace mencapai 80% kuota, dan database workspace dikunci karena kuota penuh, ke owner dan member, dengan `workspace_id`. Pemberitahuan penguncian mengabaikan preferensi ini. Lihat [Database](#database).
 
 Keluar sendiri atau mengubah peran sendiri tidak mengirim apa pun. Email undangan tidak terpengaruh preferensi ini.
 
@@ -773,7 +916,7 @@ Endpoint dengan rentang waktu menerima `range`: `7d`, `30d`, `90d`, `custom` (de
 | `GET workspaces` | `search` (nama, slug), `type`, `limit_profile_id`. |
 | `GET workspaces/{workspace}` | Workspace, `members` (dengan email), `projects`, `quota`. |
 | `PUT workspaces/{workspace}/limit-profile` | Body `limit_profile_id` (atau `null`), `reason`. Audit `workspace.limit_profile_changed`. |
-| `GET`, `POST limit-profiles`; `GET`, `PATCH`, `DELETE limit-profiles/{limitProfile}` | Profil batas dengan `workspaces_count`, `idle_sleep_minutes` (`null` mengikuti global, `0` tidak pernah tidur, 1 sampai 10080 menit), `max_replicas` (`null` berarti 1, atau 1 sampai 10), `max_builds_per_hour` (`null` mengikuti `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR`, atau 1 sampai 1000 deployment per 60 menit), dan `default_region` (`null` berarti region mana pun, lihat [Region dan Penempatan](#region-dan-penempatan)). Perubahannya tercatat di `limit_profile.created` dan `limit_profile.updated` seperti field lain. `GET workspaces/{workspace}` menyajikan nilai efektifnya di `quota.limits.idle_sleep_minutes`, `quota.limits.max_replicas`, dan `quota.limits.max_builds_per_hour` (`null` berarti tanpa batas), dan `quota.usage.active_containers` menghitung replika. `PATCH` sebagian. `DELETE` membawa `reason` di body dan dijawab `409 LIMIT_PROFILE_IN_USE` (dengan `workspaces`) selama masih dipakai. |
+| `GET`, `POST limit-profiles`; `GET`, `PATCH`, `DELETE limit-profiles/{limitProfile}` | Profil batas dengan `workspaces_count`, `idle_sleep_minutes` (`null` mengikuti global, `0` tidak pernah tidur, 1 sampai 10080 menit), `max_replicas` (`null` berarti 1, atau 1 sampai 10), `max_builds_per_hour` (`null` mengikuti `SAKALA_PROJECT_MAX_BUILDS_PER_HOUR`, atau 1 sampai 1000 deployment per 60 menit), `default_region` (`null` berarti region mana pun, lihat [Region dan Penempatan](#region-dan-penempatan)), `max_databases` (`null` mengikuti `SAKALA_DATABASE_DEFAULT_MAX_COUNT`, `0` tidak boleh punya database, atau sampai 1000), dan `max_database_storage_mb` (`null` mengikuti `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB`, `0` tanpa penyimpanan sehingga semua database workspace dikunci, atau sampai 1048576 MB). Perubahannya tercatat di `limit_profile.created` dan `limit_profile.updated` seperti field lain. `GET workspaces/{workspace}` menyajikan nilai efektifnya di `quota.limits.idle_sleep_minutes`, `quota.limits.max_replicas`, dan `quota.limits.max_builds_per_hour` (`null` berarti tanpa batas), dan `quota.usage.active_containers` menghitung replika. `quota.limits` juga memuat `max_databases` dan `max_database_storage_mb` efektif, dan `quota.usage` memuat `databases` dan `database_storage_bytes`. `PATCH` sebagian. `DELETE` membawa `reason` di body dan dijawab `409 LIMIT_PROFILE_IN_USE` (dengan `workspaces`) selama masih dipakai. |
 | `GET projects` | `search` (nama, slug, `owner/repo`), `status`, `runtime_status` (termasuk `sleeping`), `workspace_id`, `suspended`, `idle_sleep_blocked`. Project yang dihapus tidak ikut. Setiap project membawa `idle_sleep_blocked` (boolean): `true` bila sapuan tidur otomatis berhenti mencoba deployment aktifnya karena node menjawab `runtime_workload_not_found` (lihat "Tidur Otomatis"). |
 | `GET projects/{project}` | Project, `deployments_count`, `effective_port`, 20 control request terbaru dengan `reason`. Aksi stop, suspend, unsuspend, dan reconcile tetap seperti di "Project Control". |
 | `GET deployments/failures` | Deployment `failed` lintas project. `range` (default `30d`, boleh `all`), `category`, `code`, `search` (nama atau slug project, termasuk project yang menunggu purge). |

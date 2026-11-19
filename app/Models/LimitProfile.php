@@ -27,6 +27,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $idle_sleep_minutes Null follows the global setting, 0 never sleeps, N sleeps after N idle minutes.
  * @property int|null $max_replicas Most replicas per project. Null allows one (Project::DEFAULT_REPLICAS), so replicas stay off unless an admin allows more.
  * @property string|null $default_region Region the workspace's projects run in unless a project sets its own; null for any region.
+ * @property int|null $max_databases Managed databases the workspace may hold. Null follows `SAKALA_DATABASE_DEFAULT_MAX_COUNT`; 0 allows none.
+ * @property int|null $max_database_storage_mb Total size of the workspace's managed databases, in MB. Null follows `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB`; 0 allows none.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -41,6 +43,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'idle_sleep_minutes',
     'max_replicas',
     'default_region',
+    'max_databases',
+    'max_database_storage_mb',
 ])]
 class LimitProfile extends Model
 {
@@ -56,6 +60,12 @@ class LimitProfile extends Model
      * (`SAKALA_MAX_REPLICAS_PER_PROJECT` on the agent).
      */
     public const MAX_REPLICAS_CEILING = 10;
+
+    /** Most managed databases a profile may allow per workspace. */
+    public const MAX_DATABASES_CEILING = 1000;
+
+    /** Most managed database storage a profile may allow per workspace: 1 TB, in MB. */
+    public const MAX_DATABASE_STORAGE_MB_CEILING = 1024 * 1024;
 
     /** @return HasMany<Workspace, $this> */
     public function workspaces(): HasMany
@@ -75,6 +85,8 @@ class LimitProfile extends Model
             'max_builds_per_hour' => 'integer',
             'idle_sleep_minutes' => 'integer',
             'max_replicas' => 'integer',
+            'max_databases' => 'integer',
+            'max_database_storage_mb' => 'integer',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

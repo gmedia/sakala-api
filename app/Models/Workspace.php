@@ -30,6 +30,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
  * @property WorkspaceType $type
  * @property int|null $personal_user_id
  * @property string|null $limit_profile_id
+ * @property CarbonImmutable|null $database_storage_warned_at When owners and members were told the workspace's databases passed 80 % of the storage quota; cleared below it.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property WorkspaceMember|null $membership Present when loaded through User::workspaces().
@@ -134,6 +135,16 @@ class Workspace extends Model
         ];
     }
 
+    /**
+     * Managed databases of the workspace, not counting dropped ones.
+     *
+     * @return HasMany<ManagedDatabase, $this>
+     */
+    public function databases(): HasMany
+    {
+        return $this->hasMany(ManagedDatabase::class);
+    }
+
     /** @return HasMany<WorkspaceInvitation, $this> */
     public function invitations(): HasMany
     {
@@ -157,6 +168,7 @@ class Workspace extends Model
     {
         return [
             'type' => WorkspaceType::class,
+            'database_storage_warned_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

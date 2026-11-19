@@ -15,6 +15,7 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
 use App\Services\Security\ProjectSecretValues;
@@ -35,6 +36,7 @@ final class FailAgentCommandAction
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
         private readonly SecretRedactionService $redaction,
         private readonly ProjectSecretValues $projectSecrets,
+        private readonly DatabaseCommandOutcomeService $databaseOutcome,
     ) {}
 
     /**
@@ -58,12 +60,12 @@ final class FailAgentCommandAction
         );
         // Redact before bounding (here and for the deployment detail): a cut
         // could hide the shape a secret is recognised by and leave part of it.
-        $projectId = AgentCommand::query()->whereKey($commandId)->value('project_id');
+        $knownSecrets = $this->projectSecrets->forCommand(AgentCommand::query()->find($commandId));
 
         $errorMessage = mb_substr(
             $this->redaction->redactString(
                 $this->sanitizeMessage($errorMessage),
-                $this->projectSecrets->forProject($projectId),
+                $knownSecrets,
             ),
             0,
             self::MAX_ERROR_MESSAGE_LENGTH,
@@ -132,6 +134,10 @@ final class FailAgentCommandAction
                 // Locks the project before the stale check so a newer
                 // inspection can never be overwritten by this late failure.
                 $this->inspectionOutcome->recordFailure($command, $errorCode);
+            }
+
+            if ($command->type->isDatabase()) {
+                $this->databaseOutcome->failed($agent, $command, $errorCode);
             }
 
             if ($command->type === AgentCommandType::ResumeNode) {

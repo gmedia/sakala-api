@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -48,6 +49,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $region Region the project runs in; null follows the workspace profile's default_region (PilotRuntimeLimitService::regionFor()).
  * @property CarbonImmutable|null $config_changed_at Last deploy-relevant change; only read for an active deployment without a config_fingerprint.
  * @property string|null $environment_fingerprint DeploymentConfigFingerprint::forEnvironment() of the stored variables; null until the first variable change or deployment after it was introduced.
+ * @property string|null $database_fingerprint DeploymentConfigFingerprint::forDatabase() of the attached managed database; null without one.
  * @property bool $auto_deploy
  * @property string|null $active_deployment_id
  * @property array<string, mixed>|null $inspection
@@ -92,7 +94,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'last_deployed_at',
     'last_request_at',
 ])]
-#[Hidden(['environment_fingerprint'])]
+#[Hidden(['environment_fingerprint', 'database_fingerprint'])]
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
@@ -269,6 +271,27 @@ class Project extends Model
         $this->environment_fingerprint = DeploymentConfigFingerprint::forEnvironment(
             $this->environmentVariables()->get(),
         );
+    }
+
+    /**
+     * Recompute `database_fingerprint` from the attached database, without
+     * saving. Call it under the project row lock, like the environment one.
+     */
+    public function refreshDatabaseFingerprint(): void
+    {
+        $this->database_fingerprint = DeploymentConfigFingerprint::forDatabase($this->databases()->first());
+    }
+
+    /**
+     * The managed database attached to the project; at most one in this phase
+     * (unique `database_attachments.project_id`).
+     *
+     * @return BelongsToMany<ManagedDatabase, $this>
+     */
+    public function databases(): BelongsToMany
+    {
+        return $this->belongsToMany(ManagedDatabase::class, 'database_attachments', 'project_id', 'database_id')
+            ->withTimestamps();
     }
 
     /**

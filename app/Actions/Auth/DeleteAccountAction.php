@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Auth;
 
+use App\Actions\Database\DeleteDatabaseAction;
 use App\Actions\Profile\RemoveAvatarAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\PurgeDeletedProjectsAction;
@@ -15,6 +16,7 @@ use App\Exceptions\Auth\AdminAccountDeletionException;
 use App\Exceptions\Workspace\LastWorkspaceOwnerException;
 use App\Models\AuditEvent;
 use App\Models\GithubInstallation;
+use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
@@ -33,10 +35,15 @@ use Throwable;
  * their rows wait for the purge window without an owner; their secrets do not
  * wait. Then the personal workspace goes, and so do the account's memberships.
  *
+ * Managed databases of the personal workspace are dropped on their nodes the
+ * same way; a database whose creation a node is still running answers
+ * DATABASE_BUSY, and the request can simply be repeated a moment later.
+ *
  * Teams outlive the account. Projects it created on a team stay with the team
  * and lose only their creator. A team it solely owns is deleted with it when
  * empty, and blocks the deletion with LAST_WORKSPACE_OWNER while it still has
- * projects: the console asks to hand the team over or empty it first.
+ * projects or databases: the console asks to hand the team over or empty it
+ * first.
  *
  * Every step can run again, so a crash halfway leaves an account that can simply
  * repeat the request. The foreign keys from projects to users and workspaces stay
@@ -47,8 +54,12 @@ final class DeleteAccountAction
 {
     private const MAX_ATTEMPTS = 3;
 
+    /** Audit `reason` of a personal database dropped with its account. */
+    public const DATABASE_DELETE_REASON = 'account_deleted';
+
     public function __construct(
         private readonly DeleteProjectAction $deleteProject,
+        private readonly DeleteDatabaseAction $deleteDatabase,
         private readonly PurgeDeletedProjectsAction $purge,
         private readonly RemoveAvatarAction $removeAvatar,
     ) {}
@@ -76,6 +87,13 @@ final class DeleteAccountAction
                 Project::query()
                     ->where('workspace_id', $personalId)
                     ->each(fn (Project $project) => $this->deleteProject->handle($project, $user));
+
+                // Their projects are gone, so nothing is attached: each one is
+                // dropped on its node, and finishes without a workspace.
+                ManagedDatabase::query()
+                    ->where('workspace_id', $personalId)
+                    ->holdingWorkspace()
+                    ->each(fn (ManagedDatabase $database) => $this->deleteDatabase->handle($user, $database, self::DATABASE_DELETE_REASON));
             }
 
             $this->removeAvatar->handle($user);
@@ -102,8 +120,12 @@ final class DeleteAccountAction
                 Workspace::query()->whereKey($personalId)->lockForUpdate()->first();
             }
 
-            // Creating a project takes the same locks, so this answer stays true.
-            if ($personalId !== null && Project::query()->where('workspace_id', $personalId)->exists()) {
+            // Creating a project or a database takes the same locks, so this
+            // answer stays true.
+            if ($personalId !== null && (
+                Project::query()->where('workspace_id', $personalId)->exists()
+                || ManagedDatabase::query()->where('workspace_id', $personalId)->holdingWorkspace()->exists()
+            )) {
                 return false;
             }
 
@@ -195,7 +217,8 @@ final class DeleteAccountAction
             ->where('user_id', '!=', $user->id)
             ->exists())->values();
 
-        $withProjects = $soleOwned->filter(fn (Workspace $team): bool => $team->projects()->exists());
+        $withProjects = $soleOwned->filter(fn (Workspace $team): bool => $team->projects()->exists()
+            || $team->databases()->holdingWorkspace()->exists());
 
         if ($withProjects->isNotEmpty()) {
             throw new LastWorkspaceOwnerException($withProjects->values(), accountDeletion: true);

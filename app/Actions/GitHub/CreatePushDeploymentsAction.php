@@ -10,6 +10,7 @@ use App\Enums\DeploymentTrigger;
 use App\Enums\GithubInstallationStatus;
 use App\Enums\NotificationCategory;
 use App\Enums\WorkspaceRole;
+use App\Exceptions\Database\DatabaseEndpointUnavailableException;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
@@ -38,6 +39,9 @@ final class CreatePushDeploymentsAction
 
     /** Audit reason of a push skipped because no node runs the project's release command. */
     private const SKIP_RELEASE_COMMAND_UNSUPPORTED = 'release_command_unsupported';
+
+    /** Audit reason of a push skipped because the attached database's node has not reported its endpoint. */
+    public const SKIP_DATABASE_ENDPOINT_UNAVAILABLE = 'database_endpoint_unavailable';
 
     public function __construct(
         private readonly CreateDeploymentAction $createDeployment,
@@ -118,6 +122,8 @@ final class CreatePushDeploymentsAction
             $this->skip($project, 'repository_access_revoked', $commit, 'Pembuat proyek tidak lagi punya akses ke repository ini di GitHub atau sudah keluar dari workspace, jadi push terbaru tidak di-deploy.');
         } catch (ProjectSuspendedException) {
             $this->skip($project, 'project_suspended', $commit, 'Proyek ini sedang ditangguhkan, jadi push terbaru tidak di-deploy.');
+        } catch (DatabaseEndpointUnavailableException $e) {
+            $this->skip($project, self::SKIP_DATABASE_ENDPOINT_UNAVAILABLE, $commit, "Server database untuk {$e->database->name} belum melaporkan alamatnya, jadi push terbaru tidak di-deploy. Deploy manual beberapa saat lagi.");
         } catch (ProjectReleaseCommandUnsupportedException) {
             $this->skip($project, self::SKIP_RELEASE_COMMAND_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung perintah rilis, jadi push terbaru tidak di-deploy. Kosongkan perintah rilis di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
         }

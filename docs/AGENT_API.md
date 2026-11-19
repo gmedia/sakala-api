@@ -227,6 +227,31 @@ sesuai menolak seluruh heartbeat `422`, seperti daftar di atas:
 | `metadata.runtime.region` | string atau `null` | Region node, dari `SAKALA_AGENT_REGION`. Huruf kecil dan angka dalam kelompok yang dipisah satu tanda hubung (`^[a-z0-9]+(?:-[a-z0-9]+)*$`), paling panjang 32 karakter, misalnya `jkt` atau `id-jog-1`. |
 | `metadata.runtime.edge_address` | string atau `null` | Alamat router runtime node seperti dicapai Sakala Edge, `host:port` tanpa skema atau path: IPv4 (`10.0.47.201:8180`), IPv6 dalam kurung siku (`[fd00::21]:8180`), atau nama DNS (`runtime-01.internal:8180`); port 1 sampai 65535; paling panjang 255 karakter. Usulan nama env di agent: `SAKALA_AGENT_EDGE_ADDRESS`. |
 
+`metadata.database` dan `metadata.databases` juga tambahan opsional di dalam
+revision 4, dikirim node ber-capability `managed-postgres` (ADR-020; contoh di
+sakala-agent `examples/heartbeat/database-host.json`). Region node database memakai
+`metadata.runtime.region` yang sudah ada. Nilai yang tidak sesuai menolak seluruh
+heartbeat `422`, seperti daftar di atas:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `metadata.database` | object, opsional | Dikirim di setiap heartbeat node database. Disimpan di `agent_nodes.metadata`. |
+| `metadata.database.endpoint` | object atau `null` | Alamat instance PostgreSQL seperti dicapai node runtime lewat jaringan privat (`SAKALA_DATABASE_PUBLIC_HOST`, `SAKALA_DATABASE_PUBLIC_PORT` di agent). API memakainya untuk `DB_HOST`, `DB_PORT`, dan `DATABASE_URL` proyek yang terpasang saat deployment dibuat. Tanpa alamat, deploy proyek yang database-nya ada di node ini ditolak `409 DATABASE_ENDPOINT_UNAVAILABLE`. |
+| `metadata.database.endpoint.host` | string, wajib bila `endpoint` ada | IPv4, IPv6 tanpa kurung siku (`fd00::30`), atau nama DNS, tanpa port, skema, atau path; paling panjang 253 karakter. |
+| `metadata.database.endpoint.port` | integer 1 sampai 65535, wajib bila `endpoint` ada | Port TCP instance. |
+| `metadata.database.available` | boolean, opsional | Apakah pembacaan ukuran terakhir agent berhasil. `false` membuat node itu dipilih paling akhir untuk database baru (node juga melaporkan `degraded`). Tidak dikirim berarti tersedia. |
+| `metadata.databases` | array, paling banyak 1000 item, opsional | Ukuran setiap database terkelola. Agent hanya mengirimnya pada heartbeat pertama setelah pembacaan baru yang berhasil, paling sering sekali per 60 detik. Tidak dikirim berarti tidak ada pembacaan baru, bukan database hilang atau ukuran nol. Tidak disimpan di `agent_nodes.metadata`. |
+| `metadata.databases[].name` | string, wajib | Nama database di node, `^[a-z_][a-z0-9_]{0,62}$` (agent hanya mengirim `^p_[a-z0-9]{16,40}$`). Nama yang tidak dikenal API di node ini diabaikan tanpa menolak heartbeat. |
+| `metadata.databases[].size_bytes` | integer 0 sampai 1 PiB, wajib | `pg_database_size()` dalam byte, termasuk katalog sistem (database kosong sekitar 7,5 MiB). |
+| `metadata.detail_counts.databases` | integer ≥ 0, opsional | Jumlah sebelum daftar dipotong; dikirim bersama `databases`. |
+
+API menulis `size_bytes` dan `size_checked_at` hanya untuk database yang `node_id`-nya
+node pelapor dan nama di node-nya cocok, termasuk yang sedang dihapus, dengan satu
+`UPDATE` per heartbeat berapa pun panjang daftarnya. Database yang tidak tercantum,
+dan semua database saat daftar tidak dikirim, menyimpan ukuran terakhirnya. Ukuran
+ini yang dibandingkan sapuan kuota penyimpanan setiap menit (lihat
+[Database](API_CONVENTIONS.md#kuota-dan-penguncian)).
+
 `metadata.workloads.maximum_active_workloads` (integer ≥ 0 atau `null`, opsional,
 tambahan di revision 4) adalah container terbanyak yang dijalankan node sekaligus
 (`SAKALA_MAX_ACTIVE_CONTAINERS`, nilai yang sama dengan `RuntimeCapacity.maximum_active_workloads`
@@ -309,8 +334,9 @@ Polling **tidak** memberi kepemilikan. Field `cancel_requested` dijelaskan di
 - command `Pending`, `available_at <= now`, dan `expires_at` belum lewat;
 - command terikat ke node (`agent_node_id = node`), atau belum terikat dan
   tipenya bukan *pinned* (`InspectProject`, `DeployProject`, `CleanupRuntime`,
-  `DrainNode`, `ResumeNode` selalu pinned; command pinned tanpa target tidak
-  terlihat oleh node mana pun sampai control plane menetapkannya);
+  `DrainNode`, `ResumeNode`, dan keenam command database selalu pinned; command
+  pinned tanpa target tidak terlihat oleh node mana pun sampai control plane
+  menetapkannya);
 - node memiliki capability yang dibutuhkan tipe command (lihat tabel);
 - project tidak `suspended`, kecuali tipe yang tidak pernah menghidupkan atau
   mengekspos workload (`StopProject`, `SleepProject`, `HealthCheck`,
@@ -320,7 +346,8 @@ Polling **tidak** memberi kepemilikan. Field `cancel_requested` dijelaskan di
 
 Command tanpa payload selalu diserialisasi sebagai `{}`. Hanya
 `InspectProject`, `DeployProject`, `StopProject`, `SleepProject`,
-`ReconcileWorkload`, dan `CleanupRuntime` yang membawa payload. `StopProject`
+`ReconcileWorkload`, `CleanupRuntime`, dan command database (lihat
+[Perintah database](#perintah-database)) yang membawa payload. `StopProject`
 paling banyak membawa `remove_images` (lihat [StopProject](#stopproject)) dan
 `SleepProject` paling banyak membawa `page` (lihat [SleepProject](#sleepproject));
 lifecycle command lain hanya membawa identitas.
@@ -331,6 +358,7 @@ lifecycle command lain hanya membawa identitas.
 | `DeployProject` | `dockerfile-build`, `railpack-build` |
 | `RestartProject`, `StopProject`, `SleepProject`, `WakeProject`, `HealthCheck`, `ReconcileWorkload`, `CleanupRuntime` | `docker-runtime` |
 | `RefreshRoute` | `caddy-file-routing` |
+| `CreateDatabase`, `DropDatabase`, `RotateDatabasePassword`, `LockDatabase`, `UnlockDatabase`, `InstallDatabaseExtension` | `managed-postgres` |
 | `DrainNode`, `ResumeNode` | — |
 
 `DeployProject` yang payload-nya membawa `replicas` lebih dari 1 juga butuh
@@ -610,6 +638,56 @@ dan suspend tetap menampilkan halaman bangun miliknya. Agent v0.7.1 membaca
 `page`. Agent sebelum v0.7.0 tidak pernah menerima field ini. Karena itu protocol
 revision tidak dinaikkan dan tidak ada capability baru.
 
+### Perintah database
+
+Tambahan di dalam protocol revision 4 untuk database PostgreSQL terkelola (ADR-020), cocok dengan sakala-agent `docs/AGENT_API.md` bagian "Database host" dan `examples/commands/database-commands.json`. Enam command type baru, `CreateDatabase`, `DropDatabase`, `RotateDatabasePassword`, `LockDatabase`, `UnlockDatabase`, dan `InstallDatabaseExtension`, hanya ditawarkan ke node yang mengiklankan capability `managed-postgres`. Agent lama gagal men-deserialisasi command type yang tidak dikenalnya, dan ia tidak pernah mengiklankan capability ini, jadi ia tidak pernah menerimanya; revisi protocol tidak dinaikkan. Keenamnya:
+
+- dipin saat dibuat ke node yang menampung database itu (dipilih sekali saat database dibuat, lihat [Database](API_CONVENTIONS.md#penempatan)) dan tidak pernah ditetapkan ulang oleh `agent:assign-commands`;
+- tidak punya `expires_at`, jadi menunggu node itu selama apa pun ia offline;
+- membawa `project_id` dan `deployment_id` `null`; report-nya disimpan di `agent_command_reports`;
+- memakai lease biasa (`SAKALA_COMMAND_TIMEOUT_SECONDS` + grace, karena payload tidak membawa `command_timeout_seconds`), dan lease yang habis berarti gagal (`command_lease_expired`);
+- tidak pernah diblokir oleh proyek yang ditangguhkan.
+
+Payload:
+
+| Command | Payload | Result agent (tidak dibaca API) |
+| --- | --- | --- |
+| `CreateDatabase` | `{ database, role, password }` | `{ database, role, created }` |
+| `DropDatabase` | `{ database, role }` | `{ database, role, dropped }` |
+| `RotateDatabasePassword` | `{ role, password }` | `{ role }` |
+| `LockDatabase` | `{ database }` | `{ database, role, locked: true, terminated_connections }` |
+| `UnlockDatabase` | `{ database }` | `{ database, role, locked: false, terminated_connections: 0 }` |
+| `InstallDatabaseExtension` | `{ database, extension }` | `{ database, extension, created }` |
+
+- `database` dan `role` adalah dua nilai acak yang berbeda, masing-masing `p_` diikuti 20 huruf kecil dan angka (agent menerima `^p_[a-z0-9]{16,40}$`). Satu role memiliki tepat satu database, dan nama tidak pernah dipakai ulang.
+- `password` adalah 40 huruf dan angka (agent menerima 24 sampai 128 karakter ASCII yang bisa dicetak, tanpa spasi). Ia dikirim **plaintext** hanya kepada node target, seperti `environment` di `DeployProject`; di `agent_commands.payload` nilainya terenkripsi, dan node lain yang meminta payload itu ditolak. API meredaksi password database (yang tersimpan dan yang dibawa command) dari `error_message`, event, dan log command ini, dan menghapus salinannya dari payload command setelah database di-drop. Result agent tidak pernah memuat password.
+- `extension` adalah salah satu dari `pgcrypto`, `citext`, `pg_trgm`, `unaccent`, `hstore`, `vector`. API menolak nilai lain sebelum membuat command.
+- Lock memakai `NOLOGIN` pada role owner dan mengakhiri sesi role itu, bukan `ALLOW_CONNECTIONS false`, supaya backup malam sebagai superuser tetap berjalan. `CreateDatabase` yang diulang tidak membuka lock. `CONNECTION LIMIT` (5) di role dan database ikut menghitung sesi superuser, jadi backup yang berjalan memakai satu slot.
+
+Efek di API:
+
+| Command | `complete` | `fail` atau kedaluwarsa |
+| --- | --- | --- |
+| `CreateDatabase` | `provisioning` → `ready`, audit `database.provisioned` | `provisioning` → `failed`, audit `database.provisioning_failed` dengan `error_code` |
+| `DropDatabase` | `deleted`, baris di-soft delete, password dikosongkan, audit `database.deleted` | tetap `deleting`, audit `database.drop_failed` |
+| `RotateDatabasePassword` | password baru disimpan, proyek yang terpasang menunjukkan `redeploy_required`, audit `database.password_rotated` | password lama dipertahankan, audit `database.password_rotation_failed` |
+| `LockDatabase` | `ready` → `locked`, audit `database.locked` | tidak berubah, audit `database.lock_failed`; sapuan kuota meminta lagi |
+| `UnlockDatabase` | `locked` → `ready`, audit `database.unlocked` | tidak berubah, audit `database.unlock_failed`; sapuan kuota meminta lagi |
+| `InstallDatabaseExtension` | audit `database.extension_installed` | audit `database.extension_install_failed` |
+
+`RotateDatabasePassword` harus dilaporkan `complete` hanya bila password baru sudah berlaku, dan `fail` hanya bila password lama masih berlaku: API menyimpan password baru tepat saat `complete`. Hasil yang datang setelah database berpindah ke status lain tidak mengembalikannya: lock yang terlambat tidak mengunci database yang sedang dihapus. Kegagalan command terbaru sebuah database tampil di `last_failure` resource database (lihat [Database](API_CONVENTIONS.md#database)); kode agent dan klasifikasinya:
+
+| `error_code` | Bisa diperbaiki pengguna | Keterangan |
+| --- | --- | --- |
+| `database_extension_not_allowed` | ya | Extension di luar allow-list. API sudah menolaknya lebih awal. |
+| `database_extension_unavailable` | tidak | File extension tidak ada di host database, misalnya `vector` di `postgres:18-alpine`. |
+| `database_admin_unavailable` | tidak | Agent tidak bisa terhubung ke instance; node juga melaporkan `degraded`. Aman diulang nanti. |
+| `database_not_found` | tidak | Role atau database tidak ada di node. |
+| `database_conflict` | tidak | Database dimiliki role lain, role memiliki database lain, atau sejenisnya. Tidak ada yang diubah; periksa manual. |
+| `database_operation_failed` | tidak | PostgreSQL menolak statement; pesan berisi SQLSTATE. |
+| `database_name_invalid`, `database_password_invalid` | tidak | Bug di API. |
+| `invalid_runtime_command`, `unsupported_runtime_command` | tidak | Payload tidak terbaca, atau node tanpa peran database; bug penempatan. |
+
 ### Repository credential
 
 Dipanggil agent setelah claim dan sebelum checkout, hanya bila payload
@@ -727,7 +805,7 @@ Fixture body batch dari v0.2.0 direplay oleh
 Untuk command yang memiliki `deployment_id`, report masuk ke timeline
 deployment (`deployment_events`/`deployment_logs`) dan dibroadcast. Untuk
 command tanpa deployment (`InspectProject`, `CleanupRuntime`, `DrainNode`,
-`ResumeNode`), report disimpan di `agent_command_reports` dengan sequence per
+`ResumeNode`, dan command database), report disimpan di `agent_command_reports` dengan sequence per
 command dan acknowledgement yang sama, tanpa broadcast.
 
 Hanya node pemilik (`agent_node_id`) yang boleh melapor; node lain → `409`.
@@ -776,7 +854,10 @@ Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
 
 - `AgentCommandType`: `InspectProject`, `DeployProject`, `RestartProject`,
   `StopProject`, `SleepProject`, `WakeProject`, `HealthCheck`, `RefreshRoute`,
-  `ReconcileWorkload`, `CleanupRuntime`, `DrainNode`, `ResumeNode`.
+  `ReconcileWorkload`, `CleanupRuntime`, `DrainNode`, `ResumeNode`,
+  `CreateDatabase`, `DropDatabase`, `RotateDatabasePassword`, `LockDatabase`,
+  `UnlockDatabase`, `InstallDatabaseExtension` (urutan ini juga urutan enum
+  `CommandType` di agent).
 - `AgentCommandStatus`: `Pending`, `Claimed`, `Running`, `Succeeded`, `Failed`,
   `Cancelled`, `Expired`.
 - `AgentNodeStatus` (dilaporkan): `ready`, `busy`, `degraded`, `draining`,
@@ -891,3 +972,12 @@ mengirimnya dan grafiknya kosong):
    `metadata.workloads.metrics` beserta `metadata.detail_counts.metrics` di setiap
    heartbeat, satu sampel terbaru per replika yang berjalan, dengan aturan di
    bagian Heartbeat.
+
+Tambahan untuk database terkelola (opsional; tanpa node `managed-postgres` API
+menolak pembuatan database dengan `409 DATABASE_REGION_UNAVAILABLE`):
+
+9. Sudah diimplementasikan di sakala-agent PR #109 (branch `feat/database-role`):
+   capability `managed-postgres`, `metadata.database` di setiap heartbeat,
+   `metadata.databases` setelah pembacaan baru, dan keenam command di
+   [Perintah database](#perintah-database), dengan urutan `CommandType` yang sama
+   seperti di bagian Enum.

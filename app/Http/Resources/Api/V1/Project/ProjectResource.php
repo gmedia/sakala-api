@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Project;
 
+use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\Project\ProjectPreviewPresenter;
@@ -19,6 +20,30 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 final class ProjectResource extends JsonResource
 {
+    /**
+     * The attached database with the names of the project's own variables, so
+     * overridden connection variables can be flagged. This resource serves one
+     * project at a time, so the two reads stay per request; the project list
+     * (GetCollectionProjectResource) does not carry them.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function databases(): array
+    {
+        $databases = $this->resource->loadMissing('databases')->databases;
+
+        if ($databases->isEmpty()) {
+            return [];
+        }
+
+        /** @var list<string> $keys */
+        $keys = $this->resource->loadMissing('environmentVariables')->environmentVariables->pluck('key')->values()->all();
+
+        return array_values($databases
+            ->map(fn (ManagedDatabase $database): array => (new ProjectDatabaseResource($database))->withProjectKeys($keys)->resolve())
+            ->all());
+    }
+
     /**
      * Transform the resource into an array.
      *
@@ -96,7 +121,8 @@ final class ProjectResource extends JsonResource
             'auto_deploy' => (bool) $this->resource->auto_deploy,
             /**
              * True while the serving deployment was created with another deploy-relevant configuration: branch, port,
-             * build configuration, replicas, or environment variables. Changing a value back makes it false again.
+             * build configuration, replicas, environment variables, or the attached database (attaching, detaching, and a
+             * rotated password). Changing a value back makes it false again.
              *
              * @var bool
              */
@@ -113,6 +139,13 @@ final class ProjectResource extends JsonResource
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()
                 : null,
+            /**
+             * The managed database attached to the project, as a list of at most one: a project uses one database at a
+             * time. Its connection variables reach the next deployment; see each item's `variables`.
+             *
+             * @var list<array{id: string, name: string, status: string, region: string|null, variables: list<string>, overridden_variables: list<string>}>
+             */
+            'databases' => $this->databases(),
             /**
              * The workspace that owns the project. Null only for a project that is being purged.
              */

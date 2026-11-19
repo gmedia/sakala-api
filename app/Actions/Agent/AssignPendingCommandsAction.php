@@ -23,12 +23,14 @@ final class AssignPendingCommandsAction
      * and after a heartbeat, so a node that just became eligible picks up
      * waiting work within one heartbeat. Commands are locked one at a time;
      * a command that was assigned or claimed meanwhile is skipped. Returns
-     * the number of commands assigned.
+     * the number of commands assigned. Database commands are never here:
+     * they are pinned to the database's node when created, and only that
+     * node can run them.
      */
     public function handle(?AgentNode $onlyFor = null, int $limit = 50): int
     {
         $pinnedTypes = collect(AgentCommandType::cases())
-            ->filter(fn (AgentCommandType $type): bool => $type->isPinnedAtCreation() && ! $type->isNodeLevel())
+            ->filter(fn (AgentCommandType $type): bool => $type->isPinnedAtCreation() && ! $type->isNodeLevel() && ! $type->isDatabase())
             ->map(fn (AgentCommandType $type): string => $type->value)
             ->values()
             ->all();

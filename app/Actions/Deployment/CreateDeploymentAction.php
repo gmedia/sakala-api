@@ -28,6 +28,7 @@ use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Agent\AgentNodeSchedulerService;
+use App\Services\Database\DatabaseConnectionEnvironment;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\GitHub\GithubRepositoryAccessService;
 use App\Services\Runtime\PilotRuntimeLimitService;
@@ -91,6 +92,7 @@ final class CreateDeploymentAction
         private readonly RecordUsageSignalAction $recordAction,
         private readonly AgentNodeSchedulerService $scheduler,
         private readonly GithubRepositoryAccessService $repositoryAccess,
+        private readonly DatabaseConnectionEnvironment $databaseEnvironment,
     ) {}
 
     /**
@@ -259,6 +261,12 @@ final class CreateDeploymentAction
                     $lockedProject->save();
                 }
 
+                // The attached database's connection variables, built now and
+                // never stored as the project's own; a variable the project sets
+                // itself keeps its value. Refuses the deployment while the
+                // database node has not reported where projects reach it.
+                $databaseEnvironment = $this->databaseEnvironment->forProject($lockedProject);
+
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,
                     'requested_by' => $user->id,
@@ -292,16 +300,22 @@ final class CreateDeploymentAction
                     'domain' => $lockedProject->default_domain,
                     'container_port' => $deployment->container_port,
                     'builder' => 'auto',
-                    'environment' => $lockedProject->environmentVariables
-                        ->mapWithKeys(fn (EnvironmentVariable $env): array => [
-                            $env->key => (string) (
-                                $env->getRawOriginal('encrypted_value')
-                                ?? Crypt::encryptString(
-                                    (string) $env->encrypted_value
-                                )
-                            ),
-                        ])
-                        ->all(),
+                    'environment' => [
+                        ...$lockedProject->environmentVariables
+                            ->mapWithKeys(fn (EnvironmentVariable $env): array => [
+                                $env->key => (string) (
+                                    $env->getRawOriginal('encrypted_value')
+                                    ?? Crypt::encryptString(
+                                        (string) $env->encrypted_value
+                                    )
+                                ),
+                            ])
+                            ->all(),
+                        ...array_map(
+                            static fn (string $value): string => Crypt::encryptString($value),
+                            $databaseEnvironment,
+                        ),
+                    ],
                     'resources' => $effectiveLimits->toResourcesArray(),
                     'timeouts' => $effectiveLimits->timeouts->toArray(),
                     'log_bounds' => $effectiveLimits->log_bounds->toArray(),

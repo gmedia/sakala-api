@@ -50,6 +50,17 @@ final class PilotLimitsResource extends JsonResource
                  * setting; every deployment builds. `null` means no limit.
                  */
                 'max_builds_per_hour' => $limits->max_builds_per_hour,
+                /** Managed databases the workspace may hold, from its limit profile or the global setting; `0` allows none. */
+                'max_databases' => $limits->max_databases,
+                /** Managed databases that count towards `max_databases`: every live one except those whose creation failed. */
+                'current_databases_count' => $this->resource->current_databases_count,
+                /**
+                 * Total size the workspace's managed databases may reach, in MB. At 80 % its owners and members are
+                 * notified; at 100 % every database of the workspace is locked. `0` allows none.
+                 */
+                'max_database_storage_mb' => $limits->max_database_storage_mb,
+                /** Size of the workspace's managed databases from the database node's last report, in bytes. */
+                'current_database_storage_bytes' => $this->resource->current_database_storage_bytes,
             ],
             'runtime_defaults' => [
                 /** @var int */

@@ -48,6 +48,16 @@ final class LimitProfileResource extends JsonResource
             /** Region the workspace's projects run in unless a project sets its own; `null` for any region. */
             'default_region' => $profile->default_region,
             /**
+             * Managed databases the workspace may hold. `null` follows the global `SAKALA_DATABASE_DEFAULT_MAX_COUNT`;
+             * `0` allows none.
+             */
+            'max_databases' => $profile->max_databases,
+            /**
+             * Total size of the workspace's managed databases, in MB. `null` follows the global
+             * `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB`; `0` allows none.
+             */
+            'max_database_storage_mb' => $profile->max_database_storage_mb,
+            /**
              * Workspaces running under this profile. A profile is deleted only at zero.
              *
              * @var int|null

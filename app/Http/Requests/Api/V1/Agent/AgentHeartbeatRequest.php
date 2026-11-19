@@ -6,13 +6,16 @@ namespace App\Http\Requests\Api\V1\Agent;
 
 use App\Data\Agent\AgentHeartbeatData;
 use App\Data\Agent\CrashedWorkloadsData;
+use App\Data\Agent\DatabaseSizesData;
 use App\Data\Agent\WorkloadMetricsData;
 use App\Data\Agent\WorkloadReplicasData;
 use App\Data\Agent\WorkloadTrafficData;
 use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
+use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Rules\EdgeAddress;
+use App\Rules\NetworkHost;
 use App\Rules\RegionSlug;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
@@ -50,6 +53,18 @@ final class AgentHeartbeatRequest extends FormRequest
      * up to 8192 samples, more than two a second.
      */
     public const MAX_REPORTED_MEMORY_BYTES = 1_125_899_906_842_624;
+
+    /** Key of the database size list under `metadata`. */
+    public const DATABASES_KEY = 'databases';
+
+    /**
+     * Databases one heartbeat may list. ADR-020 sizes an instance for a few
+     * hundred tenant databases; the bound keeps one heartbeat cheap.
+     */
+    public const MAX_DATABASE_ITEMS = 1000;
+
+    /** 1 PiB, like memory: far beyond any database, and inside a signed 64-bit integer when summed per workspace. */
+    public const MAX_REPORTED_DATABASE_BYTES = 1_125_899_906_842_624;
 
     /** Highest value the unsigned integer restart column holds on every database. */
     public const MAX_REPORTED_RESTART_COUNT = 2147483647;
@@ -97,6 +112,8 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.detail_counts.replicas' => ['sometimes', 'integer', 'min:0'],
             // Additive within protocol revision 4, sent with `metrics`.
             'metadata.detail_counts.'.self::METRICS_KEY => ['sometimes', 'integer', 'min:0'],
+            // Additive within protocol revision 4, sent with `databases`.
+            'metadata.detail_counts.'.self::DATABASES_KEY => ['sometimes', 'integer', 'min:0'],
 
             'metadata.resources' => ['required', 'array'],
             'metadata.resources.cpu_total' => ['present', 'nullable', 'integer', 'min:1'],
@@ -171,6 +188,24 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.'.AgentNode::RUNTIME_METADATA_KEY.'.'.AgentNode::REGION_METADATA_KEY => ['sometimes', 'nullable', 'string', 'max:'.RegionSlug::MAX_LENGTH, new RegionSlug],
             'metadata.'.AgentNode::RUNTIME_METADATA_KEY.'.'.AgentNode::EDGE_ADDRESS_METADATA_KEY => ['sometimes', 'nullable', 'string', 'max:'.EdgeAddress::MAX_LENGTH, new EdgeAddress],
 
+            // Optional and additive within protocol revision 4, from nodes with
+            // the `managed-postgres` capability (ADR-020): where attached
+            // projects reach the PostgreSQL instance, and the size of every
+            // database it hosts. Strict like the lists above.
+            'metadata.'.AgentNode::DATABASE_METADATA_KEY => ['sometimes', 'array'],
+            'metadata.'.AgentNode::DATABASE_METADATA_KEY.'.'.AgentNode::DATABASE_ENDPOINT_METADATA_KEY => ['sometimes', 'nullable', 'array'],
+            'metadata.'.AgentNode::DATABASE_METADATA_KEY.'.'.AgentNode::DATABASE_ENDPOINT_METADATA_KEY.'.host' => ['required_with:metadata.'.AgentNode::DATABASE_METADATA_KEY.'.'.AgentNode::DATABASE_ENDPOINT_METADATA_KEY, 'string', 'max:'.NetworkHost::MAX_LENGTH, new NetworkHost],
+            'metadata.'.AgentNode::DATABASE_METADATA_KEY.'.'.AgentNode::DATABASE_ENDPOINT_METADATA_KEY.'.port' => ['required_with:metadata.'.AgentNode::DATABASE_METADATA_KEY.'.'.AgentNode::DATABASE_ENDPOINT_METADATA_KEY, 'integer', 'between:1,'.AgentNode::MAX_PORT],
+            // False while the agent cannot read the instance; the node then
+            // reports `degraded` and gets no new database.
+            'metadata.'.AgentNode::DATABASE_METADATA_KEY.'.'.AgentNode::DATABASE_AVAILABLE_METADATA_KEY => ['sometimes', 'boolean:strict'],
+            // Only on a heartbeat right after a fresh size reading (at most
+            // once a minute): absence means no new reading, never zero.
+            'metadata.'.self::DATABASES_KEY => ['sometimes', 'array', 'max:'.self::MAX_DATABASE_ITEMS],
+            'metadata.'.self::DATABASES_KEY.'.*' => ['required', 'array'],
+            'metadata.'.self::DATABASES_KEY.'.*.name' => ['required', 'string', 'regex:'.ManagedDatabase::IDENTIFIER_PATTERN],
+            'metadata.'.self::DATABASES_KEY.'.*.size_bytes' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_DATABASE_BYTES],
+
             'metadata.disk_pressure' => ['required', 'array'],
             'metadata.disk_pressure.state' => ['required', 'string', 'max:50'],
             'metadata.disk_pressure.minimum_workspace_free_bytes' => ['required', 'integer', 'min:0'],
@@ -226,6 +261,7 @@ final class AgentHeartbeatRequest extends FormRequest
             workloadTraffic: $this->workloadTraffic(),
             workloadReplicas: $this->workloadReplicas(),
             workloadMetrics: $this->workloadMetrics(),
+            databaseSizes: $this->databaseSizes(),
         );
     }
 
@@ -235,7 +271,8 @@ final class AgentHeartbeatRequest extends FormRequest
      * fields from newer agent releases. The metric samples are the exception:
      * they are stored in project_metric_minutes, and keeping up to
      * MAX_METRIC_ITEMS of them in agent_nodes.metadata would rewrite them on
-     * every heartbeat for no reader.
+     * every heartbeat for no reader. The database sizes go to `databases` the
+     * same way.
      *
      * @return array<string, mixed>
      */
@@ -247,7 +284,17 @@ final class AgentHeartbeatRequest extends FormRequest
             unset($metadata['workloads'][self::METRICS_KEY]);
         }
 
+        unset($metadata[self::DATABASES_KEY]);
+
         return $metadata;
+    }
+
+    private function databaseSizes(): ?DatabaseSizesData
+    {
+        /** @var list<array{name: string, size_bytes: int}>|null $items */
+        $items = $this->validated('metadata.'.self::DATABASES_KEY);
+
+        return $items === null ? null : DatabaseSizesData::fromReport($items);
     }
 
     private function workloadMetrics(): ?WorkloadMetricsData
