@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-19
+
 ### Added
 
 - **Redeploy without rebuild (image reuse).** A deployment of the live commit with no build-affecting change reuses the image of the project's active deployment instead of building again (`PlanDeploymentBuildAction`, the one place that decides): the active deployment may be serving, sleeping, or crashed, its stored build fingerprint must equal the new one, and the new deployment must be pinned to its node, which must advertise the new agent capability `image-reuse`. Build-affecting: `root_directory`, `build_command`, `start_command`, and build-time variables (keys starting with `NEXT_PUBLIC_`, `NUXT_PUBLIC_`, `VITE_`, `REACT_APP_`, `VUE_APP_`, `GATSBY_`, `EXPO_PUBLIC_`, `PUBLIC_`, `RAILPACK_`, or exactly `NODE_ENV`); every other variable and the attached database's connection variables are runtime-only. The release command, health checks, replicas, zero-downtime switch, and active deployment and container limits apply as before. The auto-redeploy after a database password rotation now usually reuses the image, so apps reconnect without waiting for a build; so do redeploys after attaching or detaching a database or changing a runtime variable, and the manual Redeploy while the branch head is still the live commit. Deployments from before this release have no build fingerprint, so the first config redeploy after the upgrade builds once.
@@ -290,7 +292,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/gmedia/sakala-api/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/gmedia/sakala-api/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/gmedia/sakala-api/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/gmedia/sakala-api/compare/v0.5.0...v0.6.0
