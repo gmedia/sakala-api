@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Project;
 
+use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Support\Project\ProjectPreviewPresenter;
 use App\Support\Project\ProjectSuspensionPresenter;
@@ -50,6 +51,19 @@ final class GetCollectionProjectResource extends JsonResource
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()
                 : null,
+            /**
+             * The managed database attached to the project, as a list of at most one: a project uses one database at a
+             * time. Only `id`, `name`, and `status`; the project detail has the connection variables.
+             */
+            'databases' => $this->resource->databases
+                ->sortBy('name')
+                ->map(static fn (ManagedDatabase $database): array => [
+                    'id' => $database->id,
+                    'name' => $database->name,
+                    'status' => $database->status,
+                ])
+                ->values()
+                ->all(),
             /**
              * The workspace that owns the project. Null only for a project that is being purged.
              */

@@ -226,7 +226,7 @@ Mengulang saat `202` tetap `202` dengan `cancel_requested_at` pertama. `202` buk
 | `suspension` | object atau `null` | Terisi selama `status` bernilai `suspended`, dan `null` di luar itu, termasuk setelah penangguhan dibuka. Ada juga di `GET /api/v1/app/projects`. Lihat "Pemberitahuan dan Membuka Penangguhan". |
 | `redeploy_required` | boolean | `true` bila deployment aktif dibuat dengan konfigurasi yang relevan untuk deploy yang berbeda dari sekarang: `branch`, port (`effective_port`), konfigurasi build (`build_command`, `start_command`, `release_command`, `root_directory`), `replicas`, environment variable (key dan nilai), atau database terpasang (pasang, lepas, dan password yang dirotasi). Mengembalikan nilainya seperti semula membuatnya `false` lagi. `name`, `thumbnail_url`, `auto_deploy`, `region`, dan `is_secret` tidak pernah membuatnya `true`. Selalu `false` bila tidak ada deployment aktif. |
 | `stack` | object atau `null` | Lihat "Inspeksi". |
-| `databases` | array | Database terkelola yang terpasang, paling banyak satu: `id`, `name`, `status`, `region`, `variables` (nama variabel yang diterima deployment berikutnya dari database itu, tanpa nilai), dan `overridden_variables` (nama yang di-set proyek sendiri, sehingga nilai proyek yang dipakai; Console sebaiknya memperingatkannya). `[]` tanpa database. Hanya di `ProjectResource`, tidak di daftar project. Lihat [Database](#database). |
+| `databases` | array | Database terkelola yang terpasang, paling banyak satu: `id`, `name`, `status`, `region`, `variables` (nama variabel yang diterima deployment berikutnya dari database itu, tanpa nilai), dan `overridden_variables` (nama yang di-set proyek sendiri, sehingga nilai proyek yang dipakai; Console sebaiknya memperingatkannya). `[]` tanpa database. Daftar project (`GET /api/v1/app/projects`) memuat versi ringan dengan `id`, `name`, dan `status` saja, supaya dialog pemasangan bisa menandai proyek yang sudah memakai database. Lihat [Database](#database). |
 | `workspace` | object atau `null` | Workspace pemilik project: `id`, `name`, `slug`, `type` (`personal` atau `team`). Ada juga di daftar project dan respons pembuatan project. `null` hanya untuk project yang sedang menunggu purge tanpa workspace. Peran pemanggil ada di `GET /api/v1/app/workspaces`. |
 
 Isi `latest_deployment`:
@@ -562,7 +562,7 @@ Tim selalu punya setidaknya satu owner: pemilik terakhir tidak bisa keluar, dike
 | `POST /api/v1/app/workspace-invitations/{invitation}/accept` | Penerima | `WorkspaceResource` dengan peran barunya. Body `token` opsional. |
 | `POST /api/v1/app/workspace-invitations/{invitation}/decline` | Penerima | `204`. Body `token` opsional. |
 
-`WorkspaceResource` berisi `id`, `name`, `slug`, `type`, `role` (peran pemanggil), `limit_profile` (`id`, `name`, atau `null` untuk default tipenya), dan `created_at`.
+`WorkspaceResource` berisi `id`, `name`, `slug`, `type`, `role` (peran pemanggil), `limit_profile` (`id`, `name`, atau `null` untuk default tipenya), `default_region` (region yang dipakai proyek dan database workspace ini bila tidak memilih sendiri, dari profil batas; `null` berarti region mana pun, termasuk untuk workspace tanpa profil), `projects_count`, `active_deployments_count`, dan `created_at`. Semua anggota, termasuk viewer, menerimanya.
 
 ### Membuat Tim
 
@@ -675,7 +675,9 @@ Semua endpoint berada di `/api/v1/app/workspaces/{workspace}/databases` dan mema
 
 Memasang dan melepas juga memeriksa hak mengubah proyek itu, yang di workspace yang sama berarti owner atau member.
 
-`DatabaseResource` berisi `id`, `name`, `engine` (`postgresql`), `status`, `region` (region node database, `null` bila node itu tidak punya region), `size_bytes` dan `size_checked_at` (dari pembacaan ukuran terakhir node database, `null` sampai node melaporkan; database kosong sekitar 7,5 MiB karena katalog sistem ikut terhitung), `projects` (proyek yang terpasang: `id`, `name`, `slug`, urut nama), `last_failure`, `created_at`, dan `updated_at`.
+`DatabaseResource` berisi `id`, `name`, `engine` (`postgresql`), `status`, `region` (region node database, `null` bila node itu tidak punya region), `size_bytes` dan `size_checked_at` (dari pembacaan ukuran terakhir node database, `null` sampai node melaporkan; database kosong sekitar 7,5 MiB karena katalog sistem ikut terhitung), `projects` (proyek yang terpasang: `id`, `name`, `slug`, urut nama), `connection`, `last_failure`, `created_at`, dan `updated_at`.
+
+`connection` berisi `host`, `port`, `database`, dan `username`: nilai yang sama dengan `DB_HOST`, `DB_PORT`, `DB_DATABASE`, dan `DB_USERNAME` di proyek yang terpasang. Semua yang boleh melihat database menerimanya, termasuk viewer, karena nilai ini bukan rahasia dan host-nya ada di jaringan privat node database yang hanya terjangkau dari workload Sakala. `connection` bernilai `null` kecuali status `ready` atau `locked` dan node database sudah melaporkan alamatnya. Password dan `DATABASE_URL` tetap hanya di endpoint kredensial.
 
 `last_failure` terisi selama permintaan terbaru ke node database untuk database itu gagal atau kedaluwarsa, dan `null` begitu ada permintaan baru, entah berjalan atau sukses:
 
@@ -740,7 +742,7 @@ Memasang, melepas, dan rotasi password yang sukses mengubah fingerprint deploy p
 
 `GET .../credentials` menjawab `host`, `port`, `database`, `username`, `password`, `url` (sama dengan `DATABASE_URL`), dan `sslmode` (selalu `require`). `host`, `port`, dan `url` bernilai `null` selama node database belum melaporkan alamatnya. Database yang tidak `ready` atau `locked` dijawab `409 DATABASE_NOT_READY`.
 
-Hanya owner workspace dan admin yang boleh membaca. Ini menjauhkan password dari layar member dan viewer, bukan batas keamanan: member tetap bisa memasang database ke proyek, dan kode yang mereka deploy menerima variabel koneksinya. Setiap pembacaan mencatat `database.credentials_viewed` sebelum password dikirim, tanpa password; bila catatan gagal ditulis, password tidak dikirim. Alamat IP dan user agent hanya disimpan untuk admin yang bukan anggota workspace itu.
+Hanya owner workspace dan admin yang boleh membaca; `host`, `port`, `database`, dan `username` tanpa password juga ada di `connection` pada `DatabaseResource` untuk semua anggota. Ini menjauhkan password dari layar member dan viewer, bukan batas keamanan: member tetap bisa memasang database ke proyek, dan kode yang mereka deploy menerima variabel koneksinya. Setiap pembacaan mencatat `database.credentials_viewed` sebelum password dikirim, tanpa password; bila catatan gagal ditulis, password tidak dikirim. Alamat IP dan user agent hanya disimpan untuk admin yang bukan anggota workspace itu.
 
 ### Rotasi Password
 
