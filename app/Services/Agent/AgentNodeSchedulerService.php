@@ -206,6 +206,20 @@ final class AgentNodeSchedulerService
     }
 
     /**
+     * Whether this installation can host a new managed database right now:
+     * an online node that may receive CreateDatabase (capability
+     * `managed-postgres`, same eligibility as placement) and whose last
+     * reading said its instance answers. Stricter than selectDatabaseNode(),
+     * which also queues for an offline node, because this answer decides
+     * whether the Console offers databases at all.
+     */
+    public function databasesAvailable(): bool
+    {
+        return $this->eligibleNodes(AgentCommandType::CreateDatabase)
+            ->contains(static fn (AgentNode $node): bool => $node->databaseReportedAvailable());
+    }
+
+    /**
      * Available instances first, then fewest live databases, then the freshest
      * heartbeat. One query for the counts, whatever the number of nodes.
      *

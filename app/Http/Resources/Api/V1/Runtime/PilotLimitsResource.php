@@ -15,6 +15,16 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 final class PilotLimitsResource extends JsonResource
 {
+    /** Whether the installation offers managed databases (AgentNodeSchedulerService::databasesAvailable()). */
+    public bool $databasesAvailable = false;
+
+    public function withDatabasesAvailable(bool $available): static
+    {
+        $this->databasesAvailable = $available;
+
+        return $this;
+    }
+
     /**
      * Transform the resource into an array.
      *
@@ -91,6 +101,17 @@ final class PilotLimitsResource extends JsonResource
              * limit profile or the global setting. `0` means its projects never sleep.
              */
             'project_idle_sleep_minutes' => $limits->idle_sleep_minutes,
+            /**
+             * Managed databases on this installation. `available` is true while at least one online database node
+             * may receive new databases and its PostgreSQL instance last reported that it answers. False on an
+             * installation without a database server, and while every database node is offline or its instance
+             * is down: creating one would wait or fail. Existing databases stay listed either way.
+             *
+             * @var array{available: bool}
+             */
+            'databases' => [
+                'available' => $this->databasesAvailable,
+            ],
         ];
     }
 }

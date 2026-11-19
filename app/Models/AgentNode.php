@@ -211,6 +211,18 @@ class AgentNode extends Model
         return ! is_array($database) || ($database[self::DATABASE_AVAILABLE_METADATA_KEY] ?? true) !== false;
     }
 
+    /**
+     * Whether the node's last reading said its PostgreSQL instance answers.
+     * Unlike databaseAvailable(), a node that never reported it does not
+     * count: nobody has seen its instance work yet.
+     */
+    public function databaseReportedAvailable(): bool
+    {
+        $database = $this->metadata[self::DATABASE_METADATA_KEY] ?? null;
+
+        return is_array($database) && ($database[self::DATABASE_AVAILABLE_METADATA_KEY] ?? null) === true;
+    }
+
     /** Free memory and container slots from the last heartbeat. */
     public function capacity(): NodeCapacityData
     {

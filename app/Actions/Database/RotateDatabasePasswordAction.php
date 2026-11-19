@@ -11,14 +11,18 @@ use App\Models\ManagedDatabase;
 use App\Models\User;
 use App\Services\Database\DatabaseCommandService;
 use App\Support\Database\DatabaseAudit;
+use App\Support\Database\DatabasePasswordRotation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Asks the database node for a new password. The stored one stays until the
- * node reports success, so deployments made meanwhile still connect; then the
- * new one is stored and every attached project shows `redeploy_required`.
- * Allowed while locked, because a leaked password must be replaceable.
+ * Asks the database node for a new password. The node switches at once, so
+ * running containers lose new connections from that moment, as a leaked
+ * password requires. The stored one stays until the node reports success;
+ * then the new one is stored, every attached project shows
+ * `redeploy_required`, and, when `$redeployAttached`, the attached projects
+ * are redeployed (RedeployAfterPasswordRotationAction). Allowed while locked,
+ * because a leaked password must be replaceable.
  */
 final class RotateDatabasePasswordAction
 {
@@ -30,9 +34,9 @@ final class RotateDatabasePasswordAction
      * @throws DatabaseNotReadyException
      * @throws DatabaseBusyException
      */
-    public function handle(User $actor, ManagedDatabase $database): ManagedDatabase
+    public function handle(User $actor, ManagedDatabase $database, bool $redeployAttached = false): ManagedDatabase
     {
-        return DB::transaction(function () use ($actor, $database): ManagedDatabase {
+        return DB::transaction(function () use ($actor, $database, $redeployAttached): ManagedDatabase {
             /** @var ManagedDatabase $locked */
             $locked = ManagedDatabase::query()->whereKey($database->id)->lockForUpdate()->firstOrFail();
 
@@ -44,9 +48,16 @@ final class RotateDatabasePasswordAction
                 throw DatabaseBusyException::rotationInProgress();
             }
 
-            $command = $this->commands->rotatePassword($locked, Str::random(ManagedDatabase::PASSWORD_LENGTH));
+            $command = $this->commands->rotatePassword(
+                $locked,
+                Str::random(ManagedDatabase::PASSWORD_LENGTH),
+                DatabasePasswordRotation::requestContext($actor, $redeployAttached),
+            );
 
-            DatabaseAudit::record($actor, DatabaseAudit::PASSWORD_ROTATION_REQUESTED, $locked, ['command_id' => $command->id]);
+            DatabaseAudit::record($actor, DatabaseAudit::PASSWORD_ROTATION_REQUESTED, $locked, [
+                'command_id' => $command->id,
+                'redeploy_attached' => $redeployAttached,
+            ]);
 
             return $locked;
         });
