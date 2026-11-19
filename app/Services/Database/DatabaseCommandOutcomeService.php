@@ -25,6 +25,7 @@ final class DatabaseCommandOutcomeService
 {
     public function __construct(
         private readonly DatabaseCommandService $commands,
+        private readonly DatabaseDeployRequests $deployRequests,
     ) {}
 
     public function completed(AgentNode $agent, AgentCommand $command): void
@@ -39,7 +40,8 @@ final class DatabaseCommandOutcomeService
 
         match ($command->type) {
             AgentCommandType::CreateDatabase => $this->transition($database, DatabaseStatus::Provisioning, DatabaseStatus::Ready)
-                && $this->audit($agent, DatabaseAudit::PROVISIONED, $database, $metadata),
+                && $this->audit($agent, DatabaseAudit::PROVISIONED, $database, $metadata)
+                && $this->queueDeployRequests($database),
             AgentCommandType::DropDatabase => $this->completeDrop($agent, $database, $metadata),
             AgentCommandType::RotateDatabasePassword => $this->completeRotation($agent, $command, $database, $metadata),
             AgentCommandType::LockDatabase => $this->transition($database, DatabaseStatus::Ready, DatabaseStatus::Locked)
@@ -71,7 +73,8 @@ final class DatabaseCommandOutcomeService
 
         match ($command->type) {
             AgentCommandType::CreateDatabase => $this->transition($database, DatabaseStatus::Provisioning, DatabaseStatus::Failed)
-                && $this->audit($actor, DatabaseAudit::PROVISIONING_FAILED, $database, $metadata),
+                && $this->audit($actor, DatabaseAudit::PROVISIONING_FAILED, $database, $metadata)
+                && $this->skipDeployRequests($actor, $database),
             AgentCommandType::DropDatabase => $this->audit($actor, DatabaseAudit::DROP_FAILED, $database, $metadata),
             AgentCommandType::RotateDatabasePassword => $this->audit($actor, DatabaseAudit::PASSWORD_ROTATION_FAILED, $database, $metadata),
             AgentCommandType::LockDatabase => $this->audit($actor, DatabaseAudit::LOCK_FAILED, $database, $metadata),
@@ -139,6 +142,22 @@ final class DatabaseCommandOutcomeService
             ...$metadata,
             'project_ids' => $projects->modelKeys(),
         ]);
+    }
+
+    /** Projects that asked to be deployed once the database is ready get their deployment after commit. */
+    private function queueDeployRequests(ManagedDatabase $database): bool
+    {
+        $this->deployRequests->queueAfterReady($database);
+
+        return true;
+    }
+
+    /** Projects that asked to be deployed once the database is ready never will be. */
+    private function skipDeployRequests(AgentNode|string $actor, ManagedDatabase $database): bool
+    {
+        $this->deployRequests->skipAfterFailedProvisioning($actor, $database);
+
+        return true;
     }
 
     private function transition(ManagedDatabase $database, DatabaseStatus $from, DatabaseStatus $to): bool
