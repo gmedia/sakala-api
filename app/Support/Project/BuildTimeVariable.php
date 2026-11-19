@@ -5,15 +5,17 @@ declare(strict_types=1);
 namespace App\Support\Project;
 
 /**
- * Which project variables change the image a build produces. Railpack exposes
- * every variable to every build step, but only these end up in the output:
- * frameworks inline the public prefixes into the bundle, `RAILPACK_` configures
- * the builder, and `NODE_ENV` switches how JavaScript projects build. Adding,
- * changing, or removing one makes the next deployment build; every other
- * variable, and an attached database's connection variables, is read at
- * runtime only, so a deployment that changes just those may reuse the live
- * image (see PlanDeploymentBuildAction). The "Build ulang dari awal" action
- * (`force_build`) covers a project that bakes another variable in.
+ * Which project variables change the image a build produces for a plain
+ * server (VariableBuildPolicy decides when every variable does instead).
+ * Railpack exposes every variable to every build step, but only these end up
+ * in a server's output: frameworks inline the public prefixes into the bundle,
+ * `RAILPACK_` configures the builder, and `NODE_ENV` switches how JavaScript
+ * projects build. Adding, changing, or removing one makes the next deployment
+ * build; every other variable, and an attached database's connection
+ * variables, is read at runtime only, so a deployment that changes just those
+ * may reuse the live image (see PlanDeploymentBuildAction). The "Build ulang
+ * dari awal" action (`force_build`) covers a project that bakes another
+ * variable in.
  */
 final class BuildTimeVariable
 {

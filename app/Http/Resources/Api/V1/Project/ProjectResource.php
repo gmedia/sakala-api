@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Project;
 
+use App\Enums\VariableBuildReason;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\Project\ProjectPreviewPresenter;
 use App\Support\Project\ProjectSuspensionPresenter;
+use App\Support\Project\VariableBuildPolicy;
 use App\Support\Workspace\WorkspaceSummaryPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -136,6 +138,16 @@ final class ProjectResource extends JsonResource
             'inspection' => ProjectPreviewPresenter::inspection($this->resource),
             'stack' => ProjectPreviewPresenter::stack($this->resource),
             'inspection_error_code' => $this->resource->inspection_error_code,
+            /**
+             * What a change to the project's own variables does to the next deployment. `requires_build` is true when any
+             * change builds (`reason` says why); false for a plain server, where only keys starting with one of
+             * `build_time_prefixes` (case-sensitive) or equal to one of `build_time_keys` build, and the Console shows
+             * `build_time_prefix` for such a key. An attached database's connection variables never build. See
+             * docs/API_CONVENTIONS.md#variabel-yang-memengaruhi-build.
+             *
+             * @var array{requires_build: bool, reason: VariableBuildReason|null, build_time_prefixes: list<string>, build_time_keys: list<string>}
+             */
+            'variable_changes' => VariableBuildPolicy::present($this->resource),
             'last_deployed_at' => $this->resource->last_deployed_at !== null
                 ? $this->resource->last_deployed_at->toAtomString()
                 : null,

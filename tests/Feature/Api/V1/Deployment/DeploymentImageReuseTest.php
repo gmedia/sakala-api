@@ -10,6 +10,7 @@ use App\Enums\DeploymentBuildFallbackReason;
 use App\Enums\DeploymentBuildMode;
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
+use App\Enums\ProjectInspectionStatus;
 use App\Enums\RuntimeStatus;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
@@ -19,7 +20,9 @@ use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Support\Project\BuildTimeVariable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
@@ -58,7 +61,9 @@ function reuseNode(array $capabilities = REUSE_CAPABILITIES, array $overrides = 
 
 /**
  * A team (profile overrides in `$profile`) with a project on `main` and the
- * given variables.
+ * given variables. The project is an inspected plain Node server (Express),
+ * where only build-time prefixes build, unless `$projectAttributes` says
+ * otherwise (see reuseStackAttributes()).
  *
  * @param  array<string, string>  $variables
  * @return array{team: array{workspace: Workspace, owner: User, member: User, viewer: User, outsider: User, admin: User}, project: Project}
@@ -66,13 +71,44 @@ function reuseNode(array $capabilities = REUSE_CAPABILITIES, array $overrides = 
 function reuseProject(array $variables = [], array $projectAttributes = [], array $profile = []): array
 {
     $team = databaseTeam($profile);
-    $project = Project::factory()->inWorkspace($team['workspace'], $team['owner'])->create(['branch' => 'main', ...$projectAttributes]);
+    $project = Project::factory()->inWorkspace($team['workspace'], $team['owner'])->create([
+        'branch' => 'main',
+        ...reuseStackAttributes('express'),
+        ...$projectAttributes,
+    ]);
 
     foreach ($variables as $key => $value) {
         EnvironmentVariable::query()->create(['project_id' => $project->id, 'key' => $key, 'encrypted_value' => $value, 'is_secret' => true]);
     }
 
     return ['team' => $team, 'project' => $project];
+}
+
+/**
+ * Project attributes for a named stack: a Railpack fixture
+ * (railpackStackInspection()), or `no-inspection`, `failed-inspection`, and
+ * `other-root-directory`, which leave no usable inspection.
+ *
+ * @return array<string, mixed>
+ */
+function reuseStackAttributes(string $stack): array
+{
+    return match ($stack) {
+        'no-inspection' => ['inspection_status' => null, 'inspection' => null],
+        'failed-inspection' => ['inspection_status' => ProjectInspectionStatus::Failed, 'inspection' => railpackStackInspection('express')],
+        'other-root-directory' => [...inspectedProjectAttributes(railpackStackInspection('express')), 'root_directory' => 'apps/api'],
+        default => inspectedProjectAttributes(railpackStackInspection($stack)),
+    };
+}
+
+/** Add, change, or remove `$key` (which must exist unless added). */
+function reuseChangeVariable(Project $project, string $key, string $change): void
+{
+    match ($change) {
+        'added' => EnvironmentVariable::query()->create(['project_id' => $project->id, 'key' => $key, 'encrypted_value' => 'after', 'is_secret' => false]),
+        'changed' => EnvironmentVariable::query()->where('project_id', $project->id)->where('key', $key)->firstOrFail()->update(['encrypted_value' => 'after']),
+        'removed' => EnvironmentVariable::query()->where('project_id', $project->id)->where('key', $key)->delete(),
+    };
 }
 
 /** A deployment through the real action, as `$user`. */
@@ -348,11 +384,7 @@ test('adding, changing, or removing a build-time variable builds', function (str
     ['team' => $team, 'project' => $project] = reuseProject($change === 'added' ? [] : [$key => 'before']);
     reuseGoLive($project, $team['owner']);
 
-    match ($change) {
-        'added' => EnvironmentVariable::query()->create(['project_id' => $project->id, 'key' => $key, 'encrypted_value' => 'after', 'is_secret' => false]),
-        'changed' => EnvironmentVariable::query()->where('project_id', $project->id)->where('key', $key)->firstOrFail()->update(['encrypted_value' => 'after']),
-        'removed' => EnvironmentVariable::query()->where('project_id', $project->id)->where('key', $key)->delete(),
-    };
+    reuseChangeVariable($project, $key, $change);
 
     expectBuild(reuseDeploy($project, $team['owner']));
 })->with([
@@ -431,6 +463,175 @@ test('a live deployment from before image reuse has no build fingerprint, so the
 
     expectReuse(reuseDeploy($project, $team['owner']), $next->id);
 });
+
+// ─── Variable build policy ───────────────────────────────────────────────────
+
+/** Stacks where every project variable is build-time, one per reason. */
+const REUSE_EVERY_VARIABLE_STACKS = [
+    'Vite SPA (static_site)' => ['vite-spa'],
+    'staticfile (static_site)' => ['staticfile'],
+    'Next.js (prerender_framework)' => ['next'],
+    'SvelteKit (prerender_framework)' => ['sveltekit'],
+    'Astro SPA with a start command (prerender_framework)' => ['astro-spa', ['start_command' => 'npm run preview']],
+    'shell (unknown_stack)' => ['shell'],
+    'no inspection (unknown_stack)' => ['no-inspection'],
+    'failed inspection (unknown_stack)' => ['failed-inspection'],
+    'inspection of another root directory (unknown_stack)' => ['other-root-directory'],
+];
+
+/** Plain servers: only build-time prefixes and keys build. */
+const REUSE_PLAIN_SERVER_STACKS = [
+    'Express' => ['express'],
+    'bun' => ['bun'],
+    'Laravel' => ['laravel'],
+    'Django' => ['django'],
+    'Go' => ['go'],
+    'Rails' => ['rails'],
+    'Dockerfile' => ['dockerfile'],
+];
+
+test('changing a non-prefixed variable at the same commit builds a static, prerendered, or unknown stack', function (string $stack, array $attributes, string $change): void {
+    reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(
+        $change === 'added' ? [] : ['API_URL' => 'before'],
+        [...reuseStackAttributes($stack), ...$attributes],
+    );
+    $live = reuseGoLive($project, $team['owner']);
+
+    // Nothing changed yet: it reuses like any other project.
+    $unchanged = reuseMakeLive(reuseDeploy($project, $team['owner']));
+    expectReuse($unchanged, $live->id);
+
+    reuseChangeVariable($project, 'API_URL', $change);
+
+    expectBuild(reuseDeploy($project, $team['owner']));
+})->with(array_map(static fn (array $stack): array => [$stack[0], $stack[1] ?? []], REUSE_EVERY_VARIABLE_STACKS))
+    ->with(['added', 'changed', 'removed']);
+
+test('changing a non-prefixed variable at the same commit reuses the image of a plain server', function (string $stack, string $change): void {
+    reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject($change === 'added' ? [] : ['API_URL' => 'before'], reuseStackAttributes($stack));
+    $live = reuseGoLive($project, $team['owner']);
+
+    reuseChangeVariable($project, 'API_URL', $change);
+
+    expectReuse(reuseDeploy($project, $team['owner']), $live->id);
+})->with(REUSE_PLAIN_SERVER_STACKS)->with(['added', 'changed', 'removed']);
+
+test('a build-time prefix still builds a plain server', function (string $stack): void {
+    reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(['VITE_API_URL' => 'before'], reuseStackAttributes($stack));
+    reuseGoLive($project, $team['owner']);
+
+    reuseChangeVariable($project, 'VITE_API_URL', 'changed');
+
+    expectBuild(reuseDeploy($project, $team['owner']));
+})->with(REUSE_PLAIN_SERVER_STACKS);
+
+test('attaching or detaching a database reuses the image for every stack', function (string $stack, array $attributes, bool $attachedFirst): void {
+    $node = reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(['API_URL' => 'kept'], [...reuseStackAttributes($stack), ...$attributes]);
+    $database = databaseIn($team['workspace'], $node);
+
+    if ($attachedFirst) {
+        attachDatabase($database, $project);
+    }
+
+    $live = reuseGoLive($project, $team['owner']);
+
+    if ($attachedFirst) {
+        DatabaseAttachment::query()->where('project_id', $project->id)->delete();
+        $project->refresh()->refreshDatabaseFingerprint();
+        $project->save();
+    } else {
+        attachDatabase($database, $project->refresh());
+    }
+
+    $deployment = reuseDeploy($project, $team['owner']);
+
+    expectReuse($deployment, $live->id);
+    expect(array_key_exists('DATABASE_URL', reusePayload($deployment)['environment']))->toBe(! $attachedFirst);
+})->with(array_map(static fn (array $stack): array => [$stack[0], $stack[1] ?? []], [...REUSE_EVERY_VARIABLE_STACKS, ...REUSE_PLAIN_SERVER_STACKS]))
+    ->with(['after attaching' => [false], 'after detaching' => [true]]);
+
+test('a password rotation redeploy reuses the image for every stack', function (string $stack, array $attributes): void {
+    $node = reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(['API_URL' => 'kept'], [...reuseStackAttributes($stack), ...$attributes]);
+    $database = databaseIn($team['workspace'], $node);
+    attachDatabase($database, $project);
+    $live = reuseGoLive($project, $team['owner'], commit: REUSE_OLDER_COMMIT);
+    $passwordBefore = Crypt::decryptString(reusePayload($live)['environment']['DB_PASSWORD']);
+
+    $this->actingAs($team['member'], 'web')
+        ->postJson("/api/v1/app/workspaces/{$database->workspace_id}/databases/{$database->id}/rotate-password", ['redeploy_attached' => true])
+        ->assertAccepted();
+
+    $command = databaseCommand($database, AgentCommandType::RotateDatabasePassword);
+    $command->update(['status' => AgentCommandStatus::Running, 'claimed_at' => now()]);
+    $this->withHeaders(databaseNodeHeaders($node))
+        ->postJson("/api/agent/v1/commands/{$command->id}/complete", ['result' => null])
+        ->assertNoContent();
+
+    $deployment = Deployment::query()->where('trigger', DeploymentTrigger::DatabasePasswordRotated)->sole();
+
+    expectReuse($deployment, $live->id);
+    expect(Crypt::decryptString(reusePayload($deployment)['environment']['DB_PASSWORD']))->not->toBe($passwordBefore)
+        ->toBe($database->fresh()->password);
+})->with(array_map(static fn (array $stack): array => [$stack[0], $stack[1] ?? []], [...REUSE_EVERY_VARIABLE_STACKS, ...REUSE_PLAIN_SERVER_STACKS]));
+
+test('a project variable named like a database variable is a project variable', function (string $stack, bool $builds): void {
+    $node = reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(['DATABASE_URL' => 'postgresql://own'], reuseStackAttributes($stack));
+    attachDatabase(databaseIn($team['workspace'], $node), $project);
+    $live = reuseGoLive($project, $team['owner']);
+
+    reuseChangeVariable($project, 'DATABASE_URL', 'changed');
+    $deployment = reuseDeploy($project, $team['owner']);
+
+    $builds ? expectBuild($deployment) : expectReuse($deployment, $live->id);
+    // The project's own value wins over the attached database's.
+    expect(Crypt::decryptString(reusePayload($deployment)['environment']['DATABASE_URL']))->toBe('after');
+})->with([
+    'static site' => ['vite-spa', true],
+    'plain server' => ['express', false],
+]);
+
+test('a stack that turns static after a re-inspection builds once, then reuses', function (): void {
+    reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(['API_URL' => 'kept']);
+    reuseGoLive($project, $team['owner']);
+
+    $project->update(reuseStackAttributes('vite-spa'));
+
+    $rebuilt = reuseMakeLive(reuseDeploy($project, $team['owner']));
+    expectBuild($rebuilt);
+    expectReuse(reuseDeploy($project, $team['owner']), $rebuilt->id);
+});
+
+test('after the upgrade, a live plain server keeps reusing while a static site builds once', function (string $stack, bool $buildsOnce): void {
+    reuseNode();
+    ['team' => $team, 'project' => $project] = reuseProject(['API_URL' => 'kept', 'VITE_API_URL' => 'kept'], reuseStackAttributes($stack));
+    $live = reuseGoLive($project, $team['owner']);
+
+    // What v0.9.0 stored: only build-time prefixes, under the plain scope.
+    $variables = $project->environmentVariables()->get()->filter(static fn (EnvironmentVariable $variable): bool => BuildTimeVariable::matches($variable->key));
+    $pairs = $variables->sortBy('key')->map(static fn (EnvironmentVariable $variable): array => [$variable->key, (string) $variable->encrypted_value])->values()->all();
+    $live->update(['build_fingerprint' => hash_hmac('sha256', json_encode(['build', null, null, null, $pairs], JSON_THROW_ON_ERROR), (string) config('app.key'))]);
+
+    $next = reuseMakeLive(reuseDeploy($project, $team['owner']));
+
+    if ($buildsOnce) {
+        expectBuild($next);
+        expectReuse(reuseDeploy($project, $team['owner']), $next->id);
+    } else {
+        expectReuse($next, $live->id);
+    }
+})->with([
+    'plain server' => ['express', false],
+    'static site' => ['vite-spa', true],
+    'prerender framework' => ['next', true],
+    'unknown stack' => ['no-inspection', true],
+]);
 
 // ─── Request ─────────────────────────────────────────────────────────────────
 

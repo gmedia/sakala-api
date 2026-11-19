@@ -42,6 +42,13 @@ final class DeploymentConfigFingerprint
     private const BUILD_SCOPE = 'build';
 
     /**
+     * Leads it instead when every project variable is build-time
+     * (VariableBuildPolicy), so it never equals the plain-server fingerprint
+     * over the same values.
+     */
+    private const BUILD_ALL_VARIABLES_SCOPE = 'build:all-variables';
+
+    /**
      * Pure: reads only the project's own attributes, so a list of projects
      * needs no extra query. `environment_fingerprint` must be current, which
      * the environment variable actions and CreateDeploymentAction ensure.
@@ -102,20 +109,28 @@ final class DeploymentConfigFingerprint
     /**
      * What decides the image a build produces: the root directory, the build
      * command, the start command (Railpack bakes it into the image), and the
-     * build-time variables (BuildTimeVariable) with their plaintext values,
-     * sorted by key. An empty command counts as none, as in the payload.
-     * Stored as `deployments.build_fingerprint` and compared by
-     * PlanDeploymentBuildAction. Pass the variables already loaded for the
-     * payload, so both see the same values.
+     * build-time variables with their plaintext values, sorted by key. An
+     * empty command counts as none, as in the payload. Stored as
+     * `deployments.build_fingerprint` and compared by
+     * PlanDeploymentBuildAction. Pass the project variables already loaded for
+     * the payload, so both see the same values; an attached database's
+     * connection variables are not among them, so they never count.
+     *
+     * Which variables are build-time is VariableBuildPolicy's call: all of
+     * them, under their own scope marker, for a static site, a prerendering
+     * framework, or an unknown stack; otherwise only BuildTimeVariable's, with
+     * exactly the input of v0.9.0, so live plain-server deployments keep
+     * matching.
      *
      * @param  iterable<EnvironmentVariable>  $variables
      */
     public static function forBuild(Project $project, iterable $variables): string
     {
+        $everyVariable = VariableBuildPolicy::everyVariableIsBuildTime($project);
         $pairs = [];
 
         foreach ($variables as $variable) {
-            if (BuildTimeVariable::matches($variable->key)) {
+            if ($everyVariable || BuildTimeVariable::matches($variable->key)) {
                 $pairs[$variable->key] = [$variable->key, (string) $variable->encrypted_value];
             }
         }
@@ -123,7 +138,7 @@ final class DeploymentConfigFingerprint
         ksort($pairs, SORT_STRING);
 
         return self::sign([
-            self::BUILD_SCOPE,
+            $everyVariable ? self::BUILD_ALL_VARIABLES_SCOPE : self::BUILD_SCOPE,
             self::presentOrNull($project->root_directory),
             self::presentOrNull($project->build_command),
             self::presentOrNull($project->start_command),

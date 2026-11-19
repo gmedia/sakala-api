@@ -64,22 +64,18 @@ final class ProjectPreviewPresenter
      */
     public static function stack(Project $project): ?array
     {
-        $inspection = $project->inspection;
+        $inspection = self::usableInspection($project);
 
-        if ($inspection === null
-            || $project->inspection_status !== ProjectInspectionStatus::Succeeded
-            || ($inspection['root_directory'] ?? null) !== $project->root_directory) {
+        if ($inspection === null) {
             return null;
         }
 
-        $railpack = is_array($inspection['railpack'] ?? null) ? $inspection['railpack'] : [];
-        $providers = is_array($railpack['detectedProviders'] ?? null) ? $railpack['detectedProviders'] : [];
-        $metadata = is_array($railpack['metadata'] ?? null) ? $railpack['metadata'] : [];
+        $metadata = self::railpackMetadata($inspection);
 
         return [
             // The choice auto mode makes: a Dockerfile wins, otherwise railpack.
-            'builder' => ($inspection['dockerfile_found'] ?? false) === true ? 'dockerfile' : 'railpack',
-            'provider' => self::label($providers[0] ?? null),
+            'builder' => self::usesDockerfile($inspection) ? 'dockerfile' : 'railpack',
+            'provider' => self::railpackProvider($inspection),
             'framework' => self::framework($metadata),
             // The agent's value comes from a lockfile; railpack also decides without one.
             'package_manager' => is_string($inspection['package_manager'] ?? null)
@@ -108,8 +104,76 @@ final class ProjectPreviewPresenter
         return in_array($runtime, self::PLAIN_NODE_RUNTIMES, true) ? null : $runtime;
     }
 
-    /** Agent output is untrusted: only a short plain token may reach the console. */
-    private static function label(mixed $value): ?string
+    /**
+     * The stored inspection while it describes the project as configured now:
+     * it succeeded and looked at the project's current root directory. Null
+     * otherwise. The one guard for everything derived from an inspection
+     * (stack(), VariableBuildPolicy).
+     *
+     * @return array<array-key, mixed>|null
+     */
+    public static function usableInspection(Project $project): ?array
+    {
+        $inspection = $project->inspection;
+
+        if ($inspection === null
+            || $project->inspection_status !== ProjectInspectionStatus::Succeeded
+            || ($inspection['root_directory'] ?? null) !== $project->root_directory) {
+            return null;
+        }
+
+        return $inspection;
+    }
+
+    /**
+     * Auto mode builds with the repository's Dockerfile when there is one.
+     *
+     * @param  array<array-key, mixed>  $inspection
+     */
+    public static function usesDockerfile(array $inspection): bool
+    {
+        return ($inspection['dockerfile_found'] ?? false) === true;
+    }
+
+    /**
+     * Railpack's first detected provider (`railpack.detectedProviders[0]`), as a label.
+     *
+     * @param  array<array-key, mixed>  $inspection
+     */
+    public static function railpackProvider(array $inspection): ?string
+    {
+        $railpack = self::railpack($inspection);
+        $providers = is_array($railpack['detectedProviders'] ?? null) ? $railpack['detectedProviders'] : [];
+
+        return self::label($providers[0] ?? null);
+    }
+
+    /**
+     * Railpack's `metadata` map, unsanitised: read each value through label().
+     *
+     * @param  array<array-key, mixed>  $inspection
+     * @return array<array-key, mixed>
+     */
+    public static function railpackMetadata(array $inspection): array
+    {
+        $railpack = self::railpack($inspection);
+
+        return is_array($railpack['metadata'] ?? null) ? $railpack['metadata'] : [];
+    }
+
+    /**
+     * The raw `railpack info` output the agent stored, or an empty map.
+     *
+     * @param  array<array-key, mixed>  $inspection
+     * @return array<array-key, mixed>
+     */
+    private static function railpack(array $inspection): array
+    {
+        return is_array($inspection['railpack'] ?? null) ? $inspection['railpack'] : [];
+    }
+
+    /** Agent output is untrusted: only a short plain token may reach the console, lowercased. */
+    public static function label(mixed $value): ?string
     {
         if (! is_string($value) || preg_match('/^[A-Za-z0-9._+-]{1,64}$/', $value) !== 1) {
             return null;

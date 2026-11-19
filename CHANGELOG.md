@@ -4,6 +4,15 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- `ProjectResource.variable_changes` (always present; not on the project list or the create response): `requires_build` (true when any change to a project variable makes the next deployment build), `reason` (`static_site`, `prerender_framework`, `unknown_stack`, or `null` for a plain server), and `build_time_prefixes` / `build_time_keys` (the `BuildTimeVariable` lists, same order, matched case-sensitively), so the Console can say before a save whether the next redeploy builds. The OpenAPI enum `VariableBuildReason` also names `build_time_prefix`, the per-variable reason the Console shows for a plain server; it is never a project-level `reason`. See `docs/API_CONVENTIONS.md#variabel-yang-memengaruhi-build`.
+
+### Changed
+
+- **Static sites and prerendering frameworks build on any variable change.** `VariableBuildPolicy` classifies each project from its stored inspection (Railpack v0.23.0 signals, read with the same guard and labels as `stack`): a static site (`nodeIsSPA`, provider `staticfile`, `nodeRuntime` `static`, or a workspace `static_output_directory`, while the project has no start command) and a node framework that can render at build (`next`, `nuxt`, `remix`, `react-router`, `tanstack-start`, `astro`, `vite`, including SvelteKit) now treat every project variable as build-time, so a non-prefixed variable such as `API_URL` no longer serves a stale value from a reused image. So does a project without a usable inspection or with an unclassifiable stack (`shell`, unknown provider). Plain servers (Dockerfile builds, node/bun, php, golang, java, rust, ruby, elixir, python, deno, dotnet, gleam, cpp) keep the prefix rule. An attached database's connection variables never cause a build for any stack. Known gap: Railpack reports Gatsby and Astro in server mode as plain `node`; "Build ulang dari awal" stays the override.
+- The build fingerprint of a plain server is byte-identical to v0.9.0, so live deployments keep matching. Static, prerendering, and unknown stacks hash every project variable under a new scope marker, so their first redeploy after this upgrade builds once (fail safe), as does a project whose re-inspection moves it to another class.
+
 ## [0.9.0] - 2026-11-19
 
 ### Added
