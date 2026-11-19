@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Project;
 
+use App\Data\Agent\JavaScriptWorkspaceData;
 use App\Enums\ProjectInspectionStatus;
 use App\Models\Project;
 
@@ -55,7 +56,11 @@ final class ProjectPreviewPresenter
      * The whole summary is null when the inspection looked at another directory
      * than the project uses now: it describes something else until re-inspected.
      *
-     * @return array{builder: 'dockerfile'|'railpack', provider: string|null, framework: string|null, package_manager: string|null}|null
+     * `monorepo` is the agent's `workspace` object: the root directory is a
+     * package of a JavaScript workspace, so the build runs from the workspace
+     * root. Null without one, and for an inspection by an agent before the field.
+     *
+     * @return array{builder: 'dockerfile'|'railpack', provider: string|null, framework: string|null, package_manager: string|null, monorepo: array{manager: 'npm'|'pnpm'|'yarn'|'bun', root_directory: string, package_directory: string, package_name: string|null, build_command: string|null, start_command: string|null, static_output_directory: string|null}|null}|null
      */
     public static function stack(Project $project): ?array
     {
@@ -80,6 +85,7 @@ final class ProjectPreviewPresenter
             'package_manager' => is_string($inspection['package_manager'] ?? null)
                 ? $inspection['package_manager']
                 : self::label($metadata['nodePackageManager'] ?? null),
+            'monorepo' => JavaScriptWorkspaceData::fromArray($inspection['workspace'] ?? null)?->toArray(),
         ];
     }
 

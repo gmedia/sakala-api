@@ -104,6 +104,7 @@ test('new runtime failure codes map to stable categories', function (
     ['runtime_app_unhealthy', DeploymentFailureCategory::Health],
     ['runtime_app_crashed', DeploymentFailureCategory::Start],
     ['runtime_app_exec_denied', DeploymentFailureCategory::Start],
+    ['runtime_app_host_blocked', DeploymentFailureCategory::Start],
     ['runtime_app_out_of_memory', DeploymentFailureCategory::Resource],
     ['runtime_port_conflict', DeploymentFailureCategory::Start],
 ]);
@@ -198,6 +199,7 @@ test('user fixable failures never read as a platform fault', function (string $e
     'runtime_build_failed',
     'runtime_app_crashed',
     'runtime_app_exec_denied',
+    'runtime_app_host_blocked',
     'runtime_app_not_listening',
     'runtime_app_unhealthy',
     'runtime_app_out_of_memory',
@@ -288,3 +290,20 @@ test('a failed or slow release command is the project\'s to fix and leaves the p
     ['release_command_failed', 'Perintah rilis keluar dengan kode selain 0'],
     ['release_command_timeout', 'Perintah rilis melewati batas waktu'],
 ]);
+
+test('an app that refuses its Sakala domain is the project\'s to fix, with the setting for each framework', function () {
+    config(['sakala.project.default_domain' => 'apps.example.test']);
+
+    $failure = app(DeploymentFailureClassifier::class)->classify('runtime_app_host_blocked');
+
+    expect($failure->code)->toBe('runtime_app_host_blocked')
+        ->and($failure->category)->toBe(DeploymentFailureCategory::Start)
+        ->and($failure->userFixable)->toBeTrue()
+        ->and($failure->summary)->toContain('Aplikasimu menolak alamat Sakala-nya')
+        ->and($failure->summary)->toContain('Versi sebelumnya, kalau ada, tetap melayani')
+        ->and($failure->recoveryHint)->toContain("preview.allowedHosts: ['.apps.example.test']")
+        ->and($failure->recoveryHint)->toContain('server.allowedHosts')
+        ->and($failure->recoveryHint)->toContain('kosongkan Start command')
+        ->and($failure->recoveryHint)->toContain('Root directory')
+        ->and($failure->recoveryHint)->toContain('ALLOWED_HOSTS');
+});

@@ -183,6 +183,7 @@ test('the stack summary exposes only stable derived fields', function (): void {
             'provider' => 'node',
             'framework' => 'vite',
             'package_manager' => 'npm',
+            'monorepo' => null,
         ]);
 
     expect($response->getContent())->not->toContain('internal command')
@@ -209,6 +210,7 @@ test('a Dockerfile wins the builder, and unknown values stay null', function ():
             'provider' => null,
             'framework' => null,
             'package_manager' => null,
+            'monorepo' => null,
         ]);
 });
 
@@ -236,6 +238,7 @@ test('a real railpack info output gives the expected stack', function (): void {
             'provider' => 'node',
             'framework' => null,
             'package_manager' => 'npm',
+            'monorepo' => null,
         ]);
 });
 
@@ -305,6 +308,97 @@ test('the stack is unknown when the inspection looked at another directory', fun
     'root changed' => [['root_directory' => 'apps/web'], 'apps/api'],
     'root cleared' => [['root_directory' => 'apps/web'], null],
 ]);
+
+function monorepoWorkspace(array $overrides = []): array
+{
+    return [
+        'manager' => 'pnpm',
+        'root_directory' => '.',
+        'package_directory' => 'apps/web',
+        'package_name' => '@facility-reporting/web',
+        'build_command' => "pnpm --filter '@facility-reporting/web...' run build",
+        'start_command' => null,
+        'static_output_directory' => 'apps/web/dist',
+        ...$overrides,
+    ];
+}
+
+test('a workspace package reported by the agent is stored and shown as the monorepo of the stack', function (): void {
+    fakeInspectionCommit();
+    $node = inspectionNode();
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create(['branch' => 'main', 'root_directory' => 'apps/web']);
+
+    $this->actingAs($user, 'web')->postJson(route('api.v1.app.projects.inspection', $project))->assertAccepted();
+    $command = AgentCommand::query()->where('project_id', $project->id)->sole();
+
+    $this->withHeaders(inspectionHeaders($node))->postJson("/api/agent/v1/commands/{$command->id}/claim", [])->assertOk();
+    $this->withHeaders(inspectionHeaders($node))->postJson("/api/agent/v1/commands/{$command->id}/complete", ['result' => [
+        'repository_url' => 'https://github.com/example/app',
+        'commit_sha' => INSPECTION_SHA,
+        'dockerfile_found' => false,
+        'env_example_found' => false,
+        'compose_found' => false,
+        'manifests' => ['package.json', 'pnpm-lock.yaml'],
+        'package_manager' => 'pnpm',
+        'exposed_ports' => [],
+        'workspace' => monorepoWorkspace(),
+        'railpack' => ['detectedProviders' => ['node']],
+    ]])->assertNoContent();
+
+    expect($project->fresh()->inspection['workspace'])->toBe(monorepoWorkspace());
+
+    $this->actingAs($user, 'web')
+        ->getJson("/api/v1/app/projects/{$project->id}")
+        ->assertJsonPath('data.stack.monorepo', monorepoWorkspace())
+        ->assertJsonPath('data.stack.package_manager', 'pnpm');
+
+    $this->getJson('/api/v1/app/projects')
+        ->assertJsonPath('data.0.stack.monorepo.package_directory', 'apps/web');
+});
+
+test('there is no monorepo without a workspace or from an agent before the field', function (array $inspection): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create(succeededInspection($inspection));
+
+    $this->actingAs($user, 'web')
+        ->getJson("/api/v1/app/projects/{$project->id}")
+        ->assertJsonPath('data.stack.builder', 'railpack')
+        ->assertJsonPath('data.stack.monorepo', null);
+})->with([
+    'no workspace' => [['workspace' => null]],
+    'older agent' => [[]],
+]);
+
+test('a workspace that cannot be identified is dropped, and an odd optional value only loses that value', function (array $workspace, ?array $expected): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create(succeededInspection(['workspace' => $workspace]));
+
+    $this->actingAs($user, 'web')
+        ->getJson("/api/v1/app/projects/{$project->id}")
+        ->assertJsonPath('data.stack.monorepo', $expected);
+})->with([
+    'unknown manager' => [monorepoWorkspace(['manager' => 'deno']), null],
+    'root outside the repository' => [monorepoWorkspace(['root_directory' => '../elsewhere']), null],
+    'absolute package directory' => [monorepoWorkspace(['package_directory' => '/apps/web']), null],
+    'missing package directory' => [array_diff_key(monorepoWorkspace(), ['package_directory' => true]), null],
+    'multi-line build command' => [monorepoWorkspace(['build_command' => "pnpm build\nrm -rf /"]), monorepoWorkspace(['build_command' => null])],
+    'nested package name' => [monorepoWorkspace(['package_name' => ['web']]), monorepoWorkspace(['package_name' => null])],
+    'output directory with dots' => [monorepoWorkspace(['static_output_directory' => 'apps/../dist']), monorepoWorkspace(['static_output_directory' => null])],
+    'workspace root in a subfolder' => [monorepoWorkspace(['root_directory' => 'frontend', 'package_directory' => 'packages/site']), monorepoWorkspace(['root_directory' => 'frontend', 'package_directory' => 'packages/site'])],
+]);
+
+test('the monorepo is unknown with the rest of the stack after the root directory changes', function (): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create([
+        ...succeededInspection(['root_directory' => 'apps/web', 'workspace' => monorepoWorkspace()]),
+        'root_directory' => 'apps/api',
+    ]);
+
+    $this->actingAs($user, 'web')
+        ->getJson("/api/v1/app/projects/{$project->id}")
+        ->assertJsonPath('data.stack', null);
+});
 
 test('the inspection sends the root directory and the result remembers it', function (): void {
     fakeInspectionCommit();

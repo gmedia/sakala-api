@@ -13,8 +13,9 @@ use App\Enums\DeploymentFailureCategory as Category;
  * `userFixable` separates what the student can repair (repository, code,
  * GitHub access) from platform faults. Platform hints say so and only ever ask
  * for a redeploy: there is no setting the student could change for those.
- * Students cannot edit a start command, timeouts, or memory limits, so hints
- * never point at them.
+ * Students cannot edit timeouts or memory limits, so hints never point at
+ * them. A project setting (Start command, Root directory, replicas, release
+ * command) is only named where changing it is the fix.
  *
  * Every string here is shown as plain text: the console does not render
  * markdown, so summaries and hints never use backticks or other markup.
@@ -175,6 +176,13 @@ final class DeploymentFailureClassifier
                 'Hapus environment variable PORT di pengaturan proyek, karena Sakala sudah mengisinya otomatis, atau samakan nilainya dengan port yang tertulis di detail kegagalan. Lalu deploy ulang.',
             ),
 
+            'runtime_app_host_blocked' => $this->userFixable(
+                $errorCode,
+                Category::Start,
+                'Aplikasimu menolak alamat Sakala-nya, jadi setiap pengunjung akan mendapat halaman penolakan. Domain dan framework-nya tertulis di detail kegagalan. Versi sebelumnya, kalau ada, tetap melayani.',
+                $this->hostBlockedHint(),
+            ),
+
             'runtime_execution_failed',
             'runtime_container_failed',
             'runtime_workload_not_found',
@@ -284,6 +292,19 @@ final class DeploymentFailureClassifier
                 faultNote: false,
             ),
         };
+    }
+
+    /**
+     * Names the setting for each framework the agent recognises (Vite and
+     * Django), with the project domain of this installation.
+     */
+    private function hostBlockedHint(): string
+    {
+        $domain = '.'.config('sakala.project.default_domain');
+
+        return "Untuk Vite, izinkan domain Sakala di vite.config dengan preview.allowedHosts: ['{$domain}'], atau server.allowedHosts kalau aplikasimu memakai server dev. "
+            .'Cara lain untuk Vite: kosongkan Start command di pengaturan proyek supaya Sakala menyajikan hasil build sebagai situs statis. Di monorepo, isi juga Root directory dengan folder package-nya, misalnya apps/web. '
+            .'Untuk Django, tambahkan domain proyekmu ke ALLOWED_HOSTS. Setelah itu deploy ulang.';
     }
 
     private function userFixable(string $code, Category $category, string $summary, string $hint): DeploymentFailureData
