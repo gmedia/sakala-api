@@ -1,4 +1,4 @@
-<x-mail::message :title="$subject ?? 'Sakala'" :preheader="$preheader ?? null" :headline="$headline ?? null" :reason="$reason ?? null">
+<x-mail::message :title="$subject ?? 'Sakala'" :preheader="$preheader ?? null" :headline="$headline ?? null" :reason="$reason ?? null" :preferences="$preferences ?? null">
 @if (filled($greeting ?? null))
 {{ $greeting }}
 

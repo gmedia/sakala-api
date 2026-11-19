@@ -53,6 +53,7 @@ final class AccountExportResource extends JsonResource
                 'onboarding_role' => $user->onboarding_role?->value,
                 'onboarding_completed_at' => $user->onboarding_completed_at?->toAtomString(),
                 'notification_preferences' => $user->notificationPreferences()->preferences,
+                'notification_email_preferences' => $user->notificationPreferences()->email,
                 'last_login_at' => $user->last_login_at?->toAtomString(),
                 'created_at' => $user->created_at?->toAtomString(),
                 'legal_acceptances' => $user->legalAcceptances->map(static fn (LegalAcceptance $acceptance): array => [

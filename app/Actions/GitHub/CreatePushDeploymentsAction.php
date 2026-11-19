@@ -6,9 +6,11 @@ namespace App\Actions\GitHub;
 
 use App\Actions\Deployment\CreateDeploymentAction;
 use App\Data\Deployment\CreateDeploymentData;
+use App\Data\Notification\ProjectAlertMailData;
 use App\Enums\DeploymentTrigger;
 use App\Enums\GithubInstallationStatus;
 use App\Enums\NotificationCategory;
+use App\Enums\ProjectAlert;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Database\DatabaseEndpointUnavailableException;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
@@ -89,13 +91,13 @@ final class CreatePushDeploymentsAction
         $actor = $this->actorFor($project);
 
         if ($actor === null) {
-            $this->skip($project, 'no_workspace_owner', $commit, 'Tidak ada pemilik atau anggota workspace yang bisa menjalankan deployment, jadi push terbaru tidak di-deploy.');
+            $this->skip($project, $actor, 'no_workspace_owner', $commit, 'Tidak ada pemilik atau anggota workspace yang bisa menjalankan deployment, jadi push terbaru tidak di-deploy.');
 
             return;
         }
 
         if ($actor->requiresLegalAcceptance()) {
-            $this->skip($project, 'legal_acceptance_required', $commit, 'Syarat Layanan atau Kebijakan Penggunaan Wajar terbaru belum kamu setujui, jadi push terbaru tidak di-deploy. Setujui dulu di Console, lalu deploy manual.');
+            $this->skip($project, $actor, 'legal_acceptance_required', $commit, 'Syarat Layanan atau Kebijakan Penggunaan Wajar terbaru belum kamu setujui, jadi push terbaru tidak di-deploy. Setujui dulu di Console, lalu deploy manual.');
 
             return;
         }
@@ -113,23 +115,24 @@ final class CreatePushDeploymentsAction
                 ),
             );
         } catch (ActiveDeploymentLimitExceededException) {
-            $this->skip($project, 'active_deployment_limit', $commit, 'Batas deployment yang berjalan sudah tercapai, jadi push terbaru tidak di-deploy. Tunggu deployment yang berjalan selesai, lalu deploy manual.');
+            $this->skip($project, $actor, 'active_deployment_limit', $commit, 'Batas deployment yang berjalan sudah tercapai, jadi push terbaru tidak di-deploy. Tunggu deployment yang berjalan selesai, lalu deploy manual.');
         } catch (ActiveContainerLimitExceededException) {
-            $this->skip($project, 'active_container_limit', $commit, 'Workspace ini sudah menjalankan proyek sebanyak batasnya, jadi push terbaru tidak di-deploy.');
+            $this->skip($project, $actor, 'active_container_limit', $commit, 'Workspace ini sudah menjalankan proyek sebanyak batasnya, jadi push terbaru tidak di-deploy.');
         } catch (BuildRateLimitExceededException $e) {
-            $this->skip($project, self::SKIP_BUILD_RATE_LIMIT, $commit, "Workspace ini sudah mencapai batas {$e->limit} build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push ulang {$e->retryHint()}.");
+            $this->skip($project, $actor, self::SKIP_BUILD_RATE_LIMIT, $commit, "Workspace ini sudah mencapai batas {$e->limit} build per jam, jadi push terbaru tidak di-deploy. Deploy manual atau push ulang {$e->retryHint()}.");
         } catch (RepositoryAccessRevokedException) {
-            $this->skip($project, 'repository_access_revoked', $commit, 'Pembuat proyek tidak lagi punya akses ke repository ini di GitHub atau sudah keluar dari workspace, jadi push terbaru tidak di-deploy.');
+            $this->skip($project, $actor, 'repository_access_revoked', $commit, 'Pembuat proyek tidak lagi punya akses ke repository ini di GitHub atau sudah keluar dari workspace, jadi push terbaru tidak di-deploy.');
         } catch (ProjectSuspendedException) {
-            $this->skip($project, 'project_suspended', $commit, 'Proyek ini sedang ditangguhkan, jadi push terbaru tidak di-deploy.');
+            $this->skip($project, $actor, 'project_suspended', $commit, 'Proyek ini sedang ditangguhkan, jadi push terbaru tidak di-deploy.');
         } catch (DatabaseEndpointUnavailableException $e) {
-            $this->skip($project, self::SKIP_DATABASE_ENDPOINT_UNAVAILABLE, $commit, "Server database untuk {$e->database->name} belum melaporkan alamatnya, jadi push terbaru tidak di-deploy. Deploy manual beberapa saat lagi.");
+            $this->skip($project, $actor, self::SKIP_DATABASE_ENDPOINT_UNAVAILABLE, $commit, "Server database untuk {$e->database->name} belum melaporkan alamatnya, jadi push terbaru tidak di-deploy. Deploy manual beberapa saat lagi.");
         } catch (ProjectReleaseCommandUnsupportedException) {
-            $this->skip($project, self::SKIP_RELEASE_COMMAND_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung perintah rilis, jadi push terbaru tidak di-deploy. Kosongkan perintah rilis di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
+            $this->skip($project, $actor, self::SKIP_RELEASE_COMMAND_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung perintah rilis, jadi push terbaru tidak di-deploy. Kosongkan perintah rilis di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
         }
     }
 
-    private function skip(Project $project, string $reason, string $commit, string $message): void
+    /** $actor is who the push would have deployed as; they hear about it by email with the workspace owners. */
+    private function skip(Project $project, ?User $actor, string $reason, string $commit, string $message): void
     {
         AuditEvent::create([
             'actor_type' => 'github_app',
@@ -145,6 +148,14 @@ final class CreatePushDeploymentsAction
             'Auto-deploy dilewati',
             "{$project->name}: {$message}",
         );
+
+        $this->notifier->emailProject($project, new ProjectAlertMailData(
+            alert: ProjectAlert::AutoDeploySkipped,
+            projectId: $project->id,
+            projectName: $project->name,
+            summary: $message,
+            previousVersionServing: $project->active_deployment_id !== null,
+        ), $actor);
     }
 
     /**

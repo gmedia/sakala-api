@@ -768,7 +768,7 @@ Setiap perubahan dicatat di `audit_events` dengan subject database (`App\Models\
 
 ## Notifikasi
 
-Notifikasi in-app memakai database notification Laravel. Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email), dan `workspace` (tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`, default `true`.
+Notifikasi in-app memakai database notification Laravel; sebagian juga dikirim lewat email (lihat [Email notifikasi](#email-notifikasi)). Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati), `account_security` (kata sandi dan email), dan `workspace` (tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`, default `true`.
 
 Kategori `workspace` dikirim untuk:
 
@@ -788,13 +788,73 @@ Notifikasi project sampai ke owner dan member workspace-nya, tidak ke viewer; di
 | `GET /api/v1/app/notifications/unread-count` | `{ "data": { "count" } }` |
 | `POST /api/v1/app/notifications/{id}/read` | Resource notifikasi. Idempoten, `read_at` pertama dipertahankan. Milik orang lain `404`. |
 | `POST /api/v1/app/notifications/read-all` | `204` |
-| `GET`, `PATCH /api/v1/app/notification-preferences` | Satu boolean per kategori, default `true`. `PATCH` boleh sebagian. |
+| `GET`, `PATCH /api/v1/app/notification-preferences` | Satu boolean in-app per kategori (default `true`), plus objek `email` untuk kategori yang bisa diemail. `PATCH` boleh sebagian. Lihat [Email notifikasi](#email-notifikasi). |
 
 Satu crash menghasilkan satu notifikasi `project_issue`: heartbeat berikutnya yang masih melaporkan crash tidak mengirim lagi, begitu juga setelah redeploy gagal, dan pemulihan tidak mengirim apa pun. Crash baru setelah workload pulih mengirim lagi. Selama ada deployment baru yang berjalan, heartbeat tidak mengubah `runtime_status`.
 
 Bentuk item: `id`, `category`, `title`, `message`, `project_id`, `deployment_id`, `invitation_id`, `workspace_id`, `read_at`, `created_at`. Empat ID itu string atau `null`; `invitation_id` dan `workspace_id` hanya diisi notifikasi `workspace`, dan notifikasi lama tidak memilikinya. Kategori yang dimatikan tidak membuat notifikasi sama sekali, kecuali pemberitahuan penangguhan. Notifikasi baru juga dibroadcast pada channel privat `users.{id}` dengan event `notification.created` dan field yang sama. Kiriman terjadi setelah transaksi commit, dan kegagalannya dilaporkan tanpa menggagalkan laporan agent yang memicunya.
 
 Tidak ada data contoh di luar test. Notifikasi lebih tua dari `SAKALA_NOTIFICATION_RETENTION_DAYS` dihapus `notifications:prune`, dijadwalkan harian.
+
+### Email notifikasi
+
+Deployment gagal, aplikasi yang berhenti sendiri, dan push yang dilewati auto-deploy juga dikirim lewat email, supaya orang yang sedang tidak membuka Console tetap tahu. Email adalah channel kedua yang diatur terpisah dari lonceng: mematikan lonceng satu kategori tidak mematikan email-nya, dan sebaliknya.
+
+Preferensi ada di respons `GET` dan `PATCH /api/v1/app/notification-preferences`, di objek `email`:
+
+```json
+{
+  "data": {
+    "deployment_success": true,
+    "deployment_failure": true,
+    "project_issue": true,
+    "account_security": true,
+    "workspace": true,
+    "email": {
+      "deployment_success": false,
+      "deployment_failure": true,
+      "project_issue": true
+    }
+  }
+}
+```
+
+| Field | Tipe | Default | Isi |
+| --- | --- | --- | --- |
+| `email.deployment_failure` | boolean, selalu ada | `true` | Deployment gagal. |
+| `email.project_issue` | boolean, selalu ada | `true` | Aplikasi yang sedang berjalan berhenti sendiri (crash), dan push yang tidak di-deploy auto-deploy (batas workspace, build per jam, akses repository, proyek ditangguhkan, dan sebab lain di `project.auto_deploy_skipped`). |
+| `email.deployment_success` | boolean, selalu ada | `false` | Deployment berhasil. Mati secara default karena hanya kabar baik yang cukup dilihat di lonceng. |
+
+`account_security` dan `workspace` tidak punya preferensi email dan tidak muncul di `email`. Email yang penting untuk keduanya sudah dikirim tanpa melihat preferensi (ganti email ke alamat lama, undangan ke alamat yang diundang). Nilai `null` di database berarti default di atas.
+
+`PATCH` menerima flat boolean untuk lonceng dan `email` untuk email, boleh sebagian, boleh keduanya dalam satu request, misalnya `{ "email": { "deployment_success": true } }`. Respons selalu berisi semua field. `email` harus objek; kunci selain tiga di atas (misalnya `email.workspace`) dan nilai yang bukan boolean dijawab `422` dengan error di `email` atau `email.<kategori>`, tanpa mengubah apa pun.
+
+Siapa yang dikirimi email:
+
+- deployment gagal atau berhasil: orang yang meminta deployment selama ia masih owner atau member workspace, dan semua owner workspace;
+- aplikasi berhenti sendiri: orang yang meminta deployment yang sedang berjalan, dengan syarat yang sama, dan semua owner;
+- push dilewati: akun yang dipakai push untuk deploy (pembuat proyek selama masih bisa deploy, atau owner tertua), dan semua owner.
+
+Viewer tidak pernah dikirimi email. Di workspace pribadi semuanya berarti pemiliknya. Penerima dengan email kategori itu mati, atau alamat yang belum terverifikasi, dilewati. Tidak ada email sama sekali bila `sakala.email_delivery_enabled` mati. Penerima lonceng tidak berubah: kabar deployment ke peminta (atau semua owner dan member bila ia sudah tidak bisa mengelola proyek), crash dan push dilewati ke semua owner dan member.
+
+Email tetap dikirim walaupun peminta sedang membuka halaman deployment itu. API tidak tahu siapa yang sedang menonton, deployment bisa gagal beberapa menit setelah tab ditutup, dan penggabungan di bawah sudah membatasi jumlahnya.
+
+Penggabungan: untuk setiap penerima, project, dan jenis kabar (`deployment_failed`, `deployment_succeeded`, `app_crashed`, `auto_deploy_skipped`), email dikirim paling banyak sekali dalam `SAKALA_NOTIFICATION_EMAIL_COALESCE_MINUTES` menit (default 30). Kabar di dalam jendela itu tidak diemail, tetapi dihitung, dan email berikutnya setelah jendela lewat menyebut jumlahnya ("Ada 2 kegagalan lagi di proyek ini sejak email terakhir."). Jenisnya dipisah supaya push yang dilewati tidak menahan email crash. Lonceng tetap mendapat setiap kabar. Kalau tidak ada kabar lagi setelah jendela lewat, jumlah yang ditahan tidak dikirim tersendiri.
+
+Email dikirim lewat queue setelah transaksi commit. Isinya nama proyek, nomor deployment, tahap yang gagal, ringkasan dan saran dari classifier kegagalan (`failure.summary`, `failure.recovery_hint`), atau alasan push dilewati. Log dan `failure.detail` tidak pernah masuk email. Tombolnya membuka halaman deployment di Console (`/projects/{id}/deployments/{deploymentId}`), atau halaman proyek untuk push yang dilewati.
+
+#### Berhenti berlangganan tanpa login
+
+Setiap email punya tautan bertanda tangan yang mematikan email kategori itu untuk penerimanya, tanpa sesi:
+
+| Endpoint | Hasil |
+| --- | --- |
+| `POST /api/v1/public/notifications/unsubscribe?category={kategori}&user={id}&signature={hmac}` | `200 { "data": { "category": "deployment_failure", "email": false } }`. Idempoten. Hanya `email.<kategori>` yang berubah; lonceng dan kategori lain tetap. Tanda tangan salah atau query diubah `403 { "message": "Invalid signature." }`; kategori tanpa email `422` di `category`; akun yang sudah dihapus `404`. Dibatasi `SAKALA_NOTIFICATION_UNSUBSCRIBE_RATE_LIMIT` per IP. |
+| `GET` di alamat yang sama | `302` ke Console `/notifications/unsubscribe?{query yang sama}`. Tidak mengubah apa pun, karena pemindai tautan di mailbox sekolah dan kantor membuka setiap tautan. |
+
+Header `List-Unsubscribe` berisi alamat `POST` itu, dan `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, sehingga Gmail dan klien lain bisa menampilkan tombol berhenti berlangganan sendiri (RFC 8058). Tautan di footer email membuka halaman Console. Halaman itu menampilkan nama kategori dari `category`, meminta konfirmasi, lalu mengirim `POST` ke `{API}/api/v1/public/notifications/unsubscribe?{query}` dengan query string persis seperti yang diterimanya: tanda tangan menghitung query byte per byte, jadi urutan dan encoding-nya tidak boleh diubah. Route ini stateless, tanpa cookie dan CSRF.
+
+Tautan tidak kedaluwarsa, supaya email lama tetap bisa dipakai. Mengganti `APP_KEY` membatalkan semuanya.
 
 ## Profile Contract
 

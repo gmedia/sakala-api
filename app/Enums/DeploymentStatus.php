@@ -81,6 +81,23 @@ enum DeploymentStatus: string
         };
     }
 
+    /** The Indonesian stage name the console shows on the deployment timeline, used in emails. */
+    public function label(): string
+    {
+        return match ($this) {
+            self::Queued => 'Menunggu antrean',
+            self::Cloning => 'Menyalin repository',
+            self::Analyzing => 'Menganalisis proyek',
+            self::Building => 'Build proyek',
+            self::Deploying => 'Deploy proyek',
+            self::HealthChecking => 'Mengecek aplikasi',
+            self::Routing => 'Menyiapkan routing',
+            self::Succeeded => 'Berhasil',
+            self::Failed => 'Gagal',
+            self::Cancelled => 'Dibatalkan',
+        };
+    }
+
     /**
      * @return array<int, self>
      */

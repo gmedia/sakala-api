@@ -48,6 +48,8 @@ return [
         // Per minute per Edge address: GET edge/v1/routes, polled every few
         // seconds by each Edge instance.
         'edge' => (int) env('SAKALA_EDGE_RATE_LIMIT', 120),
+        // Per minute per IP: the signed one-click unsubscribe link in alert emails.
+        'notification_unsubscribe' => (int) env('SAKALA_NOTIFICATION_UNSUBSCRIBE_RATE_LIMIT', 10),
     ],
 
     // Current versions of the published documents, stored per user on acceptance.
@@ -76,6 +78,9 @@ return [
 
     'notifications' => [
         'retention_days' => (int) env('SAKALA_NOTIFICATION_RETENTION_DAYS', 90),
+        // At most one email per user, project, and kind of alert in this many
+        // minutes; the next one says how many were held back. 0 sends every one.
+        'email_coalesce_minutes' => (int) env('SAKALA_NOTIFICATION_EMAIL_COALESCE_MINUTES', 30),
     ],
 
     'project' => [
