@@ -14,9 +14,10 @@ use App\Services\Database\DatabaseDeployRequests;
 /**
  * Once a database created for a project with `deploy_when_ready` is ready,
  * deploys that project: the branch head, as the person who asked, through
- * the normal deployment path with every limit, and `trigger` `manual`,
- * because they asked for it by hand. Runs from a queued job after the node's
- * report committed, because creating a deployment may ask GitHub.
+ * the normal deployment path with every limit, and `trigger`
+ * `database_ready`, so the history says why it started without a click.
+ * Runs from a queued job after the node's report committed, because
+ * creating a deployment may ask GitHub.
  *
  * At most one deployment per request: the request is resolved once under its
  * row lock, and the deployment's idempotency key is per attachment, so a
@@ -56,7 +57,7 @@ final class DeployAfterDatabaseReadyAction
             $outcome = $this->deployer->deploy($project, $attachment->deployRequester, new CreateDeploymentData(
                 branch: $project->branch,
                 idempotencyKey: $attachment->deployIdempotencyKey(),
-                trigger: DeploymentTrigger::Manual,
+                trigger: DeploymentTrigger::DatabaseReady,
             ));
 
             $this->requests->resolve($attachment, $database, $outcome);
