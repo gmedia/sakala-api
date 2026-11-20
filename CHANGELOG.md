@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-20
+
 ### Added
 
 - **Create a database for a project in one step.** `POST app/workspaces/{workspace}/databases` accepts `project_id` (uuid or `null`) and `deploy_when_ready` (boolean, default `false`, `422` without `project_id`). With a project, the database row, its `CreateDatabase` command, the attachment, the project's database fingerprint, and the audit events commit in one transaction under the workspace then project lock; this is the only way a `provisioning` database gets attached (the attach endpoint still refuses it). `name` becomes optional (the project's name, made unique with ` 2`, ` 3`, ... and cut to 100 characters), `region` defaults to the project's region then the workspace default, and an explicit other region answers `409 DATABASE_CROSS_REGION_UNSUPPORTED`. A project of another workspace answers `404`, a viewer `403`, a project that already has a database `409 PROJECT_DATABASE_ALREADY_ATTACHED`; quotas are unchanged. New `409 DATABASE_UNAVAILABLE` while `databases.available` is false, on this path only.
@@ -311,7 +313,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/gmedia/sakala-api/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/gmedia/sakala-api/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/gmedia/sakala-api/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/gmedia/sakala-api/compare/v0.6.0...v0.7.0
