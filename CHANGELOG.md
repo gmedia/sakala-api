@@ -4,6 +4,10 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- A rejection recorded as a `rejected_limits` signal keeps its `limit_name` for the two workspace limits that were being dropped: `max_active_containers` (now `ActiveContainerLimitExceededException::LIMIT_NAME`) and `max_active_deployments_per_workspace`. Both are part of the `RecordUsageSignalAction` allowlist, so a deployment refused by the workspace container limit or by the per-workspace active deployment limit is told apart in the admin signals instead of being stored without a `limit_name`. The unit test reads every limit name the deployment path records from `CreateDeploymentAction::LIMIT_EXCEPTION_MAP` and the exception constants, so a new limit cannot lag behind the allowlist again.
+
 ## [0.10.0] - 2026-11-20
 
 ### Added

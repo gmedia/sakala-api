@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Admin;
 
 use App\Enums\UsageSignalType;
+use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Models\AuditEvent;
 use App\Models\UsageSignalRecord;
@@ -70,6 +71,7 @@ final class RecordUsageSignalAction
     private const KNOWN_LIMIT_NAMES = [
         'max_projects_per_user',
         'max_active_deployments_per_user',
+        'max_active_deployments_per_workspace',
         'max_active_deployments_per_project',
         'default_memory_mb',
         'max_memory_mb',
@@ -81,6 +83,7 @@ final class RecordUsageSignalAction
         'start_timeout_seconds',
         'command_timeout_seconds',
         BuildRateLimitExceededException::LIMIT_NAME,
+        ActiveContainerLimitExceededException::LIMIT_NAME,
     ];
 
     /**

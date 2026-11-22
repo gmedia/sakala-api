@@ -3,7 +3,10 @@
 declare(strict_types=1);
 
 use App\Actions\Admin\RecordUsageSignalAction;
+use App\Actions\Deployment\CreateDeploymentAction;
 use App\Enums\UsageSignalType;
+use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
+use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Models\AuditEvent;
 use App\Models\UsageSignalRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -155,6 +158,43 @@ test('rejected_limits drops unknown limit_name values', function (): void {
 
     expect($record->tags)->toBeEmpty();
 });
+
+/**
+ * Every limit name the deployment path records for a rejected deployment,
+ * read from the code that sends them so a new limit cannot lag behind the
+ * allowlist and be dropped silently.
+ *
+ * @return array<string, array{string}>
+ */
+function deploymentLimitNames(): array
+{
+    $names = [];
+    $map = (new ReflectionClass(CreateDeploymentAction::class))->getConstant('LIMIT_EXCEPTION_MAP');
+    foreach ($map as $perScope) {
+        foreach ($perScope as $name) {
+            $names[$name] = [$name];
+        }
+    }
+
+    foreach ([ActiveContainerLimitExceededException::LIMIT_NAME, BuildRateLimitExceededException::LIMIT_NAME] as $name) {
+        $names[$name] = [$name];
+    }
+
+    return $names;
+}
+
+test('rejected_limits keeps every limit name the deployment code records', function (string $limitName): void {
+    $action = app(RecordUsageSignalAction::class);
+
+    $record = $action->handle(
+        type: UsageSignalType::RejectedLimits,
+        count: 1,
+        scope: 'workspace',
+        tags: ['limit_name' => $limitName],
+    );
+
+    expect($record->tags)->toBe(['limit_name' => $limitName]);
+})->with(deploymentLimitNames());
 
 test('manual_intervention accepts only known action codes', function (): void {
     $action = app(RecordUsageSignalAction::class);

@@ -18,6 +18,9 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class ActiveContainerLimitExceededException extends RuntimeException
 {
+    /** The limit name usage signals record for this rejection. */
+    public const LIMIT_NAME = 'max_active_containers';
+
     public function __construct(
         public readonly int $limit,
         public readonly int $current,

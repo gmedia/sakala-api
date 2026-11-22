@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 use App\Enums\DeploymentStatus;
 use App\Enums\RuntimeStatus;
+use App\Enums\UsageSignalType;
 use App\Enums\UserRole;
 use App\Enums\WorkspaceRole;
 use App\Models\Deployment;
 use App\Models\LimitProfile;
 use App\Models\Project;
+use App\Models\UsageSignalRecord;
 use App\Models\User;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -156,6 +158,44 @@ test('running containers are limited per workspace, and redeploying a serving pr
         ->assertJsonPath('current', 1);
 
     $this->actingAs($owner, 'web')->postJson("/api/v1/app/projects/{$serving->id}/deployments", ['branch' => 'main'])->assertCreated();
+});
+
+test('a deployment refused by the workspace deployment limit records its limit name', function (): void {
+    $owner = User::factory()->create();
+    $profile = LimitProfile::factory()->create(['max_active_deployments' => 1, 'max_active_containers' => 10]);
+    $team = teamWorkspace($owner, attributes: ['limit_profile_id' => $profile->id]);
+    $first = Project::factory()->inWorkspace($team)->create(['branch' => 'main']);
+    $second = Project::factory()->inWorkspace($team)->create(['branch' => 'main']);
+
+    $this->actingAs($owner, 'web')->postJson("/api/v1/app/projects/{$first->id}/deployments", ['branch' => 'main'])->assertCreated();
+    $this->actingAs($owner, 'web')->postJson("/api/v1/app/projects/{$second->id}/deployments", ['branch' => 'main'])
+        ->assertUnprocessable()
+        ->assertJsonPath('code', 'ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED')
+        ->assertJsonPath('scope', 'workspace');
+
+    $signal = UsageSignalRecord::query()->where('signal_type', UsageSignalType::RejectedLimits)->sole();
+
+    expect($signal->scope)->toBe('workspace')
+        ->and($signal->tags)->toBe(['limit_name' => 'max_active_deployments_per_workspace']);
+});
+
+test('a deployment refused by the workspace container limit records its limit name', function (): void {
+    $owner = User::factory()->create();
+    $profile = LimitProfile::factory()->create(['max_active_containers' => 1, 'max_active_deployments' => 5]);
+    $team = teamWorkspace($owner, attributes: ['limit_profile_id' => $profile->id]);
+    $serving = Project::factory()->inWorkspace($team)->create(['branch' => 'main', 'runtime_status' => RuntimeStatus::Running]);
+    $active = Deployment::factory()->for($serving)->for($owner, 'requester')->create(['status' => DeploymentStatus::Succeeded]);
+    $serving->update(['active_deployment_id' => $active->id]);
+    $idle = Project::factory()->inWorkspace($team)->create(['branch' => 'main']);
+
+    $this->actingAs($owner, 'web')->postJson("/api/v1/app/projects/{$idle->id}/deployments", ['branch' => 'main'])
+        ->assertUnprocessable()
+        ->assertJsonPath('code', 'ACTIVE_CONTAINER_LIMIT_EXCEEDED');
+
+    $signal = UsageSignalRecord::query()->where('signal_type', UsageSignalType::RejectedLimits)->sole();
+
+    expect($signal->scope)->toBe('workspace')
+        ->and($signal->tags)->toBe(['limit_name' => 'max_active_containers']);
 });
 
 test('a project being deployed holds a container slot', function (): void {

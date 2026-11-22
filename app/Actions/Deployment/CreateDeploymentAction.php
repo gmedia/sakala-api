@@ -387,7 +387,7 @@ final class CreateDeploymentAction
                 type: UsageSignalType::RejectedLimits,
                 count: 1,
                 scope: self::WORKSPACE_SCOPE,
-                tags: ['limit_name' => 'max_active_containers'],
+                tags: ['limit_name' => ActiveContainerLimitExceededException::LIMIT_NAME],
             );
 
             throw $e;
