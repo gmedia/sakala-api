@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Project;
 
+use App\Actions\Deployment\ClassifyFallbackBuildFingerprintsAction;
 use App\Data\Agent\ProjectInspectionResultData;
 use App\Enums\AgentCommandType;
 use App\Enums\ProjectInspectionStatus;
@@ -22,12 +23,15 @@ use App\Services\Deployment\DeploymentInspectionHold;
  * direction. Must be called inside a transaction.
  *
  * A deployment held for this inspection (DeploymentInspectionHold) is
- * settled by a job queued once the outcome commits.
+ * settled by a job queued once the outcome commits. A deployment of the
+ * inspected commit created before the stack was known gets its classified
+ * build fingerprint (ClassifyFallbackBuildFingerprintsAction).
  */
 final class ProjectInspectionOutcomeService
 {
     public function __construct(
         private readonly DeploymentInspectionHold $inspectionHold,
+        private readonly ClassifyFallbackBuildFingerprintsAction $classifyBuildFingerprints,
     ) {}
 
     /**
@@ -61,6 +65,12 @@ final class ProjectInspectionOutcomeService
                     : null,
             ]),
         ]);
+
+        $inspectedCommitSha = $command->payload['commit_sha'] ?? null;
+
+        if (is_string($inspectedCommitSha)) {
+            $this->classifyBuildFingerprints->handle($project, $inspectedCommitSha);
+        }
 
         $this->inspectionHold->settleAfterCommit($project);
 

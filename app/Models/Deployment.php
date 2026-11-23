@@ -43,7 +43,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $replicas_desired Containers the node runs for it, from heartbeats. Null until reported.
  * @property int|null $replicas_ready Of those, how many pass the router's health check, from heartbeats. Null until reported.
  * @property string|null $config_fingerprint DeploymentConfigFingerprint::forProject() of the project when this deployment was created. Null for deployments created before it existed.
- * @property string|null $build_fingerprint DeploymentConfigFingerprint::forBuild() when this deployment was created. Null for deployments created before image reuse, which are never reused.
+ * @property string|null $build_fingerprint DeploymentConfigFingerprint::forBuild() when this deployment was created, classified once the inspection lands when it was created without one (ClassifyFallbackBuildFingerprintsAction). Null for deployments created before image reuse, which are never reused.
  * @property string|null $idempotency_key
  * @property array{
  *     memory_mb: int|null,
