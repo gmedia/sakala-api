@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Enums\AgentCommandStatus;
+use App\Enums\AgentCommandType;
 use App\Enums\ProjectMetricsRange;
 use App\Enums\WorkspaceRole;
+use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\Project;
@@ -206,6 +209,71 @@ test('per_replica adds a series for each replica', function (): void {
         ->and($perReplica[1]['cpu_percent'][0])->toBe(['t' => iso('2026-11-18 10:29:00'), 'avg' => 50, 'max' => 60])
         ->and($perReplica[1]['restarts'][1])->toBe(['t' => iso('2026-11-18 10:30:00'), 'count' => 3])
         ->and(array_keys($perReplica[1]))->toBe(['replica', 'cpu_percent', 'memory_bytes', 'restarts']);
+});
+
+// Ledger X-32, seen on staging 2026-11-23: a restart finished at 07:09:56,
+// the containers were first sampled at 07:11, and the 1h range lost the
+// restart while 24h showed both.
+test('a restart in a minute without samples still counts, while CPU and memory keep their gap', function (): void {
+    [$owner, $project, $deployment] = metricsProject();
+    AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $deployment->agent_node_id,
+        'type' => AgentCommandType::RestartProject,
+        'status' => AgentCommandStatus::Succeeded,
+        'completed_at' => CarbonImmutable::parse('2026-11-18 10:09:56', 'UTC'),
+    ]);
+    metricMinuteRow($deployment, '2026-11-18 10:11:00');
+    metricMinuteRow($deployment, '2026-11-18 10:19:00');
+    // The second restart: a crash the counter shows.
+    metricMinuteRow($deployment, '2026-11-18 10:20:00', ['restart_count' => 1]);
+
+    $series = $this->actingAs($owner, 'web')
+        ->getJson(metricsUrl($project, 'range=1h&per_replica=1'))
+        ->assertOk()
+        ->json('data.series');
+
+    $restarts = collect($series['restarts'])->pluck('count', 't');
+    expect($restarts->all())->toBe([
+        iso('2026-11-18 10:09:00') => $deployment->replicas,
+        iso('2026-11-18 10:11:00') => 0,
+        iso('2026-11-18 10:19:00') => 0,
+        iso('2026-11-18 10:20:00') => 1,
+    ])
+        ->and($restarts->sum())->toBe($deployment->replicas + 1)
+        ->and(array_column($series['cpu_percent'], 't'))->toBe([iso('2026-11-18 10:11:00'), iso('2026-11-18 10:19:00'), iso('2026-11-18 10:20:00')])
+        ->and(array_column($series['memory_bytes'], 't'))->toBe(array_column($series['cpu_percent'], 't'))
+        ->and(array_column($series['replicas'], 't'))->toBe(array_column($series['cpu_percent'], 't'))
+        ->and($series['per_replica'][0]['restarts'][0])->toBe(['t' => iso('2026-11-18 10:09:00'), 'count' => 1]);
+
+    // The 24h range agrees on the total.
+    $daily = $this->actingAs($owner, 'web')->getJson(metricsUrl($project, 'range=24h'))->assertOk();
+    expect(collect($daily->json('data.series.restarts'))->sum('count'))->toBe($deployment->replicas + 1);
+});
+
+test('a replica restarted in the range without any row gets a restarts series only', function (): void {
+    [$owner, $project, $deployment] = metricsProject();
+    $deployment->update(['replicas' => 2]);
+    AgentCommand::factory()->create([
+        'project_id' => $project->id,
+        'deployment_id' => $deployment->id,
+        'agent_node_id' => $deployment->agent_node_id,
+        'type' => AgentCommandType::RestartProject,
+        'status' => AgentCommandStatus::Succeeded,
+        'completed_at' => CarbonImmutable::parse('2026-11-18 10:25:10', 'UTC'),
+    ]);
+    metricMinuteRow($deployment, '2026-11-18 10:29:00');
+
+    $perReplica = $this->actingAs($owner, 'web')
+        ->getJson(metricsUrl($project, 'per_replica=1'))
+        ->assertOk()
+        ->json('data.series.per_replica');
+
+    expect(array_column($perReplica, 'replica'))->toBe([0, 1])
+        ->and($perReplica[1]['cpu_percent'])->toBe([])
+        ->and($perReplica[1]['memory_bytes'])->toBe([])
+        ->and($perReplica[1]['restarts'])->toBe([['t' => iso('2026-11-18 10:25:00'), 'count' => 1]]);
 });
 
 test('an unknown range or flag is rejected', function (string $query, string $field): void {

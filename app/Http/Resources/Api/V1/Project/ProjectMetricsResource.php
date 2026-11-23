@@ -27,7 +27,8 @@ final class ProjectMetricsResource extends JsonResource
             /**
              * Summed across replicas. Each series has a point for every step with data, oldest first; a step without
              * data has no point, so consecutive `t` more than `step_seconds` apart are a gap. `t` is the start of the
-             * step (ISO 8601, UTC). All series share the same `t` values.
+             * step (ISO 8601, UTC). The series share the same `t` values, except that `restarts` also has a point for
+             * a step without data in which a restart happened.
              */
             'series' => [
                 /**
@@ -55,7 +56,8 @@ final class ProjectMetricsResource extends JsonResource
                  */
                 'replicas' => array_map(fn (array $point): array => [...$point, 't' => $this->time($point['t'])], $data->replicas),
                 /**
-                 * Container restarts in the step, summed across replicas.
+                 * Container restarts in the step, summed across replicas. A step without data still has a point
+                 * here when a restart happened in it, so a restart is never lost to a gap.
                  *
                  * @var list<array{t: string, count: int}>
                  */

@@ -28,7 +28,10 @@ use Illuminate\Database\Eloquent\Collection;
  * maximum. Restarts are counted per replica from its cumulative counter and
  * summed per step, plus every restart a member asked for that succeeded
  * (RestartProjectAction): one per replica of the restarted deployment, in the
- * step of its completion. A step without any row has no point: gaps stay gaps.
+ * step of its completion. A step without any row has no CPU, memory, or
+ * replicas point: gaps stay gaps. Restarts are events, not samples, so a step
+ * that has restarts keeps its restarts point even without a row; a restart
+ * that finished before the new containers were first sampled still counts.
  *
  * Those restarts come from `agent_commands`, which are kept until the project
  * is purged, so they cover every range. A restart that recreates containers
@@ -233,10 +236,40 @@ final class GetProjectMetricsAction
                 'max' => $totals['memory_max'],
             ];
             $series['replicas'][] = ['t' => $stepStart, 'count' => $totals['replicas']];
-            $series['restarts'][] = ['t' => $stepStart, 'count' => $restarts[$stepStart] ?? 0];
         }
 
+        $series['restarts'] = $this->restartPoints($steps, $restarts);
+
         return $series;
+    }
+
+    /**
+     * A point for every step with a row, zero when nothing restarted, and for
+     * every step with restarts, with or without a row. A step without a row
+     * and without restarts stays a gap.
+     *
+     * @param  array<int, mixed>  $steps  Steps with a row, keyed by step start.
+     * @param  array<int, int>  $restarts  Keyed by step start.
+     * @return list<array{t: int, count: int}>
+     */
+    private function restartPoints(array $steps, array $restarts): array
+    {
+        $counts = array_fill_keys(array_keys($steps), 0);
+
+        foreach ($restarts as $stepStart => $count) {
+            if ($count > 0 || array_key_exists($stepStart, $counts)) {
+                $counts[$stepStart] = $count;
+            }
+        }
+
+        ksort($counts);
+        $points = [];
+
+        foreach ($counts as $stepStart => $count) {
+            $points[] = ['t' => $stepStart, 'count' => $count];
+        }
+
+        return $points;
     }
 
     /**
@@ -263,11 +296,14 @@ final class GetProjectMetricsAction
      */
     private function perReplica(array $byReplica, array $restarts, int $step): array
     {
-        ksort($byReplica);
+        // A replica restarted in the range but without a row in it still
+        // gets its restarts; its CPU and memory series are empty.
+        $indexes = array_unique([...array_keys($byReplica), ...array_keys($restarts)]);
+        sort($indexes);
         $replicas = [];
 
-        foreach ($byReplica as $replica => $buckets) {
-            $series = $this->series($buckets, $restarts[$replica] ?? [], $step);
+        foreach ($indexes as $replica) {
+            $series = $this->series($byReplica[$replica] ?? [], $restarts[$replica] ?? [], $step);
             $replicas[] = [
                 'replica' => $replica,
                 'cpu_percent' => $series['cpu_percent'],

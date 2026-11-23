@@ -59,7 +59,7 @@ test('no project can take the staging namespace or an infrastructure name under 
         ->getJson(route('api.v1.app.projects.domain-preview', ['name' => $name]))
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['name']);
-})->with(['staging', 'Staging', 'www', 'api', 'app', 'admin', 'status', 'mail']);
+})->with(['staging', 'Staging', 'www', 'api', 'app', 'admin', 'status', 'mail', 's3', 'S3']);
 
 test('the preview route is not swallowed by the project show route', function (): void {
     $user = User::factory()->create();
