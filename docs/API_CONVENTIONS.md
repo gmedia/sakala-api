@@ -82,13 +82,13 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `REPOSITORY_ACCESS_REVOKED` | `409` | Deploy project GitHub App saat orang yang menjadi sandaran aksesnya tidak lagi punya akses ke repository atau sudah keluar dari tim. Lihat [Akses GitHub untuk project tim](#akses-github-untuk-project-tim). | - |
 | `invalid_reset_token` | `422` | Token reset kata sandi salah atau kedaluwarsa, atau emailnya tidak dikenal. | - |
 | `email_not_verified` | `403` | Login dengan kata sandi benar, tetapi email belum diverifikasi. Lihat [Autentikasi](AUTHENTICATION.md). | - |
-| `LEGAL_ACCEPTANCE_REQUIRED` | `403` | Membuat proyek, inspeksi ulang, deploy, rollback, atau restart sebelum menyetujui versi terbaru. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen). | - |
+| `LEGAL_ACCEPTANCE_REQUIRED` | `403` | Membuat proyek, membuat bucket, inspeksi ulang, deploy, rollback, atau restart sebelum menyetujui versi terbaru. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen). | - |
 | `REAUTHENTICATION_REQUIRED` | `403` | Akun tanpa kata sandi menghapus akun tanpa login baru di provider. Lihat [Menghapus Akun](AUTHENTICATION.md#menghapus-akun). | - |
 | `ADMIN_ACCOUNT_CANNOT_BE_DELETED` | `409` | Admin menghapus akunnya sendiri. | - |
 | `ACCOUNT_DELETION_CONFLICT` | `409` | Proyek baru terus muncul selama akun dihapus. Aman diulang. | - |
 | `WORKSPACE_IS_PERSONAL` | `409` | Mengganti nama, menghapus, meninggalkan, atau mengundang ke workspace pribadi. | - |
-| `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek atau database. | `workspaces` (`id`, `name`, `slug`) |
-| `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek atau database. | `projects`, `databases` |
+| `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek, database, atau bucket. | `workspaces` (`id`, `name`, `slug`) |
+| `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek, database, atau bucket. Database dan bucket yang sedang dihapus tidak dihitung. | `projects`, `databases`, `buckets` (integer, selalu ada) |
 | `TEAM_LIMIT_EXCEEDED` | `422` | Menjadi owner satu tim lagi akan melewati batas tim yang dimiliki: membuat tim, menerima undangan owner, atau dijadikan owner. | `limit`, `current` |
 | `INVITATION_EMAIL_MISMATCH` | `403` | Menerima undangan sebagai `owner` dari akun yang email terverifikasinya bukan alamat undangan, walaupun membawa token. Saat membaca undangan, kode ini muncul di `accept_error_code`, bukan sebagai error. | - |
 | `EMAIL_VERIFICATION_REQUIRED` | `403` | Membuat atau bergabung ke tim dengan email yang belum diverifikasi. | - |
@@ -112,6 +112,17 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `PROJECT_DATABASE_ALREADY_ATTACHED` | `409` | Memasang database ke proyek, atau membuat database untuk proyek (`project_id`), yang sudah memakai database lain. | `database` (`id`, `name`) |
 | `DATABASE_UNAVAILABLE` | `409` | Membuat database untuk proyek (`project_id`) saat tidak ada server database yang bisa menerima database baru (`databases.available` `false`). Membuat database tanpa proyek tidak kena. | - |
 | `DATABASE_ENDPOINT_UNAVAILABLE` | `409` | Deploy proyek yang database terpasangnya ada di node yang belum melaporkan alamatnya (`metadata.database.endpoint`). | `database` (`id`, `name`) |
+| `BUCKET_LIMIT_EXCEEDED` | `422` | Workspace sudah punya bucket sebanyak `max_buckets` efektifnya. `limit` `0` berarti workspace itu belum boleh membuat bucket. Lihat [Bucket](#bucket). | `limit`, `current` (integer) |
+| `BUCKET_STORAGE_LIMIT_EXCEEDED` | `422` | Membuat bucket atau menaikkan kuotanya akan membuat total kuota yang dicadangkan bucket workspace melewati `max_bucket_storage_mb`. | `limit_mb`, `current_mb` (MB yang dicadangkan bucket lain, tanpa bucket ini), `requested_mb` (integer) |
+| `BUCKET_REGION_UNAVAILABLE` | `409` | Membuat bucket di region yang tidak punya node `managed-s3` yang diizinkan menerima pekerjaan, atau di mana pun bila `region` `null`. | `region` (string atau `null`) |
+| `BUCKET_CAPACITY_UNAVAILABLE` | `409` | Ada node `managed-s3` di region itu, tetapi tidak satu pun punya sisa alokasi untuk kuota yang diminta. Sisa kapasitas tidak disebutkan. | - |
+| `BUCKET_NOT_READY` | `409` | Memasang, membaca kredensial, merotasi key, atau mengubah kuota bucket yang masih `provisioning`, `failed`, atau `deleting`. Juga deploy proyek yang bucket terpasangnya masih `provisioning` atau `failed`; push webhook dilewati dengan `reason` `bucket_not_ready`. | `status` |
+| `BUCKET_LOCKED` | `409` | Memasang bucket yang dikunci admin. | - |
+| `BUCKET_IN_USE` | `409` | Menghapus bucket yang masih terpasang ke proyek. | `projects` (`id`, `name`, `slug`) |
+| `BUCKET_BUSY` | `409` | Merotasi key atau mengubah kuota saat permintaan sebelumnya belum selesai, merotasi key saat `CreateBucket` masih berjalan, menghapus bucket yang `CreateBucket`-nya sudah diambil node, atau menghapus akun saat itu terjadi. Aman diulang setelahnya. | - |
+| `PROJECT_BUCKET_ALREADY_ATTACHED` | `409` | Memasang bucket ke proyek, atau membuat bucket untuk proyek (`project_id`), yang sudah memakai bucket lain. | `bucket` (`id`, `name`) |
+| `BUCKET_UNAVAILABLE` | `409` | Membuat bucket untuk proyek (`project_id`) saat `buckets.available` `false`. Membuat bucket tanpa proyek tidak kena. | - |
+| `BUCKET_ENDPOINT_UNAVAILABLE` | `409` | Deploy proyek yang bucket terpasangnya ada di node yang belum melaporkan object storage-nya (`metadata.object_storage`); push webhook dilewati dengan `reason` `bucket_endpoint_unavailable`. | `bucket` (`id`, `name`) |
 
 Anggota workspace project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
 
@@ -216,7 +227,7 @@ Console memanggilnya dengan `since` berisi `created_at` deployment tertua di hal
 
 | Field | Tipe | Keterangan |
 | --- | --- | --- |
-| `kind` | string enum, selalu ada | `user` untuk `trigger` `manual`, `redeploy`, dan `rollback`; `github_push` untuk `webhook`; `system` untuk `system`, `database_password_rotated`, dan `database_ready`. |
+| `kind` | string enum, selalu ada | `user` untuk `trigger` `manual`, `redeploy`, dan `rollback`; `github_push` untuk `webhook`; `system` untuk `system`, `database_password_rotated`, `database_ready`, dan `bucket_key_rotated`. |
 | `name` | string atau `null` | `user`: nama anggota yang meminta, nama saat ini (bukan saat deploy); `null` setelah akunnya dihapus. `github_push`: nama GitHub yang push (`pusher.name`, lalu `sender.login`), paling panjang 255 karakter; `null` untuk deployment dari sebelum nama ini dicatat. `system`: selalu `null`. Teks dari GitHub, tampilkan sebagai teks. |
 | `user_id` | integer atau `null` | ID user anggota itu, hanya untuk `user`; `null` setelah akunnya dihapus. Selalu `null` untuk `github_push` (anggota yang menjadi sandaran push tidak pernah tampil) dan `system`. |
 
@@ -886,6 +897,8 @@ Batas dihitung per workspace, tidak pernah per anggota, dan datang dari profil b
 | Replika per project | 1 | 1 |
 | Database terkelola | `SAKALA_DATABASE_DEFAULT_MAX_COUNT` (2) | sama dengan pribadi |
 | Total ukuran database | `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB` (512 MB) | sama dengan pribadi |
+| Bucket terkelola | `SAKALA_BUCKET_DEFAULT_MAX_COUNT` (0) | sama dengan pribadi |
+| Total kuota bucket | `SAKALA_BUCKET_DEFAULT_MAX_STORAGE_MB` (0 MB) | sama dengan pribadi |
 
 Dengan default ini tidak ada yang berubah bagi user yang sudah ada, kecuali build per jam yang sekarang ditegakkan (lihat di bawah). Default tim sengaja kecil dan tidak mengikuti nilai pribadi, supaya membuat tim tidak menggandakan kuota; tim yang butuh lebih mendapat profil batas dari admin. Nilai env yang kosong memakai default di tabel. Container berjalan adalah jumlah replika project yang melayani (`active_deployment_id` terisi dan tidak `sleeping`) atau sedang di-deploy; project yang sedang di-deploy dihitung dengan replika terbanyak antara deployment aktif dan deployment yang berjalan. Batasnya berlaku saat men-deploy project yang belum melayani atau sedang tidur, saat redeploy dengan replika lebih banyak, dan saat membangunkan project (lihat [Replika](#replika)). `max_replicas` profil (1 sampai 10, atau `null`) mengatur replika terbanyak per project; `null` dan workspace tanpa profil berarti 1, jadi replika mati sampai admin mengizinkannya. `idle_sleep_minutes` profil (0 sampai 10080, atau `null`) mengatur jendela sepi: `null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` berarti project workspace itu tidak pernah ditidurkan, dan nilai lain menidurkannya setelah sekian menit, juga saat nilai global `0`. Default memory dan CPU tidak pernah melebihi batas profil. Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
 
@@ -893,7 +906,7 @@ Build per jam membatasi berapa deployment yang mem-build image yang boleh dibuat
 
 Membuat project mengunci baris user lalu baris workspace, dan membuat deployment mengunci baris workspace lalu baris project, sehingga dua request di workspace yang sama dihitung bergantian. Admin yang bertindak tidak dibatasi, sama seperti sebelumnya, termasuk oleh batas build per jam; deploy admin tetap ikut dihitung untuk deploy anggota berikutnya.
 
-`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (jumlah replika, tanpa project yang `sleeping`), `quotas.max_replicas`, `quotas.max_builds_per_hour` (batas build per jam efektif, `null` berarti tanpa batas), `quotas.max_databases`, `quotas.current_databases_count`, `quotas.max_database_storage_mb`, `quotas.current_database_storage_bytes` (lihat [Database](#database)), `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur), dan `databases.available` (lihat [Ketersediaan](#ketersediaan)); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
+`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (jumlah replika, tanpa project yang `sleeping`), `quotas.max_replicas`, `quotas.max_builds_per_hour` (batas build per jam efektif, `null` berarti tanpa batas), `quotas.max_databases`, `quotas.current_databases_count`, `quotas.max_database_storage_mb`, `quotas.current_database_storage_bytes` (lihat [Database](#database)), `quotas.max_buckets`, `quotas.current_buckets_count`, `quotas.max_bucket_storage_mb`, `quotas.current_bucket_storage_mb`, `quotas.current_bucket_usage_bytes` (lihat [Bucket](#bucket)), `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur), `databases.available` (lihat [Ketersediaan](#ketersediaan)), dan `buckets` (lihat [Ketersediaan bucket](#ketersediaan-bucket)); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
 
 ### Akses GitHub untuk Project Tim
 
@@ -1067,6 +1080,7 @@ Body `redeploy_attached` (boolean, opsional, default `false`; nilai lain `422`) 
 | `project_suspended` | Proyek ditangguhkan. |
 | `active_deployment_limit`, `active_container_limit`, `build_rate_limit` | Batas workspace atau proyek tercapai, misalnya karena deployment yang diantrekan sebelum rotasi masih berjalan. |
 | `repository_access_revoked`, `database_endpoint_unavailable`, `release_command_unsupported` | Sama artinya dengan error deploy bernama sama. |
+| `database_not_ready`, `bucket_endpoint_unavailable`, `bucket_not_ready` | Proyek juga memakai database atau bucket yang belum bisa dipakai, sama artinya dengan error deploy `DATABASE_NOT_READY`, `BUCKET_ENDPOINT_UNAVAILABLE`, dan `BUCKET_NOT_READY`. Daftar ini dipakai bersama oleh rotasi password database dan rotasi key bucket. |
 | `failed` | Kesalahan lain, misalnya GitHub tidak menjawab; dilaporkan ke error tracker. |
 | `database_provisioning_failed` | Hanya untuk `deploy_when_ready`: pembuatan database gagal atau kedaluwarsa. |
 
@@ -1106,6 +1120,165 @@ Database yang lock atau unlock-nya masih berjalan tidak dimintai lagi; yang gaga
 ### Audit
 
 Setiap perubahan dicatat di `audit_events` dengan subject database (`App\Models\ManagedDatabase`), berisi ID, nama di node, `command_id`, dan kode, tanpa password atau URL: `database.created` (dengan `project_id` bila dibuat untuk proyek), `database.provisioned`, `database.provisioning_failed`, `database.renamed`, `database.delete_requested`, `database.deleted`, `database.drop_failed`, `database.attached`, `database.detached`, `database.project_deploy_requested` (dengan `project_id` dan `attachment_id`, actor orang yang meminta), `database.project_deploy_started` (dengan `deployment_id`), `database.project_deploy_skipped` (dengan `reason`; actor node atau `system`/`agent:expire-commands` bila pembuatan gagal), `database.credentials_viewed`, `database.password_rotation_requested` (dengan `redeploy_attached`), `database.password_rotated`, `database.password_rotation_failed`, `database.password_rotation_redeploys_queued` (dengan `redeploys`, actor orang yang meminta rotasi), `database.lock_requested`, `database.locked`, `database.lock_failed`, `database.unlock_requested`, `database.unlocked`, `database.unlock_failed`, `database.extension_install_requested`, `database.extension_installed`, dan `database.extension_install_failed`. Peringatan 80% dicatat dengan subject workspace (`workspace.database_storage_warning`). Hasil dari node dicatat dengan actor node itu; command yang kedaluwarsa dengan actor `system`/`agent:expire-commands`, dan sapuan kuota dengan `system`/`databases:enforce-storage-quota`.
+
+## Bucket
+
+Bucket S3 terkelola mengikuti ADR-021: bucket milik workspace (pribadi atau tim), tinggal di instance object storage (RustFS) milik satu node, dan dipasang ke nol, satu, atau beberapa proyek di workspace yang sama, paling banyak satu bucket per proyek. Bucket bisa dibuat tanpa proyek dan tetap ada saat proyek yang memakainya dihapus. Node penyimpanan adalah node agent yang mengiklankan capability `managed-s3` (lihat [Agent API](AGENT_API.md#perintah-bucket)). Bucket selalu privat: tidak ada akses anonim, bucket policy, atau static website hosting. Browser membuka berkas lewat presigned URL yang dibuat aplikasi.
+
+### Endpoint bucket
+
+Semua endpoint berada di `/api/v1/app/workspaces/{workspace}/buckets` dan memakai sesi Console. Peran mengikuti peran workspace, sama seperti database: semua anggota membaca, owner dan member mengubah, hanya owner yang membaca secret key. Admin tetap punya semua kuasa dan tidak dibatasi jumlah bucket maupun jatah penyimpanan bucket workspace, tetapi tetap dibatasi kapasitas node. Pengguna di luar workspace menerima `403` generik; bucket atau proyek milik workspace lain menerima `404`.
+
+| Endpoint | Owner | Member | Viewer | Admin | Hasil |
+| --- | --- | --- | --- | --- | --- |
+| `GET .../buckets` | ya | ya | ya | ya | `200 {data: BucketResource[]}`, terbaru dulu, tanpa pagination (jumlahnya dibatasi kuota). |
+| `POST .../buckets` | ya | ya | `403` | ya | `201 {data: BucketResource}`, status `provisioning`. Butuh persetujuan dokumen terbaru (`403 LEGAL_ACCEPTANCE_REQUIRED`). |
+| `GET .../buckets/{bucket}` | ya | ya | ya | ya | `200`. |
+| `PATCH .../buckets/{bucket}` | ya | ya | `403` | ya | `200` untuk ganti nama saja atau kuota yang tidak berubah; `202` bila perubahan kuota dikirim ke node. |
+| `DELETE .../buckets/{bucket}` | ya | ya | `403` | ya | `202` dengan status `deleting`, atau `204` bila bucket `provisioning` dihapus sebelum node mengambil `CreateBucket`-nya. |
+| `POST .../buckets/{bucket}/attachments/{project}` | ya | ya | `403` | ya | `201 {data: BucketAttachmentResource}`, atau `200` bila sudah terpasang. |
+| `DELETE .../buckets/{bucket}/attachments/{project}` | ya | ya | `403` | ya | `204`. Berkas tetap ada. `404` bila tidak terpasang. |
+| `GET .../buckets/{bucket}/credentials` | ya | `403` | `403` | ya | `200 {data: BucketCredentialsResource}`, `Cache-Control: no-store`, diaudit sebelum dikirim. |
+| `POST .../buckets/{bucket}/rotate-key` | ya | ya | `403` | ya | `202 {data: BucketResource}`. |
+
+Memasang, melepas, dan membuat bucket dengan `project_id` juga memeriksa hak mengubah proyek itu.
+
+**Body `POST`**
+
+| Field | Tipe | Aturan |
+| --- | --- | --- |
+| `name` | string atau `null` | Wajib tanpa `project_id`, paling panjang 100, unik di antara bucket workspace yang masih ada. Dengan `project_id` dan kosong: nama proyek, lalu ` 2`, ` 3`, ..., dipotong agar muat 100 karakter (jalur kode yang sama dengan database). |
+| `region` | string atau `null` | Format region. `null` memakai region proyek (dengan `project_id`), lalu `default_region` profil workspace, lalu region mana pun. Tidak ada penolakan lintas region, karena endpoint S3 publik. |
+| `project_id` | uuid atau `null` | Pasang ke proyek itu di transaksi yang sama; satu-satunya cara memasang bucket yang masih `provisioning`. |
+| `quota_mb` | integer atau `null` | 1 sampai 1048576 (MB). `null` memakai `min(buckets.default_quota_mb, sisa jatah workspace)`; admin memakai `buckets.default_quota_mb`. |
+
+`deploy_when_ready` belum diterima di versi ini; mengirimnya, apa pun nilainya, dijawab `422`.
+
+**Body `PATCH`**: `name` (string, opsional) dan `quota_mb` (integer 1 sampai 1048576, opsional), minimal satu. Ganti nama tidak pernah mengubah apa pun di node. Perubahan kuota butuh status `ready` atau `locked` (selain itu `409 BUCKET_NOT_READY`) dan tidak ada `SetBucketQuota` yang masih terbuka (`409 BUCKET_BUSY`). Kenaikan diperiksa terhadap jatah workspace dan kapasitas node bucket itu sendiri, keduanya tanpa cadangan bucket itu. Menurunkan kuota di bawah pemakaian sekarang boleh; upload baru ditolak node sampai pemakaian turun. Setelah kuota diterapkan, RustFS menjawab tulisan pertama ke bucket itu dengan satu `503 SlowDown` yang diulang otomatis oleh SDK S3.
+
+**`BucketResource`**
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `id` | string uuid | |
+| `name` | string | Nama yang dilihat orang. |
+| `status` | string enum | `provisioning`, `ready`, `failed`, `deleting`, `locked`. Lihat "Status bucket". |
+| `region` | string atau `null` | Region penempatan Sakala, bukan region signing S3. |
+| `quota_mb` | integer (MB) | Kuota keras yang diterapkan node, atau akan diterapkan setelah pembuatan selesai. |
+| `pending_quota_mb` | integer (MB) atau `null` | Nilai `SetBucketQuota` yang masih terbuka; `null` bila tidak ada. |
+| `size_bytes` | integer (byte) atau `null` | Pemakaian dari laporan node terakhir; `null` sampai node melapor. |
+| `usage_checked_at` | string ISO 8601 atau `null` | Waktu pemakaian itu dilaporkan. |
+| `projects` | array `{id, name, slug}` | Proyek yang terpasang, urut nama. |
+| `connection` | object atau `null` | `{endpoint: string, region: string, bucket: string, access_key_id: string, path_style: true}`. Terlihat oleh semua anggota termasuk viewer, karena tidak ada yang rahasia. `null` kecuali status `ready` atau `locked` dan node sudah melaporkan `object_storage`. `region` di sini adalah region signing S3, misalnya `us-east-1`. |
+| `last_failure` | object atau `null` | Bentuknya sama dengan database: `{command, code, user_fixable, summary, failed_at}`. `user_fixable` selalu `false` di versi ini. |
+| `key_rotation` | object atau `null` | Bentuknya sama dengan `password_rotation` database. Lihat "Rotasi key". |
+| `created_at`, `updated_at` | string ISO 8601 atau `null` | |
+
+Nama bucket di node (`b-` dan 20 huruf kecil atau angka acak), access key ID (`SK` dan 18 huruf besar atau angka acak), dan node tidak pernah muncul di luar `connection`. Secret tidak pernah muncul di resource ini. Nama bucket di node tidak diturunkan dari input pengguna dan tidak pernah dipakai ulang, jadi presigned URL tidak membocorkan nama workspace atau proyek, dan key atau URL lama tidak bisa menunjuk ke bucket yang lebih baru.
+
+`BucketAttachmentResource`: `{bucket_id: string, project: {id, name, slug}, redeploy_required: boolean, attached_at: string ISO 8601 atau null}`.
+
+### Status bucket
+
+| `status` | Arti |
+| --- | --- |
+| `provisioning` | `CreateBucket` menunggu atau sedang berjalan di node. |
+| `ready` | Bucket dan key-nya ada di node. |
+| `failed` | `CreateBucket` gagal atau kedaluwarsa. Hapus lalu buat lagi. Tidak dihitung ke jumlah bucket maupun jatah penyimpanan. |
+| `deleting` | `DeleteBucket` menunggu atau sedang berjalan. Masih dihitung sampai node selesai. |
+| `locked` | Admin mengunci bucket (penyalahgunaan): key dinonaktifkan, jadi aplikasi tidak bisa membaca atau menulis dan presigned URL yang sudah ada berhenti berlaku. Tidak ada penguncian karena kuota; kuota keras di node yang menolak upload. |
+
+Bucket `ready` dan `locked` menerima injeksi variabel, kredensial, rotasi, dan perubahan kuota.
+
+### Ketersediaan bucket
+
+`GET app/pilot-limits` berisi `buckets.available` (boolean) dan `buckets.default_quota_mb` (integer, MB, nilai `SAKALA_BUCKET_DEFAULT_QUOTA_MB`). `available` bernilai `true` selama ada node online yang boleh menerima `CreateBucket` (capability `managed-s3`, eligibility sama dengan penempatan), sudah melaporkan `metadata.object_storage`, dan tidak melaporkan `available: false`. Console menganggap API tanpa key `buckets` sebagai API yang belum punya fitur ini.
+
+Field kuota di `quotas`: `max_buckets` (integer, batas efektif), `current_buckets_count` (integer, bucket yang dihitung), `max_bucket_storage_mb` (integer, MB), `current_bucket_storage_mb` (integer, MB, jumlah `reserved_quota_mb`: yang dialokasikan, bukan yang terpakai), dan `current_bucket_usage_bytes` (integer, byte, jumlah `size_bytes`; bucket yang belum diukur dihitung 0).
+
+### Penempatan bucket
+
+Bucket ditempatkan di node `managed-s3` yang aktif, protokolnya didukung, di region yang diminta (atau di mana pun bila `null`), dan sisa alokasinya cukup: `metadata.object_storage.capacity_mb` dikurangi jumlah `reserved_quota_mb` semua bucket node itu yang belum dihapus, termasuk yang `failed`, karena node bisa menyimpan sisa pembuatan yang setengah jadi. Di antara node online yang muat, node yang tidak melaporkan `available: false` didahulukan, lalu sisa alokasi terbesar, lalu heartbeat terbaru. Bila tidak ada node online yang muat tetapi ada node offline yang muat, node itu dipilih dan bucket menunggunya. Ada kandidat tetapi tidak ada yang muat: `409 BUCKET_CAPACITY_UNAVAILABLE`. Tidak ada kandidat sama sekali: `409 BUCKET_REGION_UNAVAILABLE`. Bucket tidak pernah pindah node. Pemeriksaan kapasitas di API tidak mengunci node, jadi dua pembuatan di workspace berbeda bisa sama-sama lolos untuk sisa terakhir; agent memeriksa ulang total kuota dan disk sebelum menerapkannya, dan yang kalah gagal dengan `bucket_capacity_exceeded`.
+
+### Kuota bucket
+
+Kuota adalah alokasi, bukan pemakaian. `max_buckets` membatasi jumlah bucket yang dihitung (`provisioning`, `ready`, `deleting`, `locked`), dan `max_bucket_storage_mb` membatasi jumlah `reserved_quota_mb` bucket itu. `reserved_quota_mb` sama dengan `quota_mb`, kecuali saat perubahan kuota terbuka: selama itu nilainya `max(quota_mb, kuota baru)`, jadi kenaikan langsung dicadangkan dan penurunan baru melepas alokasi setelah node melapor. `SetBucketQuota` yang sukses membuat `quota_mb` dan `reserved_quota_mb` sama dengan nilai baru; yang gagal atau kedaluwarsa mengembalikan `reserved_quota_mb` ke `quota_mb`.
+
+Pemeriksaan jumlah dan jatah berjalan di bawah row lock workspace, baik saat membuat maupun menaikkan kuota, jadi dua permintaan bersamaan di workspace yang sama tidak bisa sama-sama memakai MB terakhir. Urutan lock: workspace, lalu proyek (saat `project_id`), seperti database; perubahan kuota mengunci workspace lalu bucket.
+
+Default kode dan default hosted keduanya `0`: bucket memakai disk nyata, jadi workspace dibuka satu per satu lewat profil batas. `max_bucket_storage_mb` `0` menolak bucket baru dan kenaikan kuota; bucket yang ada tetap dengan kuotanya. Menurunkan profil di bawah yang sudah dicadangkan tidak pernah mengecilkan bucket, hanya menolak kenaikan dan bucket baru. Admin bebas dari dua batas ini tetapi tidak dari kapasitas node.
+
+Setiap menit `buckets:check-usage` memeriksa bucket `ready` dan `locked` yang sudah diukur. Saat `size_bytes` mencapai 80 % `quota_mb`, owner dan member menerima notifikasi kategori `workspace` ("Bucket hampir penuh", menyebut bahwa upload ditolak di 100 %), audit `bucket.storage_warning` dicatat, dan `storage_warned_at` diisi; di bawah 80 % tandanya dikosongkan, jadi peringatan dikirim sekali per lintasan. Tidak ada aksi kunci.
+
+### Variabel bucket
+
+Proyek yang terpasang menerima variabel ini pada deployment berikutnya, dalam urutan tetap:
+
+| Variabel | Nilai |
+| --- | --- |
+| `AWS_ENDPOINT_URL_S3` | `metadata.object_storage.endpoint` node, misalnya `https://s3.sakala.app`. Dibaca AWS SDK terbaru khusus untuk S3. |
+| `AWS_ENDPOINT` | Sama. Dibaca disk `s3` Laravel. |
+| `AWS_USE_PATH_STYLE_ENDPOINT` | `true`. |
+| `AWS_DEFAULT_REGION` | `metadata.object_storage.region` node, misalnya `us-east-1`. Dibaca Laravel dan boto3. |
+| `AWS_REGION` | Sama. Dibaca JavaScript SDK v3. |
+| `AWS_BUCKET` | Nama bucket di node. |
+| `AWS_ACCESS_KEY_ID` | Access key ID. |
+| `AWS_SECRET_ACCESS_KEY` | Secret key. |
+
+`AWS_ENDPOINT_URL` global sengaja tidak di-inject: SDK terbaru membacanya untuk semua layanan AWS, jadi aplikasi yang juga memakai SES atau SQS dengan key-nya sendiri akan mengirim panggilan itu ke endpoint bucket. `FILESYSTEM_DISK` dan `AWS_URL` juga tidak di-inject: yang pertama mengubah perilaku aplikasi di luar koneksi, dan yang kedua hanya untuk bucket publik. Console menyarankan `FILESYSTEM_DISK=s3` sebagai variabel proyek biasa.
+
+Variabel proyek dengan nama yang sama menang. `ProjectResource.buckets` (0 atau 1 item) berisi `{id: string, name: string, status: string, region: string atau null, variables: string[] (nama yang di-inject dan tidak ditimpa), overridden_variables: string[] (nama yang ditimpa proyek)}`.
+
+Variabel dibangun saat deployment dibuat, di transaksi yang sama dengan variabel database, dan tidak pernah disimpan sebagai variabel proyek. Deploy (manual atau push webhook) ditolak `409 BUCKET_NOT_READY` selama bucket terpasang masih `provisioning` atau `failed`, dan `409 BUCKET_ENDPOINT_UNAVAILABLE` selama node-nya belum melaporkan `object_storage`. Push webhook dilewati dengan `reason` `bucket_not_ready` atau `bucket_endpoint_unavailable`, dicatat di audit `project.auto_deploy_skipped`, dan owner serta member mendapat notifikasi `project_issue`. Bucket `locked` tetap meng-inject variabelnya; aplikasi menerima AccessDenied, sama seperti database yang dikunci.
+
+Memasang, melepas, dan rotasi key yang sukses mengubah fingerprint deploy proyek (`projects.bucket_fingerprint`), jadi `redeploy_required` menjadi `true` sampai deployment berikutnya. Endpoint dan region tidak masuk fingerprint, sama seperti alamat database. Secret bucket disamarkan dari log deployment, event, laporan command, dan pesan `fail` command bucket.
+
+### Kredensial bucket
+
+`BucketCredentialsResource`:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `endpoint` | string atau `null` | Endpoint S3 publik; `null` sampai node melaporkannya. |
+| `region` | string atau `null` | Region signing S3; `null` sampai node melaporkannya. |
+| `bucket` | string | Nama bucket di node. |
+| `access_key_id` | string | |
+| `secret_access_key` | string | 40 huruf dan angka. |
+| `path_style` | boolean | Selalu `true`. |
+| `variables` | object `{nama: nilai}` atau `null` | Persis variabel yang di-inject, dalam urutan tabel di atas; `null` selama endpoint belum diketahui. |
+
+Hanya bucket `ready` atau `locked` yang dilayani; selain itu `409 BUCKET_NOT_READY`. Audit `bucket.credentials_viewed` ditulis sebelum respons dikirim; bila gagal ditulis, secret tidak dikirim. Alamat IP dan user agent hanya disimpan untuk admin yang bukan anggota workspace. Key ini bekerja dari internet karena endpoint-nya publik, jadi kebocorannya lebih berat daripada password database: rotasi segera bila bocor.
+
+### Rotasi key
+
+Body `redeploy_attached` (boolean, opsional, default `false`; nilai lain `422`). Butuh status `ready` atau `locked` (`409 BUCKET_NOT_READY`), tidak ada rotasi yang terbuka, dan tidak ada `CreateBucket` yang terbuka (`409 BUCKET_BUSY`), karena `CreateBucket` yang diulang mengatur ulang secret ke nilai yang dibawanya. Boleh saat `locked`. Access key ID tetap; hanya secret yang berubah. Node langsung beralih, jadi aplikasi yang sedang berjalan kehilangan akses sampai di-redeploy. Secret baru disimpan hanya setelah node melaporkan sukses; saat itu fingerprint proyek yang terpasang dihitung ulang.
+
+`key_rotation` sama bentuknya dengan `password_rotation` database: `{status: pending|completed|failed|unknown, requested_at, completed_at, failed_at, redeploy_attached, redeploys}`.
+
+Rotasi yang hasilnya tidak bisa dipastikan node (kode agent `bucket_outcome_unknown`, atau lease command habis selagi node memegangnya) tidak dianggap gagal, karena node mungkin sudah beralih ke secret baru: secret lama tidak lagi dianggap pasti berlaku. API mengirim ulang `RotateBucketKey` baru dengan secret baru yang sama dan konteks yang sama (audit `bucket.key_rotation_resent` dengan `resent_command_id` dan `attempt`), dan `status` tetap `pending`. Secret tersimpan tetap yang lama dan deploy ulang tidak diantrekan sampai salah satu kiriman `complete`; idempotency key deploy ulangnya memakai ID command yang selesai itu. Setelah 10 kiriman tanpa kepastian, API berhenti mengirim ulang: `status` menjadi `unknown` (tanpa `failed_at`), `last_failure` menunjukkan kodenya, dan rotasi baru boleh diminta untuk memastikan secret. Kegagalan yang pasti (kode lain) tetap `failed` dengan secret lama. Dengan `redeploy_attached`, proyek terpasang yang punya deployment aktif di-deploy ulang lewat jalur deploy biasa atas nama peminta, dengan `trigger` `bucket_key_rotated` dan idempotency key `bucket-key-rotation:{id command}`, jadi job yang berjalan dua kali tidak membuat deployment kedua. `skipped_reason` memakai daftar yang sama dengan rotasi password database (lihat [Rotasi Password](#rotasi-password)). Hasilnya dicatat di audit `bucket.key_rotation_redeploys_queued`. Implementasinya dipakai bersama dengan rotasi password database.
+
+### Menghapus bucket
+
+Sama dengan aturan database, dengan "database" dibaca "bucket":
+
+- Masih terpasang: `409 BUCKET_IN_USE`.
+- `provisioning` dengan `CreateBucket` yang masih `Pending`: command dibatalkan, baris di-soft delete, `204`. Sudah diambil node: `409 BUCKET_BUSY`.
+- `failed`: `DeleteBucket` tetap dikirim, karena pembuatan bisa setengah jadi.
+- Mengulang selagi `deleting` tidak melakukan apa-apa; mengulang setelah penghapusan gagal mengirim `DeleteBucket` lagi.
+- `DeleteBucket` menghapus objek, key, policy, dan bucket di node sekaligus. Setelah node melapor, baris di-soft delete, secret dikosongkan, dan salinan secret di payload command dihapus. Backup operator menyimpan isi bucket sampai 14 hari.
+- Menghapus proyek melepas bucket-nya (audit `bucket.detached` dengan `reason` `project_deleted`); bucket tetap ada.
+- Menghapus tim butuh bucket-nya dihapus lebih dulu (`409 WORKSPACE_NOT_EMPTY` dengan `buckets`); bucket yang sedang dihapus tidak menahan tim dan selesai tanpa workspace.
+- Menghapus akun mengirim `DeleteBucket` untuk semua bucket workspace pribadinya; pemilik tunggal tim yang masih punya bucket menerima `409 LAST_WORKSPACE_OWNER`.
+
+### Operasi admin
+
+Penguncian karena penyalahgunaan hanya lewat artisan di versi ini: `php artisan buckets:lock {bucket} --reason=<teks>` (butuh status `ready`) dan `php artisan buckets:unlock {bucket} [--reason=<teks>]` (butuh status `locked`). Keduanya menolak bila kunci atau buka kunci lain masih terbuka. Aktor auditnya `system` dengan `actor_id` `buckets:lock` atau `buckets:unlock`.
+
+`php artisan buckets:reconcile {--node=} {--bucket=}` mengirim ulang `CreateBucket` dengan nilai tersimpan untuk setiap bucket `ready` atau `locked`, misalnya setelah host penyimpanan dipulihkan. Bucket dengan `CreateBucket` atau `RotateBucketKey` yang masih terbuka dilewati. `CreateBucket` tidak pernah mengaktifkan key yang dinonaktifkan, jadi bucket `locked` tetap terkunci; hasil suksesnya dicatat sebagai `bucket.reconciled`.
+
+### Audit bucket
+
+Subject `App\Models\ManagedBucket`. Metadata boleh berisi ID, `s3_bucket`, `access_key_id`, `command_id`, `quota_mb`, `node_id`, `region`, dan kode, tidak pernah secret atau map `variables`: `bucket.created` (dengan `project_id` bila dibuat untuk proyek), `bucket.provisioned`, `bucket.provisioning_failed`, `bucket.reconciled`, `bucket.renamed`, `bucket.quota_change_requested` (`from_mb`, `to_mb`), `bucket.quota_changed`, `bucket.quota_change_failed`, `bucket.delete_requested`, `bucket.deleted`, `bucket.delete_failed`, `bucket.attached`, `bucket.detached` (`reason`: `user` atau `project_deleted`), `bucket.credentials_viewed`, `bucket.key_rotation_requested` (`redeploy_attached`), `bucket.key_rotated`, `bucket.key_rotation_failed` (`outcome_unknown`, `attempt`), `bucket.key_rotation_resent` (`resent_command_id`, `attempt`), `bucket.key_rotation_redeploys_queued` (`redeploys`), `bucket.lock_requested` (`reason`), `bucket.locked`, `bucket.lock_failed`, `bucket.unlock_requested`, `bucket.unlocked`, `bucket.unlock_failed`, `bucket.storage_warning`. Aktor mengikuti aturan database: hasil node memakai node sebagai aktor, kedaluwarsa memakai `system`/`agent:expire-commands`, dan sweep memakai `system`/`buckets:check-usage`.
 
 ## Notifikasi
 
