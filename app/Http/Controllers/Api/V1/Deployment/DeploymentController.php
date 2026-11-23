@@ -9,16 +9,19 @@ use App\Actions\Deployment\CreateDeploymentAction;
 use App\Actions\Deployment\GetDeploymentCollectionAction;
 use App\Actions\Deployment\GetDeploymentEventAction;
 use App\Actions\Deployment\GetDeploymentLogAction;
+use App\Actions\Deployment\RollbackDeploymentAction;
 use App\Enums\DeploymentStatus;
 use App\Exceptions\Database\DatabaseEndpointUnavailableException;
 use App\Exceptions\Database\DatabaseNotReadyException;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\GitHub\GithubUnavailableException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
+use App\Exceptions\Runtime\DeploymentNotRollbackTargetException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentLogRequest;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentRequest;
 use App\Http\Requests\Api\V1\Deployment\PaginateDeploymentRequest;
+use App\Http\Requests\Api\V1\Deployment\RollbackDeploymentRequest;
 use App\Http\Requests\Api\V1\Deployment\StoreDeploymentRequest;
 use App\Http\Resources\Api\V1\Deployment\DeploymentEventResource;
 use App\Http\Resources\Api\V1\Deployment\DeploymentLogResource;
@@ -63,6 +66,46 @@ final class DeploymentController extends Controller
         );
 
         return (new DeploymentResource($deployment))
+            ->response()
+            ->setStatusCode(201);
+    }
+
+    /**
+     * Roll back to a deployment.
+     *
+     * Creates a deployment (`trigger: rollback`) with this deployment's commit and recorded settings, the project's
+     * current variables, and its image when the node still has it (otherwise it builds that commit). Pauses auto-deploy
+     * when it was on. Answers 201 with the new deployment; with the same `Idempotency-Key` again, the same one. 409
+     * `DEPLOYMENT_NOT_ROLLBACK_TARGET` with `reason` when this deployment cannot be gone back to, and every error of
+     * creating a deployment otherwise.
+     *
+     * @throws DeploymentNotRollbackTargetException
+     * @throws GithubUnavailableException
+     * @throws GithubRateLimitedException
+     * @throws BuildRateLimitExceededException
+     * @throws DatabaseEndpointUnavailableException
+     * @throws DatabaseNotReadyException
+     */
+    #[HeaderParameter(
+        'Idempotency-Key',
+        description: 'Unique key used to safely retry a rollback request.',
+        type: 'string',
+        example: '550e8400-e29b-41d4-a716-446655440000',
+    )]
+    public function rollback(
+        RollbackDeploymentRequest $request,
+        Project $project,
+        Deployment $deployment,
+        RollbackDeploymentAction $action,
+    ): JsonResponse {
+        $rollback = $action->handle(
+            project: $project,
+            target: $deployment,
+            user: $request->user(),
+            idempotencyKey: $request->getIdempotencyKey(),
+        );
+
+        return (new DeploymentResource($rollback))
             ->response()
             ->setStatusCode(201);
     }

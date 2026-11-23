@@ -10,7 +10,11 @@ use App\Models\AuditEvent;
 use App\Models\Project;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
-/** Pushes a project skipped because they concerned other projects of its monorepo, newest first. */
+/**
+ * Pushes a project skipped because they concerned other projects of its
+ * monorepo, or held while its auto-deploy is paused after a rollback, newest
+ * first.
+ */
 final class GetSkippedPushCollectionAction
 {
     /**

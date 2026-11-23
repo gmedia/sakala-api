@@ -28,6 +28,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $sequence
  * @property DeploymentStatus $status
  * @property DeploymentTrigger $trigger
+ * @property string|null $triggered_by_name GitHub name of the pusher for `webhook` deployments (`pusher.name`, else `sender.login`). Null otherwise and for deployments from before it was recorded.
+ * @property string|null $rollback_target_deployment_id The deployment a `rollback` deployment went back to. Null otherwise, or once that deployment is deleted.
+ * @property string|null $settings_source_deployment_id The deployment whose recorded settings this one ran with (DeploymentSettingsData::recordedBy()). Null when it ran with the project's settings.
  * @property string $branch
  * @property string|null $commit_sha
  * @property string|null $commit_message
@@ -90,6 +93,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'status',
     'realtime_sequence',
     'trigger',
+    'triggered_by_name',
+    'rollback_target_deployment_id',
+    'settings_source_deployment_id',
     'branch',
     'commit_sha',
     'commit_message',
@@ -131,6 +137,9 @@ class Deployment extends Model
     /** Bound (in characters) of the stored commit subject; the column is varchar(500). */
     public const MAX_COMMIT_MESSAGE_LENGTH = 500;
 
+    /** Bound (in characters) of `triggered_by_name`; the column is varchar(255). */
+    public const MAX_TRIGGERED_BY_NAME_LENGTH = 255;
+
     /**
      * The column defaults, so a deployment answered right after it is created
      * sends `false`, 1, and `built` instead of null.
@@ -169,6 +178,26 @@ class Deployment extends Model
     public function imageSource(): BelongsTo
     {
         return $this->belongsTo(self::class, 'image_source_deployment_id');
+    }
+
+    /**
+     * The deployment a `rollback` deployment went back to.
+     *
+     * @return BelongsTo<Deployment, $this>
+     */
+    public function rollbackTarget(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'rollback_target_deployment_id');
+    }
+
+    /**
+     * The deployment whose recorded settings this one ran with.
+     *
+     * @return BelongsTo<Deployment, $this>
+     */
+    public function settingsSource(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'settings_source_deployment_id');
     }
 
     /**

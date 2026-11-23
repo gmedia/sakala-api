@@ -48,6 +48,10 @@ use Illuminate\Database\Eloquent\Collection;
  * without a root directory, or one whose last deployment did not ship. Such a
  * skipped push is audited as `project.push_skipped`, shown in the project's
  * history, and notifies no one.
+ *
+ * A project whose auto-deploy is paused after a rollback is loaded too: a push
+ * that would deploy it is recorded the same way with `auto_deploy_paused`
+ * instead, so nothing is lost while the rollback holds.
  */
 final class CreatePushDeploymentsAction
 {
@@ -95,7 +99,7 @@ final class CreatePushDeploymentsAction
 
         $projects = Project::query()
             ->with(['user', 'workspace', 'workspace.personalUser', 'githubInstallation'])
-            ->where('auto_deploy', true)
+            ->where(fn ($query) => $query->where('auto_deploy', true)->orWhereNotNull('auto_deploy_paused_at'))
             ->where('github_repository_id', $repository['id'])
             ->where('branch', $branch)
             ->whereHas('githubInstallation', function ($query) use ($installation): void {
@@ -105,6 +109,7 @@ final class CreatePushDeploymentsAction
             ->get();
 
         $changes = PushChangedPaths::fromPayload($payload);
+        $pusher = $this->pusherName($payload);
         $ownership = $changes === null ? [] : $this->ownershipByWorkspace($projects, $repository['id'], $branch);
 
         foreach ($projects as $project) {
@@ -127,8 +132,46 @@ final class CreatePushDeploymentsAction
                 continue;
             }
 
-            $this->deploy($project, $branch, $commit, $message, $deliveryId);
+            if ($project->isAutoDeployPaused()) {
+                $this->recordSkippedPush($project, SkippedPushData::fromPush(
+                    deliveryId: $deliveryId,
+                    reason: PushSkipReason::AutoDeployPaused,
+                    commitSha: $commit,
+                    commitMessage: CommitMessage::subject($message),
+                    branch: $branch,
+                    rootDirectory: MonorepoPathOwnership::normalize($project->root_directory),
+                    changedPaths: $changes === null ? [] : $changes->paths,
+                    // A pause always follows a rollback deployment, so there is one.
+                    afterDeploymentId: (string) ($project->latestDeployment()->value('id') ?? $project->auto_deploy_paused_by_deployment_id),
+                ));
+
+                continue;
+            }
+
+            $this->deploy($project, $branch, $commit, $message, $deliveryId, $pusher);
         }
+    }
+
+    /**
+     * Who pushed, as GitHub names them: `pusher.name`, else `sender.login`,
+     * trimmed and bounded like the column; null without either.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function pusherName(array $payload): ?string
+    {
+        $pusher = is_array($payload['pusher'] ?? null) ? $payload['pusher'] : [];
+        $sender = is_array($payload['sender'] ?? null) ? $payload['sender'] : [];
+
+        foreach ([$pusher['name'] ?? null, $sender['login'] ?? null] as $candidate) {
+            $name = is_string($candidate) ? trim($candidate) : '';
+
+            if ($name !== '') {
+                return mb_substr($name, 0, Deployment::MAX_TRIGGERED_BY_NAME_LENGTH);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -170,8 +213,9 @@ final class CreatePushDeploymentsAction
      * the project; null when the project must deploy. It deploys when it has
      * no root directory, when a changed path is in its folder or shared, and
      * whenever its running version may lack an earlier change: no successful
-     * deployment yet, the latest deployment failed, was cancelled, or is of
-     * another branch, or a push was skipped for a limit since then.
+     * deployment yet, the latest deployment failed, was cancelled, is of
+     * another branch, or is a rollback (it runs an older commit), or a push was
+     * skipped for a limit or held by a paused auto-deploy since then.
      */
     private function baselineIfUnconcerned(Project $project, ?MonorepoPathOwnership $ownership, PushChangedPaths $changes, string $branch): ?Deployment
     {
@@ -185,6 +229,7 @@ final class CreatePushDeploymentsAction
 
         if ($latest === null
             || $latest->branch !== $branch
+            || $latest->trigger === DeploymentTrigger::Rollback
             || in_array($latest->status, [DeploymentStatus::Failed, DeploymentStatus::Cancelled], true)) {
             return null;
         }
@@ -195,8 +240,12 @@ final class CreatePushDeploymentsAction
         $missedPush = AuditEvent::query()
             ->where('subject_type', Project::class)
             ->where('subject_id', $project->id)
-            ->where('action', self::AUTO_DEPLOY_SKIPPED_ACTION)
             ->where('created_at', '>=', $latest->created_at)
+            ->where(fn ($query) => $query
+                ->where('action', self::AUTO_DEPLOY_SKIPPED_ACTION)
+                ->orWhere(fn ($held) => $held
+                    ->where('action', SkippedPushData::AUDIT_ACTION)
+                    ->where('metadata->reason', PushSkipReason::AutoDeployPaused->value)))
             ->exists();
 
         return $hasShipped && ! $missedPush ? $latest : null;
@@ -218,7 +267,7 @@ final class CreatePushDeploymentsAction
         ]);
     }
 
-    private function deploy(Project $project, string $branch, string $commit, ?string $message, string $deliveryId): void
+    private function deploy(Project $project, string $branch, string $commit, ?string $message, string $deliveryId, ?string $pusher): void
     {
         $actor = $this->actorFor($project);
 
@@ -244,6 +293,7 @@ final class CreatePushDeploymentsAction
                     trigger: DeploymentTrigger::Webhook,
                     commit_sha: $commit,
                     commit_message: $message,
+                    triggeredByName: $pusher,
                 ),
             );
         } catch (ActiveDeploymentLimitExceededException) {

@@ -9,6 +9,7 @@ use App\Support\Scramble\DeploymentPropertyTypeExtension;
 use App\Support\Scramble\GithubUnavailableExceptionToResponseExtension;
 use App\Support\Scramble\MergeSameStatusResponsesExtension;
 use App\Support\Scramble\ProjectWakeConflictExceptionToResponseExtension;
+use App\Support\Scramble\RollbackAndRestartConflictExceptionToResponseExtension;
 use Dedoc\Scramble\Http\Middleware\RestrictedDocsAccess;
 
 return [
@@ -166,6 +167,7 @@ return [
         ProjectWakeConflictExceptionToResponseExtension::class,
         BuildRateLimitExceptionToResponseExtension::class,
         DatabaseRuleExceptionToResponseExtension::class,
+        RollbackAndRestartConflictExceptionToResponseExtension::class,
         MergeSameStatusResponsesExtension::class,
     ],
 

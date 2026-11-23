@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Actions\Deployment\TransitionDeploymentAction;
+use App\Actions\Project\BroadcastRestartOutcomeAction;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
+use App\Enums\ProjectRestartState;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
+use App\Models\Project;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
@@ -38,6 +41,7 @@ final class ExpireAgentCommandsAction
         private readonly DeploymentFailureClassifier $failureClassifier,
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
+        private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
     ) {}
 
     /**
@@ -110,6 +114,10 @@ final class ExpireAgentCommandsAction
                 $this->databaseOutcome->failed(self::ACTOR_ID, $command, $code);
             }
 
+            if ($command->type === AgentCommandType::RestartProject) {
+                $this->announceFailedRestart($command);
+            }
+
             AuditEvent::create([
                 'actor_type' => 'system',
                 'actor_id' => self::ACTOR_ID,
@@ -126,6 +134,19 @@ final class ExpireAgentCommandsAction
 
             return 1;
         });
+    }
+
+    /** A member's restart that the node never finished ends like a failed one for the Console. */
+    private function announceFailedRestart(AgentCommand $command): void
+    {
+        $deployment = $command->deployment_id === null
+            ? null
+            : Deployment::query()->whereKey($command->deployment_id)->lockForUpdate()->first();
+        $project = $command->project_id === null ? null : Project::withTrashed()->find($command->project_id);
+
+        if ($deployment !== null && $project !== null) {
+            $this->broadcastRestartOutcome->handle($deployment, $command, $project->runtime_status, ProjectRestartState::Failed);
+        }
     }
 
     private function stillExpired(AgentCommand $command, string $code): bool

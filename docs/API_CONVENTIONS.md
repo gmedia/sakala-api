@@ -65,13 +65,16 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `ACTIVE_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy akan melewati batas container berjalan workspace: project yang belum melayani butuh slot untuk semua replikanya, dan project yang melayani hanya untuk replika tambahannya. Redeploy dengan replika sama atau lebih sedikit tidak pernah kena. | `limit`, `current` (container yang berjalan di workspace, termasuk milik project ini), `requested` (replika deployment ini) |
 | `BUILD_RATE_LIMIT_EXCEEDED` | `422` | Workspace sudah membuat deployment yang mem-build sebanyak batas build per jamnya dalam 60 menit terakhir. Setiap deployment yang mem-build dihitung, apa pun statusnya; deployment yang memakai ulang image tidak dihitung dan tidak pernah ditolak dengan kode ini. Lihat [Batas Workspace](#batas-workspace). | `limit`, `current` (deployment workspace yang mem-build dalam 60 menit terakhir, termasuk milik project yang dihapus; bisa lebih dari `limit` bila admin menurunkan batasnya), `retry_after_seconds` (detik sampai ada slot kosong, minimal `1`) |
 | `RESOURCE_LIMIT_EXCEEDED` | `422` | Resource yang diminta di luar batas pilot. | `resource`, `requested`, `maximum` |
-| `PROJECT_SUSPENDED` | `409` | Deploy, inspeksi ulang, atau membangunkan lewat Console project yang ditangguhkan admin. | - |
+| `PROJECT_SUSPENDED` | `409` | Deploy, rollback, restart, inspeksi ulang, atau membangunkan lewat Console project yang ditangguhkan admin. | - |
 | `PROJECT_NOT_SLEEPING` | `409` | Membangunkan lewat Console project yang `runtime_status`-nya bukan `sleeping`. | `runtime_status` |
 | `PROJECT_WAKE_LIMIT_EXCEEDED` | `409` | Membangunkan project, dengan semua replika deployment yang tidur, akan melewati batas container berjalan workspace. Endpoint publik tidak menyertakan angkanya. | `limit`, `current` (container project lain), `requested` (replika yang dinyalakan); hanya lewat Console |
 | `PROJECT_REPLICAS_UNSUPPORTED` | `409` | Deploy project dengan lebih dari 1 replika yang tidak bisa dijalankan node mana pun: node-nya belum punya capability `replicas`, atau batas replika per project node itu lebih kecil. Lihat [Replika](#replika). | `replicas`, `node_maximum` (batas terbesar yang dilaporkan node, atau `null` bila tidak ada node yang bisa menjalankan replika) |
 | `PROJECT_RELEASE_COMMAND_UNSUPPORTED` | `409` | Deploy project dengan `release_command` yang tidak bisa dijalankan node mana pun: node tempat project berjalan, atau untuk project baru semua node aktif, belum punya capability `release-command`. Kosongkan `release_command` atau tunggu operator memperbarui agent. Lihat [Perintah Rilis](#perintah-rilis). | - |
 | `PROJECT_REGION_UNAVAILABLE` | `409` | Deploy project yang harus berjalan di region (miliknya sendiri atau default profil workspace) yang tidak punya node yang diizinkan menerima pekerjaan sama sekali. Node region itu yang hanya offline ditunggu. Lihat [Region dan Penempatan](#region-dan-penempatan). | `region` |
 | `DEPLOYMENT_ALREADY_FINISHED` | `409` | Membatalkan deployment yang sudah `succeeded` atau `failed`. | `status` |
+| `DEPLOYMENT_NOT_ROLLBACK_TARGET` | `409` | Rollback ke deployment yang tidak bisa dijadikan tujuan. Lihat [Rollback dan jeda auto-deploy](#rollback-dan-jeda-auto-deploy). | `reason`: `not_succeeded` (deployment itu tidak `succeeded`), `already_active` (deployment itu yang sedang melayani), `no_commit` (tidak mencatat commit), `branch_changed` (branch-nya bukan branch project sekarang), `settings_unavailable` (pengaturan yang dipakainya tidak tercatat) |
+| `PROJECT_NOT_RUNNING` | `409` | Restart project yang tidak punya deployment aktif, atau yang `runtime_status`-nya bukan `running` atau `crashed`. Lihat [Restart](#restart). | `runtime_status` |
+| `PROJECT_RUNTIME_BUSY` | `409` | Restart saat ada deployment project yang `queued` atau sedang berjalan, atau `RestartProject`, `StopProject`, `SleepProject`, atau `WakeProject` project itu belum selesai. Aman diulang setelahnya. | - |
 | `GITHUB_RATE_LIMITED` | `503` | GitHub membatasi permintaan Sakala dan tidak ada jawaban tersimpan. Header `Retry-After` berisi detik tunggu. | `retry_after` |
 | `GITHUB_UNAVAILABLE` | `503` | GitHub menjawab error (misalnya `5xx`), jawabannya tidak bisa dibaca, atau tidak bisa dihubungi saat membaca repository, branch, atau commit. Masalahnya bukan di repository kamu; aman diulang. Lihat [Pembacaan GitHub Publik](#pembacaan-github-publik). | - |
 | `AVATAR_STORAGE_UNAVAILABLE` | `503` | Foto profil tidak bisa disimpan karena penyimpanan tidak tersedia. | - |
@@ -79,7 +82,7 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `REPOSITORY_ACCESS_REVOKED` | `409` | Deploy project GitHub App saat orang yang menjadi sandaran aksesnya tidak lagi punya akses ke repository atau sudah keluar dari tim. Lihat [Akses GitHub untuk project tim](#akses-github-untuk-project-tim). | - |
 | `invalid_reset_token` | `422` | Token reset kata sandi salah atau kedaluwarsa, atau emailnya tidak dikenal. | - |
 | `email_not_verified` | `403` | Login dengan kata sandi benar, tetapi email belum diverifikasi. Lihat [Autentikasi](AUTHENTICATION.md). | - |
-| `LEGAL_ACCEPTANCE_REQUIRED` | `403` | Membuat proyek, inspeksi ulang, atau deploy sebelum menyetujui versi terbaru. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen). | - |
+| `LEGAL_ACCEPTANCE_REQUIRED` | `403` | Membuat proyek, inspeksi ulang, deploy, rollback, atau restart sebelum menyetujui versi terbaru. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen). | - |
 | `REAUTHENTICATION_REQUIRED` | `403` | Akun tanpa kata sandi menghapus akun tanpa login baru di provider. Lihat [Menghapus Akun](AUTHENTICATION.md#menghapus-akun). | - |
 | `ADMIN_ACCOUNT_CANNOT_BE_DELETED` | `409` | Admin menghapus akunnya sendiri. | - |
 | `ACCOUNT_DELETION_CONFLICT` | `409` | Proyek baru terus muncul selama akun dihapus. Aman diulang. | - |
@@ -139,6 +142,10 @@ Instalasi GitHub App selalu kembali ke `/projects/new` di console: `?github_inst
 
 Webhook `push` membuat deployment untuk project yang `auto_deploy`-nya aktif bila repository, installation, dan branch cocok, memakai commit dari payload dengan `trigger = webhook`. Deployment itu atas nama pemilik workspace pribadi, atau di tim atas nama pembuat project selama ia masih owner atau member, lalu owner tim yang paling lama. Signature diverifikasi lebih dulu, dan `X-GitHub-Delivery` membuat pengiriman ulang tidak melakukan apa-apa. Project yang ditangguhkan, yang kena batas deployment aktif, yang workspace-nya sudah mencapai batas build per jam, atau yang `release_command`-nya tidak bisa dijalankan node mana pun dilewati: webhook tetap `200`, tindakan dicatat di audit (`project.auto_deploy_skipped`, dengan `reason` seperti `build_rate_limit`, `release_command_unsupported`, atau `database_not_ready`), dan owner serta member workspace mendapat notifikasi `project_issue`. Notifikasi batas build menyebut kapan bisa deploy lagi. Pengiriman yang dilewati tidak dicoba ulang. GitHub App harus berlangganan event `push`.
 
+Webhook juga membaca project yang auto-deploy-nya dijeda setelah rollback (`auto_deploy_pause` tidak `null`, `auto_deploy` `false`). Push yang akan men-deploy project itu tidak di-deploy, tetapi dicatat sebagai push yang dilewati dengan `reason` `auto_deploy_paused` (lihat [Push di Monorepo](#push-di-monorepo) untuk bentuk catatannya), tanpa notifikasi dan tanpa email. Push yang memang tidak menyangkut project itu (aturan monorepo) tetap dicatat dengan `no_changes_in_root_directory`. Lihat [Rollback dan jeda auto-deploy](#rollback-dan-jeda-auto-deploy).
+
+Deployment dari push mencatat siapa yang push di `deployments.triggered_by_name`: `pusher.name` dari payload, lalu `sender.login` bila kosong, dipangkas spasinya dan paling panjang 255 karakter; `null` bila keduanya tidak ada. Nama ini yang tampil di `triggered_by` deployment, bukan anggota workspace yang menjadi sandaran deployment-nya.
+
 ### Push di Monorepo
 
 Beberapa project di satu workspace boleh memakai repository dan branch yang sama, masing-masing dengan `root_directory` sendiri (misalnya `apps/web`, `apps/api`, `apps/landing`). Push hanya men-deploy project yang terkena perubahan, supaya perubahan di satu folder tidak mengantrekan build semua aplikasi. Belum ada setelan untuk aturan ini; daftar path yang diawasi (watch paths) sengaja ditunda.
@@ -152,7 +159,7 @@ Aturannya:
 - Project ber-`auto_deploy` di-deploy bila ada file yang berubah di foldernya sendiri atau ada file bersama yang berubah.
 - Project tanpa `root_directory` (null, kosong, atau `.`) membangun seluruh repository: selalu di-deploy, dan tidak memiliki folder, jadi tidak membuat file lain berhenti menjadi file bersama.
 
-Kalau ragu, push di-deploy seperti sebelumnya (fail-open). Itu berlaku untuk seluruh push bila `forced` atau `created` bernilai `true`, `commits` tidak ada atau kosong, jumlah `commits` mencapai 2048 (GitHub menulis bahwa array itu memuat paling banyak 2048 commit), satu commit mencapai 3000 file di `added`, `removed`, dan `modified` (batas file per commit yang ditulis GitHub), ada commit tanpa salah satu daftar file itu, isinya bukan daftar string, atau tidak ada file yang berubah sama sekali (commit kosong yang sering dipakai untuk memicu deploy). Push juga di-deploy untuk satu project bila project itu belum pernah punya deployment `succeeded`, deployment terbarunya `failed` atau `cancelled` atau berasal dari branch lain, atau ada push yang dilewati karena batas (`project.auto_deploy_skipped`) sejak deployment terbarunya, karena versi yang berjalan mungkin belum memuat perubahan sebelumnya. Deploy manual, redeploy, dan trigger lain tidak terpengaruh.
+Kalau ragu, push di-deploy seperti sebelumnya (fail-open). Itu berlaku untuk seluruh push bila `forced` atau `created` bernilai `true`, `commits` tidak ada atau kosong, jumlah `commits` mencapai 2048 (GitHub menulis bahwa array itu memuat paling banyak 2048 commit), satu commit mencapai 3000 file di `added`, `removed`, dan `modified` (batas file per commit yang ditulis GitHub), ada commit tanpa salah satu daftar file itu, isinya bukan daftar string, atau tidak ada file yang berubah sama sekali (commit kosong yang sering dipakai untuk memicu deploy). Push juga di-deploy untuk satu project bila project itu belum pernah punya deployment `succeeded`, deployment terbarunya `failed`, `cancelled`, berasal dari branch lain, atau sebuah rollback (`trigger` `rollback`, yang menjalankan commit lama), atau ada push yang dilewati karena batas (`project.auto_deploy_skipped`) atau ditahan jeda auto-deploy (`reason` `auto_deploy_paused`) sejak deployment terbarunya, karena versi yang berjalan mungkin belum memuat perubahan sebelumnya. Deploy manual, redeploy, dan trigger lain tidak terpengaruh.
 
 Push yang dilewati karena aturan ini dicatat sebagai audit event `project.push_skipped` (actor `github_app`, subjek project) di transaksi yang sama dengan catatan delivery, jadi pengiriman ulang dengan `X-GitHub-Delivery` yang sama tidak mencatatnya dua kali. Catatan itu bukan deployment: tidak memakai nomor urut, tidak dihitung dalam batas build per jam atau batas deployment aktif, tidak masuk metrik, tidak mengubah deployment terbaru project, dan tidak mengirim notifikasi atau email. Webhook tetap `200`.
 
@@ -167,13 +174,13 @@ Push yang dilewati karena aturan ini dicatat sebagai audit event `project.push_s
 | Field | Tipe | Keterangan |
 | --- | --- | --- |
 | `delivery_id` | string (UUID), selalu ada | `X-GitHub-Delivery` push yang dilewati. Unik per project. |
-| `reason` | string enum, selalu ada | Saat ini hanya `no_changes_in_root_directory`: semua file yang berubah ada di folder project lain. |
+| `reason` | string enum, selalu ada | `no_changes_in_root_directory`: semua file yang berubah ada di folder project lain. `auto_deploy_paused`: push itu akan men-deploy project, tetapi auto-deploy dijeda setelah rollback, jadi push ditahan (lihat [Rollback dan jeda auto-deploy](#rollback-dan-jeda-auto-deploy)). Nilai baru bisa ditambahkan; tampilkan yang tidak dikenal sebagai push yang dilewati. |
 | `commit_sha` | string, 40 karakter heksadesimal, selalu ada | Commit `after` dari push. |
 | `commit_message` | string atau `null` | Baris pertama pesan `head_commit`, paling panjang 500 karakter, sama seperti `commit_message` deployment. `null` bila tidak ada. |
 | `branch` | string, selalu ada | Branch push. |
-| `root_directory` | string, selalu ada, tidak pernah kosong | `root_directory` project saat push datang, sudah dinormalkan. |
-| `changed_path_count` | integer ≥ 1, selalu ada | Jumlah file berbeda yang berubah di push itu. |
-| `example_paths` | array string, 1 sampai 5 item | Contoh file yang berubah, urut abjad; semuanya milik project lain. |
+| `root_directory` | string, selalu ada | `root_directory` project saat push datang, sudah dinormalkan. Tidak pernah kosong untuk `no_changes_in_root_directory`; `""` untuk `auto_deploy_paused` pada project tanpa root directory. |
+| `changed_path_count` | integer ≥ 0, selalu ada | Jumlah file berbeda yang berubah di push itu. Paling sedikit 1 untuk `no_changes_in_root_directory`. Untuk `auto_deploy_paused` bernilai 0 bila payload mungkin tidak memuat semua file (force push, branch baru, commit kosong, dan kasus fail-open lain di atas). |
+| `example_paths` | array string, 0 sampai 5 item | Contoh file yang berubah, urut abjad. Untuk `no_changes_in_root_directory` semuanya milik project lain dan selalu ada paling sedikit satu; untuk `auto_deploy_paused` bisa `[]` dengan alasan yang sama seperti `changed_path_count`. |
 | `after_deployment_id` | string (UUID), selalu ada | Deployment terbaru project (urutan `sequence`) saat push datang. Console menaruh catatan ini tepat di atas deployment itu di riwayat. |
 | `created_at` | string tanggal-waktu ISO 8601, selalu ada | Kapan push dilewati. |
 
@@ -202,6 +209,65 @@ Console memanggilnya dengan `since` berisi `created_at` deployment tertua di hal
 | `stage` | enum atau `null` | Tahap saat gagal: `queued`, `cloning`, `analyzing`, `building`, `deploying`, `routing`, `health_checking`. `queued` berarti gagal sebelum tahap pertama dilaporkan. `null` hanya untuk deployment yang gagal sebelum field ini ada. |
 
 `detail` dan `stage` disimpan pada `deployments`, jadi tetap terbaca setelah event dan log dipangkas oleh retensi 7 hari. Kategori `release` mencakup `release_command_failed` dan `release_command_timeout` (lihat [Perintah Rilis](#perintah-rilis)). Kategori `start` mencakup `runtime_app_host_blocked`: aplikasi menjawab, tetapi framework-nya menolak domain project (server preview atau dev Vite menjawab 403, halaman debug Django menjawab 400), jadi setiap pengunjung akan ditolak. Kode ini `user_fixable: true`, versi sebelumnya tetap melayani, dan `detail` memuat domain, framework, dan perbaikan dari agent. `recovery_hint` menyebut `preview.allowedHosts` (atau `server.allowedHosts`) dengan `.` diikuti `SAKALA_PROJECT_DEFAULT_DOMAIN`, mengosongkan Start command supaya hasil build disajikan sebagai situs statis (di monorepo dengan Root directory folder package), dan `ALLOWED_HOSTS` untuk Django. Kategori `node` mencakup runtime node yang tidak siap dan deployment yang dibatalkan (`runtime_cancelled`), `timeout` mencakup `command_lease_expired` (node tidak menyelesaikan command sebelum lease habis), dan `scheduling` mencakup `command_expired` (command tidak diambil node sebelum batas ketersediaan) dan `inspection_timeout` (inspeksi yang ditunggu deployment belum selesai, lihat [Deployment yang menunggu inspeksi](#deployment-yang-menunggu-inspeksi)). `inspection_failed` masuk kategori `checkout`.
+
+### Pemicu deployment
+
+`DeploymentResource` menyertakan `triggered_by` (object, selalu ada) supaya riwayat bisa menampilkan siapa yang memicu deployment:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `kind` | string enum, selalu ada | `user` untuk `trigger` `manual`, `redeploy`, dan `rollback`; `github_push` untuk `webhook`; `system` untuk `system`, `database_password_rotated`, dan `database_ready`. |
+| `name` | string atau `null` | `user`: nama anggota yang meminta, nama saat ini (bukan saat deploy); `null` setelah akunnya dihapus. `github_push`: nama GitHub yang push (`pusher.name`, lalu `sender.login`), paling panjang 255 karakter; `null` untuk deployment dari sebelum nama ini dicatat. `system`: selalu `null`. Teks dari GitHub, tampilkan sebagai teks. |
+| `user_id` | integer atau `null` | ID user anggota itu, hanya untuk `user`; `null` setelah akunnya dihapus. Selalu `null` untuk `github_push` (anggota yang menjadi sandaran push tidak pernah tampil) dan `system`. |
+
+`trigger` sendiri tidak berubah dan mendapat nilai baru `rollback`.
+
+### Rollback dan jeda auto-deploy
+
+`POST /api/v1/app/projects/{project}/deployments/{deployment}/rollback` mengembalikan project ke deployment sebelumnya yang berhasil. Tanpa body. Otorisasinya sama dengan deploy (`ProjectPolicy::deploy`: owner, admin, dan member workspace, serta admin Sakala); viewer dan pengguna lain `403` tanpa `code`, anggota project yang ditangguhkan `409 PROJECT_SUSPENDED`, dan pengguna yang belum menyetujui dokumen terbaru `403 LEGAL_ACCEPTANCE_REQUIRED`. Deployment milik project lain dijawab `404` (scoped binding).
+
+Jawabannya `201` dengan `DeploymentResource` deployment baru (`trigger` `rollback`). Deployment itu memakai:
+
+- `branch`, `commit_sha`, dan `commit_message` deployment tujuan;
+- pengaturan yang tercatat di deployment tujuan: `root_directory`, `build_command`, `start_command`, dan `release_command` dari payload `DeployProject`-nya, serta `container_port`-nya;
+- yang lain dari project saat ini: environment variable, variabel koneksi database terpasang, resource, `replicas`, dan domain.
+
+Image: bila node yang dipilih adalah node deployment tujuan dan punya capability `image-reuse`, deployment memakai ulang image yang dibuat deployment tujuan (`build.mode` `reused`, `build.image_source_deployment_id` = deployment yang mem-build image itu) dan tidak mem-build apa pun. Selain itu, atau bila deployment tujuan dari sebelum image reuse (tanpa build fingerprint), commit itu di-build ulang. Bila node ternyata sudah tidak punya image-nya, agent mem-build dan `build.fallback_reason` terisi seperti redeploy tanpa build biasa (lihat [Redeploy tanpa build](#redeploy-tanpa-build)). Hanya rollback yang mem-build yang dihitung dalam batas build per jam. Fingerprint konfigurasi deployment rollback adalah milik project saat ini, jadi `redeploy_required` tidak langsung menyala setelah rollback walaupun pengaturan yang berjalan adalah pengaturan lama. Redeploy setelah rotasi password database untuk project yang sedang menjalankan rollback memakai pengaturan tercatat yang sama, supaya tetap memakai image yang live. Deploy manual atau push berikutnya kembali memakai pengaturan project.
+
+`Idempotency-Key` opsional dengan aturan yang sama seperti deploy: key yang sama dari user yang sama untuk tujuan yang sama mengembalikan deployment yang sama (`201`); key yang sama untuk tujuan lain, atau untuk deploy biasa, dijawab `409` tanpa `code`. Semua error `POST .../deployments` juga berlaku, ditambah `409 DEPLOYMENT_NOT_ROLLBACK_TARGET` dengan `reason` (lihat [Error Bisnis](#error-bisnis)). Syaratnya diperiksa di bawah lock project, bersama deployment aktif dan branch saat itu.
+
+Setelah rollback, push berikutnya tidak boleh langsung menimpanya. Karena itu:
+
+- bila `auto_deploy` project `true`, rollback mengubahnya menjadi `false` dan menjeda auto-deploy (`auto_deploy_pause` terisi, dengan rollback ini sebagai penyebab);
+- bila sudah dijeda, jedanya pindah ke rollback yang baru; `paused_at` tetap waktu jeda dimulai, jadi `held_push_count` tetap menghitung semua push yang tertahan;
+- bila `auto_deploy` memang sudah `false` dan tidak dijeda, tidak ada yang berubah.
+
+Rollback dicatat sebagai audit event `deployment.rollback_requested` (actor user, subjek deployment baru) dengan `project_id`, `target_deployment_id`, `target_sequence`, `build_mode`, dan `auto_deploy_paused` (apakah rollback ini menjeda atau memindahkan jeda).
+
+`DeploymentResource` menyertakan:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `rollback` | object atau `null` | Hanya untuk `trigger` `rollback`: `target_deployment_id` (UUID atau `null`) dan `target_sequence` (integer atau `null`) deployment tujuannya. Keduanya `null` bila deployment itu sudah dihapus. `null` untuk trigger lain. |
+| `rollback_target` | object atau `null` | Tidak `null` bila project bisa dikembalikan ke deployment ini sekarang: `succeeded`, bukan deployment aktif project, punya `commit_sha`, `branch`-nya sama dengan branch project, dan project tidak `suspended`. Berisi `image_expected` (boolean). |
+| `rollback_target.image_expected` | boolean | `true` bila node diperkirakan masih menyimpan image deployment ini, jadi rollback tidak mem-build: image-nya adalah image deployment aktif atau image `previous` (deployment yang mem-build-nya sama dengan milik deployment aktif atau `previous_active_deployment_id` project), deployment ini berjalan di node deployment aktif, node itu punya capability `image-rollback` dan `image-reuse`, dan deployment ini punya build fingerprint. Ini perkiraan: bila image ternyata hilang, agent mem-build dan `build.fallback_reason` menjelaskannya. |
+
+`rollback_target` tidak memeriksa apakah pengaturan tercatat masih ada (`settings_unavailable`); itu hanya terjadi pada baris yang tidak pernah dibuat lewat jalur deploy normal, karena command disimpan sampai project di-purge. Daftar deployment memuat semua yang dibutuhkan kolom-kolom ini dengan eager loading, tanpa query per baris.
+
+`projects.previous_active_deployment_id` adalah cermin control plane untuk image `previous` di node (capability `image-rollback`, lihat [Agent API](AGENT_API.md)): saat `active_deployment_id` berpindah dari deployment A ke D dan deployment yang mem-build image D berbeda dari milik A, nilainya menjadi A. Aktivasi pertama, aktivasi ulang deployment yang sama, dan redeploy yang memakai ulang image yang live tidak mengubahnya. Setelah rollback dari v5 ke v3, `previous` adalah v5, jadi maju lagi ke v5 juga tanpa build.
+
+`ProjectResource` menyertakan `auto_deploy_pause`:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `auto_deploy_pause` | object atau `null` | Tidak `null` hanya selama auto-deploy dijeda setelah rollback. Selama itu `auto_deploy` `false`. |
+| `auto_deploy_pause.paused_at` | string ISO 8601 | Kapan jeda dimulai. |
+| `auto_deploy_pause.reason` | string enum | Saat ini hanya `rollback`. |
+| `auto_deploy_pause.deployment_id` | UUID atau `null` | Deployment rollback yang menjeda (yang terbaru bila jedanya pindah). `null` bila deployment itu sudah dihapus. |
+| `auto_deploy_pause.deployment_sequence` | integer atau `null` | `sequence` deployment itu, dengan aturan `null` yang sama. |
+| `auto_deploy_pause.held_push_count` | integer ≥ 0 | Push yang dicatat dengan `reason` `auto_deploy_paused` sejak `paused_at`. Push itu bisa dibaca di `GET .../skipped-pushes`. |
+
+Jeda berakhir lewat `PATCH /api/v1/app/projects/{project}` dengan `auto_deploy` (hak `update`: owner, member, admin): `true` menyalakan lagi auto-deploy, `false` membiarkannya mati tanpa jeda. Field lain tidak pernah menyentuh jeda, dan menyalakan lagi tidak men-deploy apa pun; push berikutnya yang men-deploy (dengan aturan monorepo di atas: selama deployment terbaru masih rollback, atau ada push yang tertahan sejak deployment terbaru, push di-deploy walaupun hanya mengubah folder project lain). Deploy manual selama jeda tetap boleh dan men-deploy head branch; jedanya tetap.
 
 ### Redeploy tanpa build
 
@@ -331,6 +397,8 @@ Port deployment (`container_port`) ditetapkan sekali, dari `configured_port`, la
 
 Pelepasan berjalan dari job antrean tepat setelah hasil inspeksi tercatat, dan `deployments:settle-inspection-holds` tiap menit menangani batas waktu serta job yang hilang. Membatalkan deployment yang sedang menunggu langsung `200` seperti deployment yang belum diambil node. Inspeksi yang digantikan inspeksi lebih baru (misalnya `root_directory` diganti) tidak melepas apa pun; yang terbaru yang menentukan.
 
+Rollback tidak pernah ditahan, begitu juga redeploy setelah rotasi password database yang membawa pengaturan tercatat sebuah rollback: port-nya diambil dari `container_port` deployment yang pengaturannya dipakai, bukan dari inspeksi, jadi tidak ada yang perlu ditunggu, dan melepasnya dengan port project akan menimpa port yang tercatat. Deployment seperti itu langsung `assigned` atau `waiting_for_node` walaupun inspeksi project sedang `pending`. Deployment lain tetap ditahan seperti biasa. Deployment yang sedang ditahan berstatus `queued`, jadi restart selama itu dijawab `409 PROJECT_RUNTIME_BUSY`; restart sendiri tidak pernah ditahan.
+
 ## Project Runtime
 
 `ProjectResource` menyertakan:
@@ -350,7 +418,9 @@ Pelepasan berjalan dari job antrean tepat setelah hasil inspeksi tercatat, dan `
 | `build_command`, `start_command` | string atau `null` | Satu baris, paling panjang 1000 karakter. Dijalankan agent hanya di dalam build atau container. |
 | `release_command` | string atau `null` | Perintah yang dijalankan sekali per deployment sebelum versi baru menerima traffic, misalnya migrasi database. Aturannya sama dengan `start_command`. `null` berarti tidak ada. Lihat [Perintah Rilis](#perintah-rilis). |
 | `root_directory` | string atau `null` | Path relatif di dalam repository, misalnya `apps/web`. |
-| `auto_deploy` | boolean | `true` membuat push ke branch project membuat deployment baru. Default `false`. Hanya untuk project dari GitHub App; project dari URL publik dijawab `422` karena webhook-nya tidak pernah datang. |
+| `auto_deploy` | boolean | `true` membuat push ke branch project membuat deployment baru. Default `false`. Hanya untuk project dari GitHub App; project dari URL publik dijawab `422` karena webhook-nya tidak pernah datang. `false` selama auto-deploy dijeda setelah rollback; mengirim field ini (`true` atau `false`) mengakhiri jeda itu. |
+| `auto_deploy_pause` | object atau `null` | Terisi selama auto-deploy dijeda setelah rollback. Lihat [Rollback dan jeda auto-deploy](#rollback-dan-jeda-auto-deploy). |
+| `restart` | object atau `null` | Terisi selama restart yang diminta anggota masih antre atau berjalan di node. Lihat [Restart](#restart). |
 | `public_url` | string | Alamat publik project untuk instalasi ini, dari `SAKALA_PROJECT_URL_SCHEME` dan `SAKALA_PROJECT_URL_PORT`. Console memakai ini, bukan menyusun sendiri. Ada juga di `GET /api/v1/app/projects`. |
 | `latest_deployment` | object atau `null` | Deployment dengan `sequence` terbesar, apa pun hasilnya, atau `null` bila belum pernah ada. Bisa berbeda dari `active_deployment_id`. Ada juga di `GET /api/v1/app/projects`, jadi daftar project tidak perlu request per kartu. Lihat tabel di bawah. |
 | `suspension` | object atau `null` | Terisi selama `status` bernilai `suspended`, dan `null` di luar itu, termasuk setelah penangguhan dibuka. Ada juga di `GET /api/v1/app/projects`. Lihat "Pemberitahuan dan Membuka Penangguhan". |
@@ -379,7 +449,7 @@ Nilai `runtime_status` dan yang menuliskannya:
 | --- | --- | --- |
 | `not_deployed` | Belum pernah ada deployment. | Default kolom. |
 | `deploying` | Ada deployment yang sudah melewati `queued`. Versi lama bisa tetap melayani: lihat `active_deployment_id`. | Transisi deployment. |
-| `running` | `active_deployment_id` sedang melayani. | Deployment, restart, atau wake sukses; redeploy gagal saat versi lama masih melayani; heartbeat yang tidak lagi melaporkan crash. |
+| `running` | `active_deployment_id` sedang melayani. | Deployment, restart (lihat [Restart](#restart)), atau wake sukses; redeploy gagal saat versi lama masih melayani; heartbeat yang tidak lagi melaporkan crash. |
 | `stopped` | Dihentikan dengan sengaja, tidak ada yang melayani. | Stop atau sleep karena suspend sukses. |
 | `sleeping` | Ditidurkan karena sepi. Container `active_deployment_id` disimpan di node, dan request berikutnya membangunkannya. Ini perilaku normal, bukan error. | Sleep karena sepi sukses; redeploy yang gagal atau dibatalkan saat versi aktifnya sedang tidur. Lihat [Tidur Otomatis](#tidur-otomatis). |
 | `failed` | Deployment terakhir gagal dan tidak ada versi yang melayani. | Deployment gagal tanpa `active_deployment_id`. |
@@ -447,6 +517,31 @@ Kedua endpoint membuat `WakeProject` untuk node dan deployment yang menyimpan co
 
 Sleep karena sepi berbeda dari suspend. Sleep yang masih berjalan tidak menahan suspend atau unsuspend admin. Men-suspend project yang sedang tidur membuat `SleepProject` dengan alasan suspend seperti biasa; setelah selesai `runtime_status` menjadi `stopped` dan `active_deployment_id` kosong, sama seperti suspend lain, dan bangun ditolak sejak suspend diterima.
 
+### Restart
+
+`POST /api/v1/app/projects/{project}/restart` menyalakan ulang container deployment aktif tanpa build dan tanpa membuat deployment baru; kode dan variabel tidak berubah. Tanpa body. Otorisasinya sama dengan deploy (`ProjectPolicy::deploy`): owner, admin, dan member workspace, serta admin Sakala. Viewer dan pengguna lain `403` tanpa `code`, anggota project yang ditangguhkan `409 PROJECT_SUSPENDED`, dan pengguna yang belum menyetujui dokumen terbaru `403 LEGAL_ACCEPTANCE_REQUIRED`.
+
+Jawabannya `202` dengan `ProjectControlResource` (bentuk yang sama dengan project control admin): `project_id`, `status`, `runtime_status` saat diminta, `command` (`id`, `type` `RestartProject`, `status` `Pending`), dan `wake` `null`. Command itu menargetkan deployment aktif dan dipin ke node yang menjalankannya; payload-nya kosong (protocol revision 4, tidak ada field baru).
+
+Ditolak dengan `409`:
+
+- `PROJECT_RUNTIME_BUSY` bila ada deployment project yang `queued` atau sedang berjalan, atau `RestartProject`, `StopProject`, `SleepProject`, atau `WakeProject` project itu masih `Pending`, `Claimed`, atau `Running`;
+- `PROJECT_NOT_RUNNING` (dengan `runtime_status`) bila tidak ada deployment aktif di node, atau `runtime_status` bukan `running` atau `crashed`. Project yang `sleeping` bangun sendiri saat dikunjungi, dan yang `stopped` perlu deploy.
+
+`Idempotency-Key` opsional, dicatat di `project_control_requests` (`action` `restart`): key yang sama dari actor yang sama untuk project yang sama mengembalikan command yang sama tanpa membuat command atau audit baru; key yang sudah dipakai untuk project, action, atau actor lain dijawab `409` tanpa `code`.
+
+Selama command itu terbuka, `ProjectResource.restart` berisi:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `restart` | object atau `null` | Tidak `null` selama `RestartProject` terbaru project masih `Pending`, `Claimed`, atau `Running`; `null` begitu berhasil, gagal, atau kedaluwarsa. |
+| `restart.requested_at` | string ISO 8601 | Kapan restart diminta. |
+| `restart.status` | string enum | Saat ini selalu `pending`. |
+
+Saat node selesai, API menyiarkan `deployment.updated` di channel `deployment.{id}` deployment yang di-restart, juga bila `runtime_status` tidak berubah. Payload-nya payload `deployment.updated` biasa ditambah `project_runtime_status` dan `restart` `{ "command_id": "<uuid>", "outcome": "succeeded" | "failed" }`. Restart yang sukses membuat project `running` (juga dari `crashed`) dan dicatat `project.restart_completed` (actor node, dengan `command_id`, `deployment_id`, `agent_node_id`, `outcome`, dan `applied`, yang `false` bila deployment itu sudah digantikan atau project ditangguhkan). Restart yang gagal tidak mengubah `runtime_status` dan dicatat `project.restart_failed` dengan `error_code` dan `error_message` yang sudah diredaksi, seperti kegagalan stop dan wake; tidak ada notifikasi. Command yang tidak diselesaikan node sebelum lease-nya habis menjadi `Expired` (audit `agent.command.expired`) dan disiarkan dengan `outcome` `failed`. Permintaannya dicatat `project.restart_requested` (actor user, dengan `command_id`, `deployment_id`, `agent_node_id`, dan `runtime_status`).
+
+Restart yang sukses dihitung di deret `restarts` metrik project; lihat [Metrik](#metrik).
+
 ### Metrik
 
 `GET /api/v1/app/projects/{project}/metrics?range=1h` mengembalikan pemakaian CPU, memory, replika, dan restart sebuah project, dengan hak yang sama seperti melihat project: owner, member, dan viewer workspace, serta admin. Selain itu `403`. Query:
@@ -478,12 +573,14 @@ Isi `data`:
 | `series.memory_bytes` | array `{t, avg, max}` | Memory terpakai dalam byte, dijumlah dari semua replika. `avg` dan `max` berupa integer. |
 | `series.memory_limit_bytes` | integer atau `null` | Jumlah batas memory replika pada data terbaru di range itu. `null` bila belum ada data atau ada replika tanpa batas. Satu angka, bukan deret. |
 | `series.replicas` | array `{t, count}` | Replika yang melapor pada step itu: terbanyak dalam satu menit (satu jam untuk `7d` dan `30d`). |
-| `series.restarts` | array `{t, count}` | Restart container pada step itu, dijumlah dari semua replika. |
+| `series.restarts` | array `{t, count}` | Restart container pada step itu, dijumlah dari semua replika, termasuk restart yang diminta anggota (lihat di bawah). |
 | `series.per_replica` | array, hanya bila `per_replica=1` | Satu item per indeks replika, urut dari yang terkecil: `{replica, cpu_percent, memory_bytes, restarts}` dengan bentuk deret yang sama. |
 
 `t` adalah awal step dalam ISO 8601 UTC. Semua deret memakai `t` yang sama dan berurutan dari yang terlama. Step tanpa data tidak punya titik sama sekali, bukan nol, jadi dua `t` berurutan yang jaraknya lebih dari `step_seconds` berarti ada celah dan grafik sebaiknya memutus garisnya di situ. Tanpa data, semua deret berupa array kosong.
 
 Cara menghitungnya: setiap baris menyimpan satu replika satu deployment selama satu menit (atau satu jam). Untuk setiap menit (atau jam), rata-rata dan maksimum semua replika dijumlahkan. Maksimum gabungan itu batas atas, karena replika jarang memuncak di menit yang sama. Untuk step yang lebih panjang dari satu menit (atau satu jam), `avg` adalah rata-rata dari total per menit (atau per jam) yang ada datanya, dan `max` adalah total terbesar. Restart dihitung per replika dari counter kumulatifnya: selisih antara dua pembacaan berurutan, dan bila counter turun (container dibuat ulang) pembacaan barunya dihitung dari nol. Pembacaan pertama sebuah replika tidak menambah apa pun; untuk range dari baris per menit, API membaca 10 menit sebelum range sebagai pembanding supaya restart di menit pertama ikut terhitung.
+
+Restart yang diminta anggota lewat [Restart](#restart) dan sukses dihitung satu per replika deployment yang di-restart, di step waktu node menyelesaikannya, untuk semua range (dibaca dari `agent_commands`, yang disimpan sampai project di-purge). Di `per_replica`, setiap indeks replika 0 sampai `replicas` − 1 mendapat satu. Seperti deret lain, step tanpa baris metrik tidak punya titik, jadi restart di step seperti itu tidak terlihat. Restart yang membuat ulang container mengulang counter-nya dari nol, yang dibaca sebagai tidak ada restart, dan restart yang mempertahankan container tidak menaikkan counter Docker, jadi tidak ada yang terhitung dua kali.
 
 Hanya deployment aktif yang dicatat (aturan yang sama dengan trafik), jadi selama deploy bergulir hanya versi yang sedang melayani yang terlihat. Replika deployment baru memakai indeks yang sama dengan replika yang ia gantikan di `per_replica`.
 
@@ -581,7 +678,7 @@ Setiap `GET .../value` untuk variabel secret mencatat `environment_variable.valu
 
 ## Project Control
 
-Endpoint project control menyediakan kontrol runtime yang hanya dapat digunakan oleh admin tanpa melakukan operasi Docker atau Caddy secara langsung dari API. Operasi runtime dijalankan secara asynchronous oleh Agent melalui agent command yang bersifat durable.
+Endpoint project control menyediakan kontrol runtime yang hanya dapat digunakan oleh admin tanpa melakukan operasi Docker atau Caddy secara langsung dari API. Satu-satunya aksi untuk anggota workspace adalah restart, yang memakai record dan bentuk response yang sama (`ProjectControlAction` `restart`); lihat [Restart](#restart). Operasi runtime dijalankan secara asynchronous oleh Agent melalui agent command yang bersifat durable.
 
 ### Stop vs Suspend
 

@@ -9,20 +9,27 @@ use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\GetProjectCollectionAction;
 use App\Actions\Project\RequestProjectInspectionAction;
 use App\Actions\Project\RequestProjectWakeAction;
+use App\Actions\Project\RestartProjectAction;
 use App\Actions\Project\UpdateProjectAction;
 use App\Enums\ProjectStatus;
+use App\Exceptions\Runtime\ProjectNotRunningException;
 use App\Exceptions\Runtime\ProjectNotSleepingException;
+use App\Exceptions\Runtime\ProjectRuntimeBusyException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Project\IndexProjectRequest;
+use App\Http\Requests\Api\V1\Project\RestartProjectRequest;
 use App\Http\Requests\Api\V1\Project\StoreProjectRequest;
 use App\Http\Requests\Api\V1\Project\UpdateProjectRequest;
 use App\Http\Requests\Api\V1\Project\WakeProjectRequest;
+use App\Http\Resources\Api\V1\Admin\ProjectControlResource;
 use App\Http\Resources\Api\V1\Project\CreateProjectResource;
 use App\Http\Resources\Api\V1\Project\GetCollectionProjectResource;
 use App\Http\Resources\Api\V1\Project\ProjectResource;
 use App\Models\Project;
+use Dedoc\Scramble\Attributes\HeaderParameter;
+use Dedoc\Scramble\Attributes\Response as OpenApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -128,6 +135,33 @@ final class ProjectController extends Controller
         $action->handle($project, $request->user());
 
         return ProjectResource::make($project->refresh())
+            ->response()
+            ->setStatusCode(202);
+    }
+
+    /**
+     * Restart the live containers.
+     *
+     * Answers 202 with the RestartProject command: the node restarts the containers of the active deployment without a
+     * build and without a new deployment; code and variables stay the same. While it is open, the project's `restart`
+     * is non-null. Same rights as deploying; a member of a suspended project gets 409 `PROJECT_SUSPENDED`. With the
+     * same `Idempotency-Key` again, the same command.
+     *
+     * @throws ProjectNotRunningException
+     * @throws ProjectRuntimeBusyException
+     */
+    #[HeaderParameter(
+        'Idempotency-Key',
+        description: 'Unique key used to safely retry a restart request.',
+        type: 'string',
+        example: '550e8400-e29b-41d4-a716-446655440000',
+    )]
+    #[OpenApiResponse(202, 'The node restarts the containers.', type: 'array{data: ProjectControlResource}')]
+    public function restart(RestartProjectRequest $request, Project $project, RestartProjectAction $action): JsonResponse
+    {
+        $result = $action->handle($project, $request->user(), $request->getIdempotencyKey());
+
+        return ProjectControlResource::make($result)
             ->response()
             ->setStatusCode(202);
     }

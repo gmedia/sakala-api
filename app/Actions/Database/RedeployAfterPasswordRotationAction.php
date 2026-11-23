@@ -31,7 +31,8 @@ use Illuminate\Support\Facades\DB;
  * A redeploy runs the commit that is live, not the branch head, so
  * nobody ships unreviewed commits by rotating a password; with nothing
  * build-affecting changed it usually reuses the live image
- * (PlanDeploymentBuildAction). Running again does
+ * (PlanDeploymentBuildAction). When the live deployment is a rollback (or a
+ * redeploy of one), it runs with the same recorded settings. Running again does
  * nothing: the outcome is recorded once, and each deployment has an
  * idempotency key per rotation.
  */
@@ -58,7 +59,7 @@ final class RedeployAfterPasswordRotationAction
         $redeploys = [];
 
         if ($database !== null && $database->status->isProvisioned()) {
-            $projects = $database->projects()->with(['activeDeployment', 'workspace'])->orderBy('name')->orderBy('projects.id')->get();
+            $projects = $database->projects()->with(['activeDeployment.settingsSource', 'workspace'])->orderBy('name')->orderBy('projects.id')->get();
 
             foreach ($projects as $project) {
                 $redeploys[] = ['project_id' => $project->id, ...$this->redeploy($command, $project, $requester)];
@@ -78,7 +79,9 @@ final class RedeployAfterPasswordRotationAction
         }
 
         // The live commit, unless the project has moved to another branch
-        // since; then the branch head, as a manual redeploy would.
+        // since; then the branch head, as a manual redeploy would. A live
+        // rollback keeps the settings it ran with, so its image is reused
+        // instead of rebuilt with the project's newer ones.
         $sameBranch = $active->branch === $project->branch && $active->commit_sha !== null;
 
         return $this->deployer->deploy($project, $requester, new CreateDeploymentData(
@@ -87,6 +90,7 @@ final class RedeployAfterPasswordRotationAction
             trigger: DeploymentTrigger::DatabasePasswordRotated,
             commit_sha: $sameBranch ? $active->commit_sha : null,
             commit_message: $sameBranch ? $active->commit_message : null,
+            settingsSource: $sameBranch ? $active->settingsSource : null,
         ))->toArray();
     }
 

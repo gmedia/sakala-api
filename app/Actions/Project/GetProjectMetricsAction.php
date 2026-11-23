@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Actions\Project;
 
 use App\Data\Project\ProjectMetricsData;
+use App\Enums\AgentCommandStatus;
+use App\Enums\AgentCommandType;
 use App\Enums\ProjectMetricsRange;
+use App\Models\AgentCommand;
 use App\Models\Project;
 use App\Models\ProjectMetricHour;
 use App\Models\ProjectMetricMinute;
@@ -23,7 +26,14 @@ use Illuminate\Database\Eloquent\Collection;
  * rarely peak in the same minute). A step longer than the source bucket then
  * takes the mean of those totals as its average and the largest total as its
  * maximum. Restarts are counted per replica from its cumulative counter and
- * summed per step. A step without any row has no point: gaps stay gaps.
+ * summed per step, plus every restart a member asked for that succeeded
+ * (RestartProjectAction): one per replica of the restarted deployment, in the
+ * step of its completion. A step without any row has no point: gaps stay gaps.
+ *
+ * Those restarts come from `agent_commands`, which are kept until the project
+ * is purged, so they cover every range. A restart that recreates containers
+ * resets their counter, which the counter rule reads as zero, and one that
+ * keeps them does not move Docker's counter: neither is counted twice.
  */
 final class GetProjectMetricsAction
 {
@@ -79,6 +89,17 @@ final class GetProjectMetricsAction
             }
         }
 
+        foreach ($this->userRestarts($project, CarbonImmutable::createFromTimestampUTC($firstStep), $now) as $restart) {
+            $stepStart = intdiv($restart['completed_at'], $step) * $step;
+            $totalRestarts[$stepStart] = ($totalRestarts[$stepStart] ?? 0) + $restart['replicas'];
+
+            if ($perReplica) {
+                for ($replica = 0; $replica < $restart['replicas']; $replica++) {
+                    $replicaRestarts[$replica][$stepStart] = ($replicaRestarts[$replica][$stepStart] ?? 0) + 1;
+                }
+            }
+        }
+
         $totalSeries = $this->series($total, $totalRestarts, $step);
 
         return new ProjectMetricsData(
@@ -125,6 +146,31 @@ final class GetProjectMetricsAction
             ->orderBy('deployment_id')
             ->orderBy('replica')
             ->orderBy('bucket');
+    }
+
+    /**
+     * Restarts a member asked for that succeeded in the range: when, as a Unix
+     * timestamp, and how many replicas the restarted deployment runs. Served
+     * by the `(project_id, type, completed_at)` index of `agent_commands`.
+     *
+     * @return list<array{completed_at: int, replicas: int}>
+     */
+    private function userRestarts(Project $project, CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        return array_values(AgentCommand::query()
+            ->with('deployment:id,replicas')
+            ->where('project_id', $project->id)
+            ->where('type', AgentCommandType::RestartProject)
+            ->where('completed_at', '>=', $from)
+            ->where('completed_at', '<=', $to)
+            ->where('status', AgentCommandStatus::Succeeded)
+            ->get(['id', 'deployment_id', 'completed_at'])
+            ->filter(static fn (AgentCommand $command): bool => $command->completed_at !== null)
+            ->map(static fn (AgentCommand $command): array => [
+                'completed_at' => (int) $command->completed_at?->getTimestamp(),
+                'replicas' => $command->deployment !== null ? $command->deployment->replicas : Project::DEFAULT_REPLICAS,
+            ])
+            ->all());
     }
 
     /**

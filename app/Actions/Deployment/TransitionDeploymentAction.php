@@ -97,7 +97,7 @@ final class TransitionDeploymentAction
 
         if ($status === DeploymentStatus::Succeeded) {
             $activeDeployment = $this->supersedesActiveDeployment($project, $deployment)
-                ? ['active_deployment_id' => $deployment->id]
+                ? $project->activationAttributes($deployment)
                 : [];
 
             if ($project->trashed()) {
