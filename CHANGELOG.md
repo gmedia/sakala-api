@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-23
+
 ### Fixed
 
 - Moving a project's root directory back to a directory already inspected at the same commit (A, then B, then A) no longer leaves the stack unknown. The inspection of A is reused without asking a node again, but only its status and port were restored: `projects.inspection` kept B's result, which describes another directory, so `stack` was `null` and `variable_changes` said `unknown_stack` (every variable change built). The reused result is now written back as the stored inspection for the current directory, with `inspected_at` from that inspection, the way a finished inspection writes it.
@@ -342,7 +344,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/gmedia/sakala-api/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/gmedia/sakala-api/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/gmedia/sakala-api/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/gmedia/sakala-api/compare/v0.8.0...v0.9.0
