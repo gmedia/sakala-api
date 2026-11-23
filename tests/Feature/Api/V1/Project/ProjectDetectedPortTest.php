@@ -231,6 +231,36 @@ test('moving back to an inspected directory brings its port back', function (): 
         ->and($project->fresh()->detected_port)->toBe(80);
 });
 
+test('moving back to an inspected directory brings its stack back, not only its port', function (): void {
+    $project = portProject(['root_directory' => 'apps/web']);
+    completeInspectionWith($project, dockerfileInspection(['exposed_ports' => [80]]));
+
+    $this->actingAs($project->user, 'web')
+        ->patchJson("/api/v1/app/projects/{$project->id}", ['root_directory' => 'apps/docs'])
+        ->assertOk();
+    // The other directory is a static site, so the stored inspection changes.
+    completeInspectionWith($project->fresh(), [
+        ...railpackStackInspection('staticfile'),
+        'repository_url' => 'https://github.com/sakala-demo/static-site',
+        'commit_sha' => DETECTED_PORT_SHA,
+        'exposed_ports' => [],
+    ]);
+
+    $this->patchJson("/api/v1/app/projects/{$project->id}", ['root_directory' => 'apps/web'])->assertOk();
+    $reused = app(RequestProjectInspectionAction::class)->handle($project->fresh());
+
+    expect($reused?->status)->toBe(AgentCommandStatus::Succeeded)
+        ->and($project->fresh()->inspection['root_directory'] ?? null)->toBe('apps/web')
+        ->and($project->fresh()->inspection['dockerfile_found'] ?? null)->toBeTrue();
+
+    $this->getJson("/api/v1/app/projects/{$project->id}")
+        ->assertOk()
+        ->assertJsonPath('data.preview_status', 'succeeded')
+        ->assertJsonPath('data.stack.builder', 'dockerfile')
+        ->assertJsonPath('data.variable_changes.requires_build', false)
+        ->assertJsonPath('data.variable_changes.reason', null);
+});
+
 test('a finished Dockerfile inspection from before exposed_ports is asked again, so the port is found without a new commit', function (): void {
     $project = portProject();
 
