@@ -4,7 +4,11 @@
 
 @endif
 @foreach ($introLines as $line)
+@if ($line instanceof \App\Notifications\Messages\AddressLine)
+{{ $line->before }}<x-mail::mailto :address="$line->address" />{{ $line->after }}
+@else
 {{ $line }}
+@endif
 
 @endforeach
 @isset($actionText)
@@ -14,7 +18,11 @@
 
 @endisset
 @foreach ($outroLines as $line)
+@if ($line instanceof \App\Notifications\Messages\AddressLine)
+{{ $line->before }}<x-mail::mailto :address="$line->address" />{{ $line->after }}
+@else
 {{ $line }}
+@endif
 
 @endforeach
 </x-mail::message>

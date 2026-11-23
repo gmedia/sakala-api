@@ -16,6 +16,7 @@ use App\Models\WorkspaceInvitation;
 use App\Notifications\Auth\ConfirmEmailChangeNotification;
 use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
+use App\Notifications\Messages\AddressLine;
 use App\Notifications\Messages\SakalaMailMessage;
 use App\Services\Notification\NotificationUnsubscribeLinks;
 use App\Services\Notification\UserNotifier;
@@ -91,6 +92,18 @@ function primaryLink(Email $email): ?string
     expect(count($matches[1]))->toBeLessThanOrEqual(1);
 
     return isset($matches[1][0]) ? html_entity_decode($matches[1][0], ENT_QUOTES | ENT_HTML5) : null;
+}
+
+/**
+ * The contact address is a mailto: link in the HTML part and plain in the text
+ * part, where a link would show as Markdown.
+ */
+function expectAddressLink(Email $email, string $address): void
+{
+    expect((string) $email->getHtmlBody())->toMatch('#<a href="mailto:'.preg_quote($address, '#').'"[^>]*>'.preg_quote($address, '#').'</a>#')
+        // On the same line as the sentence: the component adds no line break.
+        ->and((string) $email->getTextBody())->toMatch('#email ke '.preg_quote($address, '#').'[ .]#')
+        ->and((string) $email->getTextBody())->not->toContain('mailto:');
 }
 
 /**
@@ -236,6 +249,7 @@ test('changing the email confirms at the new address, warns the old one, and say
         ->and(primaryLink($applied))->toBeNull()
         ->and((string) $applied->getHtmlBody())->toContain('baru@example.test')
         ->and((string) $applied->getHtmlBody())->toContain((string) config('sakala.contact.privacy_email'));
+    expectAddressLink($applied, (string) config('sakala.contact.privacy_email'));
     expectWellFormedMail($applied, null, [$link]);
 });
 
@@ -256,7 +270,32 @@ test('an invitation goes to the invited address with the only copy of its token'
         ->and($link)->toStartWith(MAIL_CONSOLE."/workspace-invitations/{$invitation->id}?token=")
         ->and(WorkspaceInvitation::hashToken((string) $query['token']))->toBe($invitation->token_hash)
         ->and((string) $email->getHtmlBody())->toContain('sebagai pengamat')
-        ->and((string) $email->getHtmlBody())->toContain(SakalaMailMessage::wib($invitation->expires_at));
+        ->and((string) $email->getHtmlBody())->toContain(SakalaMailMessage::wib($invitation->expires_at))
+        ->and((string) $email->getTextBody())->toContain('siapa pun yang membukanya dengan akun Sakala bisa menerima undangan ini');
+
+    expectWellFormedMail($email, $link, [$invitation->token_hash, (string) $owner->password]);
+});
+
+test('an owner invitation says only the invited verified address can accept it, not whoever opens the link', function (): void {
+    $owner = User::factory()->create(['name' => 'Budi Santoso']);
+    $team = teamWorkspace($owner, attributes: ['name' => 'Tim Facility']);
+
+    $this->actingAs($owner, 'web')
+        ->postJson("/api/v1/app/workspaces/{$team->id}/invitations", ['email' => 'Rani@Example.test', 'role' => 'owner'])
+        ->assertCreated();
+
+    $invitation = WorkspaceInvitation::query()->sole();
+    $email = onlyMailTo('rani@example.test');
+    $link = (string) primaryLink($email);
+    $text = (string) $email->getTextBody();
+
+    expect($link)->toStartWith(MAIL_CONSOLE."/workspace-invitations/{$invitation->id}?token=")
+        ->and($text)->toContain('sebagai pemilik')
+        ->and($text)->toContain('hanya bisa diterima dari akun Sakala yang memakai email rani@example.test dan sudah diverifikasi')
+        ->and($text)->toContain('daftar dengan email rani@example.test')
+        ->and($text)->not->toContain('siapa pun')
+        ->and($text)->not->toContain('daftar dulu')
+        ->and((string) $email->getHtmlBody())->not->toContain('siapa pun');
 
     expectWellFormedMail($email, $link, [$invitation->token_hash, (string) $owner->password]);
 });
@@ -279,6 +318,7 @@ test('a suspension reaches the owner with the reason, the contact, and a link to
         ->and($html)->toContain((string) config('sakala.contact.abuse_email'))
         ->and($html)->not->toContain('admin@example.test');
 
+    expectAddressLink($email, (string) config('sakala.contact.abuse_email'));
     expectWellFormedMail($email, MAIL_CONSOLE."/projects/{$project->id}", [(string) $owner->password]);
 });
 
@@ -397,6 +437,7 @@ test('deleting the account confirms it to the old address, with nothing to click
         ->and(primaryLink($email))->toBeNull()
         ->and((string) $email->getHtmlBody())->toContain((string) config('sakala.contact.privacy_email'));
 
+    expectAddressLink($email, (string) config('sakala.contact.privacy_email'));
     expectWellFormedMail($email, null, [(string) $user->password]);
 });
 
@@ -416,8 +457,9 @@ test('a legal change reaches every verified account once, with the date, the cha
         ->and($text)->toContain('Versi baru, privasi-v2, berlaku mulai 30 November 2026. Sampai tanggal itu, yang berlaku masih privasi-v1.')
         ->and($text)->toContain('- Password database hanya bisa dibuka pemilik workspace dan admin Sakala')
         ->and($text)->toContain('tidak meminta persetujuanmu')
-        ->and(substr_count($html, '<li'))->toBe(5)
-        ->and($html)->toContain((string) config('sakala.contact.privacy_email'));
+        ->and(substr_count($html, '<li'))->toBe(5);
+
+    expectAddressLink($email, (string) config('sakala.contact.privacy_email'));
 
     // The button and the footer both point at the notice, so the shared check
     // gets no single link to count.
@@ -451,7 +493,7 @@ test('every notification with a mail version is in the preview catalog', functio
 // below keeps it equal to the catalog.
 const MAIL_NAMES = [
     'verify-email', 'reset-password', 'existing-account', 'email-change-confirm', 'email-change-requested',
-    'email-change-applied', 'workspace-invitation', 'project-suspended', 'edge-unhealthy', 'edge-recovered',
+    'email-change-applied', 'workspace-invitation', 'workspace-invitation-owner', 'project-suspended', 'edge-unhealthy', 'edge-recovered',
     'project-deployment-failed', 'project-deployment-failed-repeated', 'project-deployment-succeeded',
     'project-app-crashed', 'project-auto-deploy-skipped', 'account-deleted', 'legal-document-changed',
 ];
@@ -614,3 +656,20 @@ test('a name chosen by a stranger cannot put a link in someone\'s inbox', functi
         ->and($html)->not->toContain('<b>x</b>')
         ->and($html)->toContain('Klik di sini');
 });
+
+test('a contact address set by the install is the link, and the sentence around it stays text', function (): void {
+    config(['sakala.contact.abuse_email' => 'lapor@kampus.example.test']);
+    $catalog = app(MailPreviewCatalog::class);
+    $preview = $catalog->previews()['project-suspended'];
+    ['html' => $html, 'text' => $text] = $catalog->render($catalog->mail($preview['notification'], $preview['notifiable']));
+
+    expect($html)->toMatch('#kirim email ke <a href="mailto:lapor@kampus\.example\.test"[^>]*>lapor@kampus\.example\.test</a> dari email akunmu#')
+        ->and($text)->toContain('kirim email ke lapor@kampus.example.test dari email akunmu, lalu sebutkan nama proyeknya.');
+});
+
+test('an address line needs exactly one place for the address', function (string $text): void {
+    expect(fn () => AddressLine::fromTemplate($text, 'abuse@sakala.dev'))->toThrow(InvalidArgumentException::class);
+})->with([
+    'none' => 'kirim email ke kami',
+    'two' => 'kirim ke :address atau :address',
+]);

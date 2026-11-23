@@ -63,6 +63,7 @@ require_once __DIR__.'/Support/IdleSleepFixtures.php';
 require_once __DIR__.'/Support/PgsqlConcurrency.php';
 require_once __DIR__.'/Support/ProjectMetricFixtures.php';
 require_once __DIR__.'/Support/RailpackInspectionFixtures.php';
+require_once __DIR__.'/Support/RollbackFixtures.php';
 require_once __DIR__.'/Support/WorkspaceFixtures.php';
 /*
 |--------------------------------------------------------------------------

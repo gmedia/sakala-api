@@ -13,6 +13,7 @@ Semua email Sakala memakai satu layout bermerek dan punya versi teks biasa. Untu
 | `email-change-requested` | Ganti email | Alamat lama | Ada permintaan ganti email akun Sakala | Reset kata sandi (Console `/forgot-password`) |
 | `email-change-applied` | Tautan konfirmasi ganti email dibuka | Alamat lama | Email akun Sakala kamu sudah diganti | Tidak ada; email ini menyebut kontak privasi |
 | `workspace-invitation` | Owner tim mengundang alamat email | Alamat yang diundang | {pengundang} mengundangmu ke {workspace} di Sakala | Lihat undangan (Console `/workspace-invitations/{id}?token=`) |
+| `workspace-invitation-owner` | Sama, dengan peran pemilik. Email menyebut bahwa undangan hanya bisa diterima dari akun dengan email yang diundang dan sudah diverifikasi, tanpa peringatan soal meneruskan tautan | Alamat yang diundang | Sama | Sama |
 | `project-suspended` | Admin menangguhkan proyek | Semua yang bisa mengelola proyek itu | Proyek {nama} di Sakala ditangguhkan | Buka proyek (Console `/projects/{id}`) |
 | `edge-unhealthy` | `edge:check-health` melihat Sakala Edge menjadi tidak sehat (lihat [Pemantauan](EDGE_API.md#pemantauan)) | Semua admin | Sakala Edge {nama} tidak sehat | Tidak ada; belum ada halaman admin Edge di Console. Email menyebut perintah pertama untuk memeriksa server Edge |
 | `edge-recovered` | `edge:check-health` melihat Sakala Edge yang tidak sehat menjadi sehat kembali | Semua admin | Sakala Edge {nama} sehat kembali | Tidak ada |
@@ -28,7 +29,7 @@ Lima email `project-*` adalah salinan email dari notifikasi in-app yang sama (`P
 
 ## Layout
 
-Setiap notifikasi membangun `App\Notifications\Messages\SakalaMailMessage`, yaitu `MailMessage` dengan tambahan `preheader()` untuk teks pratinjau di daftar inbox, `headline()` untuk judul di kartu, `reason()` untuk kalimat di footer yang menjelaskan kenapa alamat itu menerima email, dan `preferences()` untuk email yang bisa dimatikan pengguna: dua tautan footer (Atur notifikasi email, Berhenti menerima email {kategori}) dan header berhenti berlangganan satu klik. Template-nya ada di `resources/views/vendor/notifications/email.blade.php` dan komponen `resources/views/vendor/mail/`. Laravel menempelkan CSS dari `resources/views/vendor/mail/html/themes/sakala.css` ke atribut `style` setiap elemen (`config/mail.php`, `markdown.theme`).
+Setiap notifikasi membangun `App\Notifications\Messages\SakalaMailMessage`, yaitu `MailMessage` dengan tambahan `preheader()` untuk teks pratinjau di daftar inbox, `headline()` untuk judul di kartu, `reason()` untuk kalimat di footer yang menjelaskan kenapa alamat itu menerima email, `lineWithAddress()` untuk paragraf yang menyebut alamat email tujuan (alamatnya jadi tautan `mailto:` di HTML lewat komponen `mail::mailto`, dan tetap teks biasa di versi teks), dan `preferences()` untuk email yang bisa dimatikan pengguna: dua tautan footer (Atur notifikasi email, Berhenti menerima email {kategori}) dan header berhenti berlangganan satu klik. Template-nya ada di `resources/views/vendor/notifications/email.blade.php` dan komponen `resources/views/vendor/mail/`. Laravel menempelkan CSS dari `resources/views/vendor/mail/html/themes/sakala.css` ke atribut `style` setiap elemen (`config/mail.php`, `markdown.theme`).
 
 Susunannya satu kolom, paling lebar 600 px: logo Sakala, kartu putih berisi judul, isi, satu tombol utama dengan tautan cadangan tepat di bawahnya, lalu footer. Footer berisi alasan email dikirim, identitas pengirim sesuai halaman legal (Sakala Maintainers, dengan GMEDIA sebagai founding sponsor), serta tautan ke `/privasi` dan `/syarat` di `SAKALA_LANDING_URL`.
 
@@ -62,6 +63,7 @@ Ikuti gaya yang sudah ada: bahasa Indonesia, "kamu", tanpa huruf kapital semua, 
 - Masa berlaku ditulis dengan satuan, dan dengan jam WIB kalau waktunya pasti, lewat `SakalaMailMessage::wib()`. Reset kata sandi hanya menyebut durasi, karena token dihitung sejak permintaan dan email dari queue bisa terkirim belakangan.
 - Email yang bisa dipicu orang lain (verifikasi, reset, ganti email, undangan) menyebut "abaikan email ini" untuk yang tidak merasa memintanya.
 - Paling banyak satu tombol, dan hanya satu tautan sekali pakai.
+- Alamat email yang perlu dihubungi pembaca (kontak abuse atau privasi) ditulis lewat `lineWithAddress('... kirim email ke :address ...', $alamat)`, bukan disisipkan ke `line()`, supaya bisa diklik di semua klien email.
 
 Notifikasi email baru wajib masuk `App\Support\Mail\MailPreviewCatalog`; `tests/Feature/Mail/TransactionalMailTest.php` gagal kalau ada yang terlewat. Tambahkan juga tes pemicunya di file yang sama: subjek, penerima, tujuan tombol, bagian teks, dan tidak ada token selain tautan yang dimaksud.
 

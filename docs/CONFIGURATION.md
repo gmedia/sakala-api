@@ -94,6 +94,7 @@ Region dan alamat Edge sebuah node dilaporkan agent lewat heartbeat (lihat [Agen
 
 ## Deployments
 
+- `SAKALA_DEPLOYMENT_INSPECTION_WAIT_SECONDS`: berapa lama deployment yang dibuat saat inspeksi project masih berjalan (dan port belum diisi) menunggu inspeksi itu sebelum gagal dengan `inspection_timeout`. Default `900`, paling kecil `60`. Inspeksi biasanya selesai dalam kurang dari satu menit, tetapi bisa antre di belakang build pada node yang sibuk.
 - `SAKALA_SIMULATE_DEPLOYMENTS`: `true` menjalankan `SimulatedDeploymentJob` yang memalsukan lifecycle deployment tanpa runtime node — hanya untuk pengembangan console lokal. Default `false`; jangan aktifkan bila ada agent yang terhubung karena keduanya akan menggerakkan record deployment yang sama.
 - `SAKALA_BUILD_TIMEOUT_SECONDS` (default `600`), `SAKALA_START_TIMEOUT_SECONDS` (default `120`), `SAKALA_COMMAND_TIMEOUT_SECONDS` (default `900`): batas waktu dalam detik untuk tahap build, start, dan pelaksanaan command deployment.
 

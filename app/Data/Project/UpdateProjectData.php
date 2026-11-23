@@ -38,8 +38,12 @@ final readonly class UpdateProjectData
             $data['thumbnail_url'] = $this->thumbnailUrl;
         }
 
+        // Setting auto-deploy either way ends a pause after a rollback: on
+        // resumes it, off keeps it off without the pause.
         if ($this->autoDeploy !== null) {
             $data['auto_deploy'] = $this->autoDeploy;
+            $data['auto_deploy_paused_at'] = null;
+            $data['auto_deploy_paused_by_deployment_id'] = null;
         }
 
         // A region only applies to placing a project without a workload, so

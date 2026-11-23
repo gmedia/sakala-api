@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Project;
 
+use App\Actions\Project\RestartProjectAction;
+use App\Enums\ProjectRestartState;
 use App\Enums\VariableBuildReason;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Services\Runtime\PilotRuntimeLimitService;
+use App\Support\Project\AutoDeployPausePresenter;
 use App\Support\Project\ProjectPreviewPresenter;
 use App\Support\Project\ProjectSuspensionPresenter;
 use App\Support\Project\VariableBuildPolicy;
@@ -44,6 +47,21 @@ final class ProjectResource extends JsonResource
         return array_values($databases
             ->map(fn (ManagedDatabase $database): array => (new ProjectDatabaseResource($database))->withProjectKeys($keys)->resolve())
             ->all());
+    }
+
+    /**
+     * The open restart a member asked for, if any.
+     *
+     * @return array{requested_at: string, status: ProjectRestartState}|null
+     */
+    private function restart(): ?array
+    {
+        $command = RestartProjectAction::openRestart($this->resource);
+
+        return $command === null ? null : [
+            'requested_at' => $command->created_at->toAtomString(),
+            'status' => ProjectRestartState::Pending,
+        ];
     }
 
     /**
@@ -119,8 +137,23 @@ final class ProjectResource extends JsonResource
             'release_command' => $this->resource->release_command,
             /** @var string|null */
             'root_directory' => $this->resource->root_directory,
-            /** @var bool */
+            /**
+             * True when a push to the branch deploys now. False while paused after a rollback (see `auto_deploy_pause`).
+             *
+             * @var bool
+             */
             'auto_deploy' => (bool) $this->resource->auto_deploy,
+            /**
+             * Non-null only while auto-deploy is paused after a rollback. `deployment_id` and `deployment_sequence` name
+             * the rollback that paused it (null once deleted); `held_push_count` is how many pushes were recorded with
+             * reason `auto_deploy_paused` since `paused_at`. `PATCH` with `auto_deploy` (true or false) clears it.
+             */
+            'auto_deploy_pause' => AutoDeployPausePresenter::present($this->resource),
+            /**
+             * Non-null while a restart a member asked for is queued or running on the node; null once it succeeded,
+             * failed, or expired. `requested_at` is when it was asked for.
+             */
+            'restart' => $this->restart(),
             /**
              * True while the serving deployment was created with another deploy-relevant configuration: branch, port,
              * build configuration, replicas, environment variables, or the attached database (attaching, detaching, and a

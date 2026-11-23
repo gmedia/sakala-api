@@ -277,6 +277,23 @@ final class DeploymentFailureClassifier
                 self::RETRY,
             ),
 
+            // The deployment waited for the project's inspection to learn the
+            // port (DeploymentInspectionHold) and never started. An inspection
+            // error code the classifier knows is used as is instead.
+            'inspection_failed' => $this->platform(
+                $errorCode,
+                Category::Checkout,
+                'Sakala gagal menganalisis repository sebelum deployment dimulai.',
+                self::RETRY,
+            ),
+
+            'inspection_timeout' => $this->platform(
+                $errorCode,
+                Category::Scheduling,
+                'Analisis repository belum selesai setelah '.$this->inspectionWaitMinutes().' menit, jadi deployment tidak dimulai.',
+                'Biasanya server Sakala sedang sibuk. Coba deploy ulang beberapa menit lagi. Kalau gagal lagi, hubungi admin Sakala.',
+            ),
+
             'runtime_cancelled' => $this->platform(
                 $errorCode,
                 Category::Node,
@@ -292,6 +309,12 @@ final class DeploymentFailureClassifier
                 faultNote: false,
             ),
         };
+    }
+
+    /** The wait of DeploymentInspectionHold, in whole minutes as the summary says it. */
+    private function inspectionWaitMinutes(): int
+    {
+        return max(1, intdiv((int) config('sakala.deployments.inspection_wait_seconds'), 60));
     }
 
     /**

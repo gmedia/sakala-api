@@ -64,7 +64,7 @@ final class LegalDocumentChangedNotification extends Notification implements Sho
         return $message
             ->line('Kamu tidak perlu melakukan apa pun, dan perubahan ini tidak meminta persetujuanmu.')
             ->action("Baca {$title}", $url)
-            ->line("Kalau ada pertanyaan, kirim email ke {$contact}.")
+            ->lineWithAddress('Kalau ada pertanyaan, kirim email ke :address.', $contact)
             ->reason('Kamu menerima email ini karena kamu punya akun Sakala. Perubahan dokumen hukum Sakala selalu diumumkan lewat email akun, apa pun pengaturan notifikasimu.');
     }
 

@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Actions\Agent;
 
 use App\Actions\Deployment\TransitionDeploymentAction;
+use App\Actions\Project\BroadcastRestartOutcomeAction;
+use App\Actions\Project\RestartProjectAction;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\DeploymentStatus;
+use App\Enums\ProjectRestartState;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
@@ -37,6 +40,7 @@ final class FailAgentCommandAction
         private readonly SecretRedactionService $redaction,
         private readonly ProjectSecretValues $projectSecrets,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
+        private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
     ) {}
 
     /**
@@ -194,6 +198,10 @@ final class FailAgentCommandAction
                 ]);
             }
 
+            if ($command->type === AgentCommandType::RestartProject && $command->project_id !== null) {
+                $this->failRestart($agent, $command, $errorCode, $errorMessage);
+            }
+
             if ($command->type === AgentCommandType::WakeProject) {
                 // The node kept the sleeping route, so the project stays
                 // `sleeping`; the next visit or console request asks again.
@@ -216,6 +224,38 @@ final class FailAgentCommandAction
         });
 
         return true;
+    }
+
+    /**
+     * A member's restart failed: the project keeps its runtime state (the
+     * heartbeat reports what the node runs). Audited like the other lifecycle
+     * failures, and announced with its outcome so the Console stops waiting.
+     */
+    private function failRestart(AgentNode $agent, AgentCommand $command, string $errorCode, string $errorMessage): void
+    {
+        AuditEvent::create([
+            'actor_type' => AgentNode::class,
+            'actor_id' => $agent->id,
+            'action' => RestartProjectAction::FAILED_AUDIT_ACTION,
+            'subject_type' => Project::class,
+            'subject_id' => $command->project_id,
+            'metadata' => [
+                'command_id' => $command->id,
+                'deployment_id' => $command->deployment_id,
+                'agent_node_id' => $command->agent_node_id,
+                'error_code' => $errorCode,
+                'error_message' => $errorMessage,
+            ],
+        ]);
+
+        $deployment = $command->deployment_id === null
+            ? null
+            : Deployment::query()->whereKey($command->deployment_id)->lockForUpdate()->first();
+        $project = Project::withTrashed()->find($command->project_id);
+
+        if ($deployment !== null && $project !== null) {
+            $this->broadcastRestartOutcome->handle($deployment, $command, $project->runtime_status, ProjectRestartState::Failed);
+        }
     }
 
     /**

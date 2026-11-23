@@ -42,7 +42,7 @@ final class ProjectSuspendedNotification extends Notification implements ShouldQ
             ->headline("Proyek {$this->projectName} ditangguhkan")
             ->line("Admin Sakala menangguhkan proyek {$this->projectName}. Trafiknya diputus, container-nya dihentikan, dan proyek ini belum bisa di-deploy. Datanya tidak dihapus.")
             ->line("Alasan dari admin: {$this->reason}")
-            ->line("Kalau menurutmu keputusan ini keliru, kirim email ke {$contact} dari email akunmu, lalu sebutkan nama proyeknya.")
+            ->lineWithAddress('Kalau menurutmu keputusan ini keliru, kirim email ke :address dari email akunmu, lalu sebutkan nama proyeknya.', $contact)
             ->action('Buka proyek', app(ConsoleAuthenticationRedirect::class)->project($this->projectId))
             ->reason("Kamu menerima email ini karena kamu ikut mengelola proyek {$this->projectName} di Sakala. Pemberitahuan penangguhan selalu dikirim, apa pun pengaturan notifikasimu.");
     }

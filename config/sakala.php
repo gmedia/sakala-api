@@ -152,6 +152,11 @@ return [
         // Only for local development of the console; never enable where a
         // real agent is connected, because both would drive the same record.
         'simulate' => (bool) env('SAKALA_SIMULATE_DEPLOYMENTS', false),
+        // How long a deployment created while the project's inspection is
+        // still running waits for it before failing with inspection_timeout.
+        // Inspection usually takes under a minute, but it queues behind
+        // builds on a busy node. At least a minute: the sweep runs each minute.
+        'inspection_wait_seconds' => max(60, (int) env('SAKALA_DEPLOYMENT_INSPECTION_WAIT_SECONDS', 900)),
     ],
 
     'usage_signals' => [

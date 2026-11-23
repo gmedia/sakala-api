@@ -233,6 +233,8 @@ test('platform faults say so, ask for a redeploy, and never ask the student to f
     'runtime_routing_failed',
     'command_lease_expired',
     'command_expired',
+    'inspection_failed',
+    'inspection_timeout',
     'runtime_capacity_exceeded',
     'runtime_disk_pressure',
     'runtime_preflight_failed',

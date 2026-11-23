@@ -51,7 +51,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $environment_fingerprint DeploymentConfigFingerprint::forEnvironment() of the stored variables; null until the first variable change or deployment after it was introduced.
  * @property string|null $database_fingerprint DeploymentConfigFingerprint::forDatabase() of the attached managed database; null without one.
  * @property bool $auto_deploy
+ * @property CarbonImmutable|null $auto_deploy_paused_at Set while auto-deploy is paused after a rollback (`auto_deploy` is then false); cleared when someone sets `auto_deploy` again.
+ * @property string|null $auto_deploy_paused_by_deployment_id The rollback deployment that paused auto-deploy. Null when not paused, or once that deployment is deleted.
  * @property string|null $active_deployment_id
+ * @property string|null $previous_active_deployment_id The deployment whose image the node keeps next to the live one: the one the last activation replaced when its image differed (activationAttributes()).
  * @property array<string, mixed>|null $inspection
  * @property ProjectInspectionStatus|null $inspection_status
  * @property string|null $inspection_error_code
@@ -86,7 +89,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'region',
     'config_changed_at',
     'auto_deploy',
+    'auto_deploy_paused_at',
+    'auto_deploy_paused_by_deployment_id',
     'active_deployment_id',
+    'previous_active_deployment_id',
     'inspection',
     'inspection_status',
     'inspection_error_code',
@@ -307,6 +313,61 @@ class Project extends Model
     }
 
     /**
+     * The deployment whose image the node keeps next to the live one, for a
+     * rollback without a build.
+     *
+     * @return BelongsTo<Deployment, $this>
+     */
+    public function previousActiveDeployment(): BelongsTo
+    {
+        return $this->belongsTo(Deployment::class, 'previous_active_deployment_id');
+    }
+
+    /**
+     * The rollback deployment that paused auto-deploy.
+     *
+     * @return BelongsTo<Deployment, $this>
+     */
+    public function autoDeployPausedBy(): BelongsTo
+    {
+        return $this->belongsTo(Deployment::class, 'auto_deploy_paused_by_deployment_id');
+    }
+
+    /** Whether auto-deploy is paused after a rollback. */
+    public function isAutoDeployPaused(): bool
+    {
+        return $this->auto_deploy_paused_at !== null;
+    }
+
+    /**
+     * The attributes that make `$deployment` the active one. When it replaces
+     * another active deployment whose image differs (another builder), that
+     * one becomes `previous_active_deployment_id`, the way the agent's
+     * `image-rollback` capability moves its `previous` tag; a deployment that
+     * reused the live image, a first activation, and a repeat leave it as it
+     * was. Call it under the project row lock, before writing.
+     *
+     * @return array{active_deployment_id: string, previous_active_deployment_id?: string}
+     */
+    public function activationAttributes(Deployment $deployment): array
+    {
+        $attributes = ['active_deployment_id' => $deployment->id];
+        $currentId = $this->active_deployment_id;
+
+        if ($currentId === null || $currentId === $deployment->id) {
+            return $attributes;
+        }
+
+        $current = Deployment::query()->find($currentId);
+
+        if ($current === null || $current->imageBuilderId() === $deployment->imageBuilderId()) {
+            return $attributes;
+        }
+
+        return [...$attributes, 'previous_active_deployment_id' => $current->id];
+    }
+
+    /**
      * The creator. Ownership and access go through workspace().
      *
      * @return BelongsTo<User, $this>
@@ -401,6 +462,7 @@ class Project extends Model
             'replicas' => 'integer',
             'config_changed_at' => 'immutable_datetime',
             'auto_deploy' => 'boolean',
+            'auto_deploy_paused_at' => 'immutable_datetime',
             'inspection' => 'array',
             'inspection_status' => ProjectInspectionStatus::class,
             'inspected_at' => 'immutable_datetime',

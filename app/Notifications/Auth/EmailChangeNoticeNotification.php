@@ -40,7 +40,7 @@ final class EmailChangeNoticeNotification extends Notification implements Should
                 ->headline('Email akunmu sudah diganti')
                 ->line("Mulai sekarang kamu masuk ke Sakala dengan {$this->newEmail}. Alamat ini, tempat email ini dikirim, tidak bisa dipakai lagi untuk masuk.")
                 ->line('Kalau kamu yang menggantinya, abaikan email ini.')
-                ->line("Kalau bukan kamu, segera kirim email ke {$contact} dari alamat ini. Reset kata sandi sekarang hanya bisa lewat email yang baru, jadi kami perlu membantumu memulihkan akun.")
+                ->lineWithAddress('Kalau bukan kamu, segera kirim email ke :address dari alamat ini. Reset kata sandi sekarang hanya bisa lewat email yang baru, jadi kami perlu membantumu memulihkan akun.', $contact)
                 ->reason('Kamu menerima email ini karena alamat ini sebelumnya dipakai sebagai email akun Sakala.');
         }
 

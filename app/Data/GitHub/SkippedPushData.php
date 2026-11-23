@@ -10,7 +10,8 @@ use Carbon\CarbonImmutable;
 
 /**
  * A push that did not deploy a project because nothing in it concerned the
- * project. Stored as an audit event on the project (`project.push_skipped`,
+ * project, or because auto-deploy is paused after a rollback (PushSkipReason).
+ * Stored as an audit event on the project (`project.push_skipped`,
  * actor `github_app`), so it adds no deployment: no sequence number, nothing
  * counted against the build or deployment limits, no metrics, no
  * notification, and the project's latest deployment stays what it was.

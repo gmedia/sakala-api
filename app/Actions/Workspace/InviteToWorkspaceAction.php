@@ -94,6 +94,7 @@ final class InviteToWorkspaceAction
                 role: $role->value,
                 ttlHours: $ttlHours,
                 expiresAt: $invitation->expires_at,
+                email: $email,
             );
 
             DB::afterCommit(static function () use ($email, $mail): void {
