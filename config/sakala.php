@@ -55,11 +55,21 @@ return [
     // Current versions of the published documents, stored per user on acceptance.
     // A new terms or acceptable use version asks every user to accept again; a new
     // privacy notice does not, because it is a notice and not what processing rests on.
+    // A version can be published before it takes effect, as the privacy notice
+    // promises for meaningful changes: until `effective_at`, the document's entry
+    // in `previous_versions` stays the current one, so what the API records and
+    // reports is the version in force. An empty `effective_at` means at once.
     'legal' => [
         'versions' => [
             'terms' => env('SAKALA_LEGAL_TERMS_VERSION', 'syarat-v1'),
             'acceptable_use' => env('SAKALA_LEGAL_ACCEPTABLE_USE_VERSION', 'penggunaan-wajar-v1'),
-            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_VERSION', 'privasi-v1'),
+            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_VERSION', 'privasi-v2'),
+        ],
+        'effective_at' => [
+            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_EFFECTIVE_AT', '2026-11-30T00:00:00+07:00'),
+        ],
+        'previous_versions' => [
+            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_PREVIOUS_VERSION', 'privasi-v1'),
         ],
     ],
 

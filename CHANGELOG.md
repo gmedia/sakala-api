@@ -4,6 +4,15 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- `legal:announce-change <version>` queues the announcement email of a new legal document version (`legal-document-changed`) to every verified account, once: each account gets a `legal_change_announcements` row in the same transaction as its queued email, so reruns and parallel runs never mail anyone twice. `--dry-run` prints counts only, `--limit` splits sending over runs for a daily quota, and `--interval` spaces the emails (default 1 s). It refuses a version without a summary in `LegalChangeCatalog`, a version the configuration does not publish, an `--effective` date other than the configured one, a run after the effective date, and disabled email delivery. The summary for `privasi-v2` is the first entry.
+- A legal document version can be published before it takes effect: `sakala.legal.effective_at` and `sakala.legal.previous_versions` keep the previous version current until then (`SAKALA_LEGAL_PRIVACY_NOTICE_EFFECTIVE_AT`, `SAKALA_LEGAL_PRIVACY_NOTICE_PREVIOUS_VERSION`), so `auth/options` and `legal_acceptances` always name the version in force.
+
+### Changed
+
+- The privacy notice default is `privasi-v2`, in force from 30 November 2026 00:00 WIB; until then the API keeps reporting and recording `privasi-v1`.
+
 ### Fixed
 
 - A rejection recorded as a `rejected_limits` signal keeps its `limit_name` for the two workspace limits that were being dropped: `max_active_containers` (now `ActiveContainerLimitExceededException::LIMIT_NAME`) and `max_active_deployments_per_workspace`. Both are part of the `RecordUsageSignalAction` allowlist, so a deployment refused by the workspace container limit or by the per-workspace active deployment limit is told apart in the admin signals instead of being stored without a `limit_name`. The unit test reads every limit name the deployment path records from `CreateDeploymentAction::LIMIT_EXCEPTION_MAP` and the exception constants, so a new limit cannot lag behind the allowlist again.

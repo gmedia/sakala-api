@@ -10,6 +10,7 @@ use App\Models\LegalAcceptance;
 use App\Models\OAuthAccount;
 use App\Models\Project;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 
@@ -17,6 +18,12 @@ uses(LazilyRefreshDatabase::class);
 
 beforeEach(function (): void {
     config()->set('sakala.email_delivery_enabled', true);
+    // A privacy notice published ahead of its effective date: privasi-v1 is
+    // current until then. Fixed here so the tests do not depend on the default.
+    config()->set('sakala.legal.versions.privacy_notice', 'privasi-v2');
+    config()->set('sakala.legal.effective_at.privacy_notice', '2026-11-30T00:00:00+07:00');
+    config()->set('sakala.legal.previous_versions.privacy_notice', 'privasi-v1');
+    $this->travelTo(CarbonImmutable::parse('2026-11-24 10:00:00', 'Asia/Jakarta'));
 });
 
 function registration(array $overrides = []): array
@@ -191,7 +198,8 @@ test('without acceptance a user can still read, leave, and take their data out',
 test('a new terms version asks again, and a new privacy notice does not', function (): void {
     $user = User::factory()->create();
 
-    config()->set('sakala.legal.versions.privacy_notice', 'privasi-v2');
+    config()->set('sakala.legal.versions.privacy_notice', 'privasi-v3');
+    config()->set('sakala.legal.effective_at.privacy_notice', '');
     expect($user->requiresLegalAcceptance())->toBeFalse();
 
     config()->set('sakala.legal.versions.terms', 'syarat-v2');
@@ -214,4 +222,46 @@ test('a new acceptable use version asks again too', function (): void {
     config()->set('sakala.legal.versions.acceptable_use', 'penggunaan-wajar-v2');
 
     expect($user->requiresLegalAcceptance())->toBeTrue();
+});
+
+// ─── A version published ahead of its date ───────────────────────────────────
+
+test('a privacy notice published ahead of its date is recorded and reported only once it applies', function (): void {
+    Notification::fake();
+
+    $this->getJson(route('api.v1.auth.options'))->assertJsonPath('data.legal.privacy_notice_version', 'privasi-v1');
+    $this->postJson(route('api.v1.auth.register'), registration())->assertAccepted();
+
+    $this->travelTo(CarbonImmutable::parse('2026-11-30 00:00:00', 'Asia/Jakarta'));
+
+    $this->getJson(route('api.v1.auth.options'))->assertJsonPath('data.legal.privacy_notice_version', 'privasi-v2');
+    $this->postJson(route('api.v1.auth.register'), registration(['email' => 'budi@example.test']))->assertAccepted();
+
+    $version = fn (string $email): string => User::query()->where('email', $email)->sole()
+        ->legalAcceptances()->where('document', LegalDocument::PrivacyNotice)->sole()->version;
+
+    expect($version('rani@example.test'))->toBe('privasi-v1')
+        ->and($version('budi@example.test'))->toBe('privasi-v2');
+});
+
+test('the switch happens at midnight WIB, not UTC', function (): void {
+    $this->travelTo(CarbonImmutable::parse('2026-11-29 23:59:59', 'Asia/Jakarta'));
+    expect(LegalDocument::PrivacyNotice->currentVersion())->toBe('privasi-v1');
+
+    $this->travelTo(CarbonImmutable::parse('2026-11-29 17:00:00', 'UTC'));
+    expect(LegalDocument::PrivacyNotice->currentVersion())->toBe('privasi-v2');
+});
+
+test('without an effective date the newest version applies at once', function (): void {
+    config()->set('sakala.legal.effective_at.privacy_notice', null);
+
+    expect(LegalDocument::PrivacyNotice->currentVersion())->toBe('privasi-v2');
+});
+
+test('the shipped defaults publish privasi-v2 from 30 November 2026 WIB', function (): void {
+    $defaults = require config_path('sakala.php');
+
+    expect($defaults['legal']['versions']['privacy_notice'])->toBe('privasi-v2')
+        ->and($defaults['legal']['previous_versions']['privacy_notice'])->toBe('privasi-v1')
+        ->and(CarbonImmutable::parse($defaults['legal']['effective_at']['privacy_notice'])->eq(CarbonImmutable::parse('2026-11-30 00:00:00', 'Asia/Jakarta')))->toBeTrue();
 });

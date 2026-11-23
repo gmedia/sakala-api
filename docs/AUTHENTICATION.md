@@ -174,6 +174,8 @@ Versi yang berlaku ada di `config/sakala.php`, dan `GET /api/v1/auth/options` me
 { "data": { "legal": { "terms_version": "syarat-v1", "acceptable_use_version": "penggunaan-wajar-v1", "privacy_notice_version": "privasi-v1" } } }
 ```
 
+Yang dikirim dan dicatat selalu versi yang sedang berlaku. Contoh di atas adalah jawaban sebelum 30 November 2026, saat `privasi-v2` sudah terbit tetapi belum berlaku.
+
 Formulir punya satu kotak centang wajib, yaitu `accept_terms`, untuk satu pernyataan: "Saya berusia minimal 18 tahun atau sudah mendapat persetujuan orang tua atau wali, dan menyetujui Syarat Layanan dan Kebijakan Penggunaan Wajar." Bersamanya Console mengirim `terms_version` dan `acceptable_use_version` yang ditampilkannya, supaya persetujuan tidak tercatat untuk versi yang tidak pernah dilihat orang itu. Versi lama dijawab `422`.
 
 Pemberitahuan privasi tidak punya kotak centang, karena pemrosesan tidak berdasar pada persetujuan atas dokumen itu. Saat formulir dikirim, API mencatatnya sebagai `acknowledged`.
@@ -185,6 +187,23 @@ Pemberitahuan privasi tidak punya kotak centang, karena pemrosesan tidak berdasa
 
 Tabel `legal_acceptances` menyimpan satu baris per user, dokumen, dan versi, dengan `action`, `source`, dan `occurred_at`. Tabel ini tidak menyimpan alamat IP, dan ikut terhapus bersama akun.
 
+#### Versi yang terbit sebelum berlaku
+
+Pemberitahuan privasi berjanji mengumumkan perubahan yang berarti lewat situs dan email akun sebelum perubahan itu berlaku. Karena itu sebuah versi bisa terbit lebih dulu: `sakala.legal.versions` memegang versi terbaru, `sakala.legal.effective_at` kapan versi itu berlaku, dan `sakala.legal.previous_versions` versi yang berlaku sampai saat itu. `LegalDocument::currentVersion()` memilih di antara keduanya menurut waktu sekarang, jadi `auth/options` dan catatan `legal_acceptances` tidak pernah menyebut versi yang belum berlaku, dan pergantiannya tidak butuh deploy. Saat ini hanya pemberitahuan privasi yang punya kedua kunci itu; dokumen tanpa `effective_at` berganti versi begitu konfigurasinya berubah.
+
+#### Mengumumkan versi baru
+
+`php artisan legal:announce-change <versi>` mengantrekan email pengumuman ke setiap akun yang emailnya sudah terverifikasi, apa pun pengaturan notifikasinya. Ringkasan perubahannya diambil dari `App\Support\Legal\LegalChangeCatalog`, jadi versi tanpa ringkasan ditolak. Perintah ini juga menolak versi yang belum menjadi versi terbaru di konfigurasi, `--effective` yang berbeda dari `effective_at`, waktu yang sudah lewat dari tanggal berlaku, dan email yang dimatikan (`sakala.email_delivery_enabled`).
+
+```bash
+php artisan legal:announce-change privasi-v2 --dry-run        # hitung saja: sudah diumumkan, menunggu, akan diantrekan
+php artisan legal:announce-change privasi-v2 --effective=2026-11-30
+php artisan legal:announce-change privasi-v2 --limit=250      # sebagian dulu, misalnya karena kuota harian penyedia email
+php artisan legal:announce-change privasi-v2 --interval=2     # jeda antaremail dalam detik (default 1)
+```
+
+Setiap akun mendapat satu baris di `legal_change_announcements` dan emailnya di satu transaction, jadi menjalankan ulang, atau dua run bersamaan, tidak pernah mengirim dua kali. Email yang gagal masuk antrean membatalkan barisnya, dan run berikutnya mencobanya lagi. Email dikirim queue worker dengan jeda `--interval`; email yang gagal di worker ada di `failed_jobs` seperti job lain. Akun yang terverifikasi setelah sebuah run mendapat emailnya di run berikutnya. Output hanya berisi angka, tidak pernah alamat email.
+
 `legal_acceptance_required` melihat Syarat Layanan dan Kebijakan Penggunaan Wajar saja. Saat keduanya belum disetujui pada versi terbaru, membuat proyek, inspeksi ulang, dan deploy dijawab `403 LEGAL_ACCEPTANCE_REQUIRED`, dan auto-deploy dari push dilewati dengan notifikasi `project_issue`. Yang tetap jalan: membaca, membatalkan deployment, menghapus proyek, ekspor data, dan menghapus akun, supaya tidak ada yang harus setuju dulu untuk pergi. Mengganti versi privasi tidak meminta apa pun. Akun yang sudah ada sebelum fitur ini diperlakukan sama: diminta sekali, tanpa kehilangan data.
 
 ### Menghapus Akun
@@ -195,7 +214,7 @@ Tabel `legal_acceptances` menyimpan satu baris per user, dokumen, dan versi, den
 | --- | --- |
 | Proyek di workspace pribadi | Lewat jalur [Menghapus Project](API_CONVENTIONS.md#menghapus-project): workload dihentikan, attempt dibatalkan, baris menunggu `projects:purge-deleted`. Selama menunggu, `projects.user_id` dan `projects.workspace_id` bernilai `null`. Environment variable dan salinannya dihapus saat itu juga, tidak menunggu masa simpan. |
 | Workspace | Workspace pribadi dan semua keanggotaan dihapus, dan undangan tertunda yang dikirim akun ini dicabut. Tim yang dimiliki sendirian dan sudah kosong ikut dihapus. Tim lain tetap ada, dan project tim yang dibuat akun ini tetap milik timnya dengan `user_id` kosong. |
-| Dihapus saat itu juga | Baris user, OAuth account dan tokennya, feedback, notifikasi, persetujuan dokumen, personal access token, semua session, token reset kata sandi, relasi GitHub installation, dan avatar. `pending_email` hilang bersama baris user, jadi tautan ganti email dan verifikasi yang lama menjadi tidak berlaku. |
+| Dihapus saat itu juga | Baris user, OAuth account dan tokennya, feedback, notifikasi, persetujuan dokumen, catatan pengumuman perubahan dokumen, personal access token, semua session, token reset kata sandi, relasi GitHub installation, dan avatar. `pending_email` hilang bersama baris user, jadi tautan ganti email dan verifikasi yang lama menjadi tidak berlaku. |
 | GitHub installation | Baris installation ikut dihapus bila tidak ada user lain yang terhubung dan tidak ada proyek hidup yang memakainya, termasuk proyek tim. Akses GitHub App di sisi GitHub dicabut sendiri oleh pengguna. |
 | Yang tetap ada | `audit_events` berisi ID, termasuk event `account.deleted` tanpa email; `retired_project_slugs`; `usage_signal_records` sampai masa simpannya habis; `deployments` milik proyek sampai purge dengan `requested_by` kosong. |
 | Email konfirmasi | Dikirim ke alamat lama bila `sakala.email_delivery_enabled` aktif. Penghapusan tidak bergantung pada email ini. |

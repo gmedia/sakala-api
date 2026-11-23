@@ -17,9 +17,12 @@ use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
 use App\Notifications\Edge\EdgeRecoveredNotification;
 use App\Notifications\Edge\EdgeUnhealthyNotification;
+use App\Notifications\Legal\LegalDocumentChangedNotification;
+use App\Notifications\Messages\SakalaMailMessage;
 use App\Notifications\Project\ProjectAlertMailNotification;
 use App\Notifications\Project\ProjectSuspendedNotification;
 use App\Notifications\Workspace\WorkspaceInvitationNotification;
+use App\Support\Legal\LegalChangeCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Mail\Markdown;
 use Illuminate\Notifications\AnonymousNotifiable;
@@ -183,6 +186,14 @@ final class MailPreviewCatalog
                 'trigger' => 'Pengguna menghapus akunnya',
                 'notification' => new AccountDeletedNotification,
                 'notifiable' => $address,
+            ],
+            'legal-document-changed' => [
+                'trigger' => 'Maintainer menjalankan legal:announce-change untuk versi dokumen hukum yang baru',
+                'notification' => new LegalDocumentChangedNotification(
+                    change: app(LegalChangeCatalog::class)->find('privasi-v2') ?? throw new LogicException('privasi-v2 has no summary.'),
+                    effectiveAt: CarbonImmutable::parse('2026-11-30 00:00:00', SakalaMailMessage::TIMEZONE),
+                ),
+                'notifiable' => $user,
             ],
         ];
     }
