@@ -24,6 +24,12 @@ final readonly class PilotQuotaLimitsData
         public int $current_databases_count = 0,
         /** Reported size of the workspace's managed databases, in bytes. */
         public int $current_database_storage_bytes = 0,
+        /** Managed buckets that count towards `limits->max_buckets`. */
+        public int $current_buckets_count = 0,
+        /** MB the workspace's bucket quotas reserve (allocated, not used). */
+        public int $current_bucket_storage_mb = 0,
+        /** Usage the storage nodes last reported for the workspace's buckets, in bytes. */
+        public int $current_bucket_usage_bytes = 0,
     ) {}
 
     /**

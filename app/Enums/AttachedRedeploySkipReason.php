@@ -5,14 +5,16 @@ declare(strict_types=1);
 namespace App\Enums;
 
 /**
- * Why the API deployed an attached project on its own for nobody: after a
- * rotation that asked for redeploys, or once a database created with
- * `deploy_when_ready` became ready. The project keeps `redeploy_required` and
- * can be deployed by hand; the rotation or creation is complete either way.
+ * Why the API did not deploy an attached project on someone's behalf: after
+ * a database password or bucket key rotation that asked for redeploys, or
+ * once a database created with `deploy_when_ready` became ready. The project
+ * keeps `redeploy_required` and can be deployed by hand; the rotation or
+ * creation is complete either way. Shared by databases (ADR-020) and buckets
+ * (ADR-021), because a project may hold both.
  */
-enum DatabaseRedeploySkipReason: string
+enum AttachedRedeploySkipReason: string
 {
-    /** Never deployed, or stopped: its next deployment gets the new password anyway. */
+    /** Never deployed, or stopped: its next deployment gets the new credential anyway. */
     case NoActiveDeployment = 'no_active_deployment';
 
     /** Whoever asked can no longer deploy the project, or their account is gone. */
@@ -33,6 +35,18 @@ enum DatabaseRedeploySkipReason: string
     case RepositoryAccessRevoked = 'repository_access_revoked';
 
     case DatabaseEndpointUnavailable = 'database_endpoint_unavailable';
+
+    /** The project's attached database is still being created, or failed to be. */
+    case DatabaseNotReady = 'database_not_ready';
+
+    /** The storage node of the project's attached bucket has not reported its endpoint. */
+    case BucketEndpointUnavailable = 'bucket_endpoint_unavailable';
+
+    /** The project's attached bucket is still being created, or failed to be. */
+    case BucketNotReady = 'bucket_not_ready';
+
+    /** The project's attached bucket is in its key uncertain window (BucketKeyWindow). */
+    case BucketKeyRotating = 'bucket_key_rotating';
 
     case ReleaseCommandUnsupported = 'release_command_unsupported';
 

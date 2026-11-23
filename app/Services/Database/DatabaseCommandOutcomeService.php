@@ -6,13 +6,13 @@ namespace App\Services\Database;
 
 use App\Enums\AgentCommandType;
 use App\Enums\DatabaseStatus;
-use App\Jobs\Database\RedeployAfterPasswordRotationJob;
+use App\Jobs\Attachment\RedeployAfterCredentialRotationJob;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
+use App\Support\Attachment\CredentialRotation;
 use App\Support\Database\DatabaseAudit;
-use App\Support\Database\DatabasePasswordRotation;
 
 /**
  * What a database command's result means for its database. Called inside the
@@ -134,8 +134,8 @@ final class DatabaseCommandOutcomeService
             $project->save();
         }
 
-        if (DatabasePasswordRotation::redeploysAttached($command)) {
-            RedeployAfterPasswordRotationJob::dispatch($command->id)->afterCommit();
+        if (CredentialRotation::redeploysAttached($command)) {
+            RedeployAfterCredentialRotationJob::dispatch($command->id)->afterCommit();
         }
 
         return $this->audit($agent, DatabaseAudit::PASSWORD_ROTATED, $database, [

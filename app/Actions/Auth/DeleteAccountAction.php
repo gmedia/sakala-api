@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Auth;
 
+use App\Actions\Bucket\DeleteBucketAction;
 use App\Actions\Database\DeleteDatabaseAction;
 use App\Actions\Profile\RemoveAvatarAction;
 use App\Actions\Project\DeleteProjectAction;
@@ -16,6 +17,7 @@ use App\Exceptions\Auth\AdminAccountDeletionException;
 use App\Exceptions\Workspace\LastWorkspaceOwnerException;
 use App\Models\AuditEvent;
 use App\Models\GithubInstallation;
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Models\User;
@@ -35,14 +37,15 @@ use Throwable;
  * their rows wait for the purge window without an owner; their secrets do not
  * wait. Then the personal workspace goes, and so do the account's memberships.
  *
- * Managed databases of the personal workspace are dropped on their nodes the
- * same way; a database whose creation a node is still running answers
- * DATABASE_BUSY, and the request can simply be repeated a moment later.
+ * Managed databases and buckets of the personal workspace are dropped on
+ * their nodes the same way; one whose creation a node is still running
+ * answers DATABASE_BUSY or BUCKET_BUSY, and the request can simply be
+ * repeated a moment later.
  *
  * Teams outlive the account. Projects it created on a team stay with the team
  * and lose only their creator. A team it solely owns is deleted with it when
  * empty, and blocks the deletion with LAST_WORKSPACE_OWNER while it still has
- * projects or databases: the console asks to hand the team over or empty it
+ * projects, databases, or buckets: the console asks to hand the team over or empty it
  * first.
  *
  * Every step can run again, so a crash halfway leaves an account that can simply
@@ -57,9 +60,13 @@ final class DeleteAccountAction
     /** Audit `reason` of a personal database dropped with its account. */
     public const DATABASE_DELETE_REASON = 'account_deleted';
 
+    /** Audit `reason` of a personal bucket deleted with its account. */
+    public const BUCKET_DELETE_REASON = 'account_deleted';
+
     public function __construct(
         private readonly DeleteProjectAction $deleteProject,
         private readonly DeleteDatabaseAction $deleteDatabase,
+        private readonly DeleteBucketAction $deleteBucket,
         private readonly PurgeDeletedProjectsAction $purge,
         private readonly RemoveAvatarAction $removeAvatar,
     ) {}
@@ -94,6 +101,11 @@ final class DeleteAccountAction
                     ->where('workspace_id', $personalId)
                     ->holdingWorkspace()
                     ->each(fn (ManagedDatabase $database) => $this->deleteDatabase->handle($user, $database, self::DATABASE_DELETE_REASON));
+
+                ManagedBucket::query()
+                    ->where('workspace_id', $personalId)
+                    ->holdingWorkspace()
+                    ->each(fn (ManagedBucket $bucket) => $this->deleteBucket->handle($user, $bucket, self::BUCKET_DELETE_REASON));
             }
 
             $this->removeAvatar->handle($user);
@@ -125,6 +137,7 @@ final class DeleteAccountAction
             if ($personalId !== null && (
                 Project::query()->where('workspace_id', $personalId)->exists()
                 || ManagedDatabase::query()->where('workspace_id', $personalId)->holdingWorkspace()->exists()
+                || ManagedBucket::query()->where('workspace_id', $personalId)->holdingWorkspace()->exists()
             )) {
                 return false;
             }
@@ -218,7 +231,8 @@ final class DeleteAccountAction
             ->exists())->values();
 
         $withProjects = $soleOwned->filter(fn (Workspace $team): bool => $team->projects()->exists()
-            || $team->databases()->holdingWorkspace()->exists());
+            || $team->databases()->holdingWorkspace()->exists()
+            || $team->buckets()->holdingWorkspace()->exists());
 
         if ($withProjects->isNotEmpty()) {
             throw new LastWorkspaceOwnerException($withProjects->values(), accountDeletion: true);

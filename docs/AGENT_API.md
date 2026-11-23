@@ -252,6 +252,30 @@ dan semua database saat daftar tidak dikirim, menyimpan ukuran terakhirnya. Ukur
 ini yang dibandingkan sapuan kuota penyimpanan setiap menit (lihat
 [Database](API_CONVENTIONS.md#kuota-dan-penguncian)).
 
+`metadata.object_storage` dan `metadata.buckets` juga tambahan opsional di dalam
+revision 4, dikirim node ber-capability `managed-s3` (ADR-021; contoh di sakala-agent
+`examples/heartbeat/object-storage-host.json`). Region penempatan Sakala tetap dari
+`metadata.runtime.region`; `object_storage.region` adalah region signing S3. Nilai
+yang tidak sesuai menolak seluruh heartbeat `422`:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `metadata.object_storage` | object, opsional | Dikirim di setiap heartbeat node penyimpanan. Disimpan di `agent_nodes.metadata`. |
+| `metadata.object_storage.endpoint` | string, wajib bila `object_storage` ada | Endpoint S3 publik (`SAKALA_OBJECT_STORAGE_PUBLIC_ENDPOINT`): `https://host[:port]` tanpa path, query, fragment, atau user info, paling panjang 255 karakter. `http://` hanya untuk host loopback (`localhost`, `127.0.0.1`, `[::1]`), untuk pengembangan lokal. API memakainya untuk `AWS_ENDPOINT_URL_S3` dan `AWS_ENDPOINT`. Tanpa `object_storage`, deploy proyek yang bucket-nya ada di node ini ditolak `409 BUCKET_ENDPOINT_UNAVAILABLE`. |
+| `metadata.object_storage.region` | string, wajib bila `object_storage` ada | Region signing S3, `^[a-z0-9]+(-[a-z0-9]+)*$`, paling panjang 32. Dipakai untuk `AWS_DEFAULT_REGION` dan `AWS_REGION`. |
+| `metadata.object_storage.capacity_mb` | integer ≥ 1, wajib bila `object_storage` ada | MB yang boleh dialokasikan node ke kuota bucket (`SAKALA_OBJECT_STORAGE_TOTAL_QUOTA_MB`). API mengurangi jumlah `reserved_quota_mb` bucket node itu saat menempatkan bucket. |
+| `metadata.object_storage.available` | boolean, opsional | Apakah pembacaan pemakaian terakhir berhasil. `false` membuat node dipilih paling akhir untuk bucket baru dan `buckets.available` tidak dihitung dari node itu. Tidak dikirim berarti tersedia. |
+| `metadata.buckets` | array, paling banyak 1000 item, opsional | Pemakaian setiap bucket terkelola, urut nama. Hanya dikirim pada heartbeat pertama setelah pembacaan baru yang berhasil, paling sering sekali per 60 detik. Tidak dikirim berarti tidak ada pembacaan baru; array kosong berarti tidak ada bucket terkelola. Tidak disimpan di `agent_nodes.metadata`. |
+| `metadata.buckets[].name` | string, wajib | Nama bucket di node, `^b-[a-z0-9]{16,40}$`. Nama yang tidak dikenal API di node ini diabaikan tanpa menolak heartbeat. |
+| `metadata.buckets[].size_bytes` | integer 0 sampai 1 PiB, wajib | `usage` dari `rc quota info`, dalam byte. |
+| `metadata.detail_counts.buckets` | integer ≥ 0, opsional | Jumlah sebelum daftar dipotong; dikirim bersama `buckets`. |
+
+API menulis `size_bytes` dan `usage_checked_at` hanya untuk bucket yang `node_id`-nya
+node pelapor dan nama di node-nya cocok, termasuk yang sedang dihapus, dengan satu
+`UPDATE` per heartbeat. Bucket yang tidak tercantum menyimpan nilai terakhirnya.
+API yang lebih lama dari fitur ini menyimpan `object_storage` dan `buckets` apa adanya
+di `agent_nodes.metadata` tanpa menolaknya, karena `metadata` tidak dibatasi key-nya.
+
 `metadata.workloads.maximum_active_workloads` (integer ≥ 0 atau `null`, opsional,
 tambahan di revision 4) adalah container terbanyak yang dijalankan node sekaligus
 (`SAKALA_MAX_ACTIVE_CONTAINERS`, nilai yang sama dengan `RuntimeCapacity.maximum_active_workloads`
@@ -363,6 +387,7 @@ lifecycle command lain hanya membawa identitas.
 | `RestartProject`, `StopProject`, `SleepProject`, `WakeProject`, `HealthCheck`, `ReconcileWorkload`, `CleanupRuntime` | `docker-runtime` |
 | `RefreshRoute` | `caddy-file-routing` |
 | `CreateDatabase`, `DropDatabase`, `RotateDatabasePassword`, `LockDatabase`, `UnlockDatabase`, `InstallDatabaseExtension` | `managed-postgres` |
+| `CreateBucket`, `DeleteBucket`, `RotateBucketKey`, `SetBucketQuota`, `LockBucket`, `UnlockBucket` | `managed-s3` |
 | `DrainNode`, `ResumeNode` | — |
 
 `DeployProject` yang payload-nya membawa `replicas` lebih dari 1 juga butuh
@@ -1018,6 +1043,51 @@ konflik terminal; `null` ditoleransi, sehingga field ini adalah bagian kontrak.
 Payload command dan credential tidak pernah dipantulkan. Konflik
 `Idempotency-Key` pada report memakai `{ "message": "…" }` dengan `409`.
 
+### Perintah bucket
+
+Tambahan di dalam protocol revision 4 untuk bucket S3 terkelola (ADR-021), cocok dengan kontrak `OBJECT_STORAGE_CONTRACT_2026-11-23.md` bagian 3.4 dan sakala-agent `examples/commands/bucket-commands.json`. Enam command type baru, `CreateBucket`, `DeleteBucket`, `RotateBucketKey`, `SetBucketQuota`, `LockBucket`, dan `UnlockBucket`, hanya ditawarkan ke node yang mengiklankan capability `managed-s3`. Agent lama tidak pernah mengiklankannya, jadi tidak pernah menerima command type yang tidak dikenalnya; revisi protocol tidak dinaikkan. Aturan pengiriman sama dengan [Perintah database](#perintah-database): dipin ke node bucket saat dibuat, tidak pernah ditetapkan ulang oleh `agent:assign-commands`, tanpa `expires_at`, `project_id` dan `deployment_id` `null`, lease biasa, dan tidak pernah diblokir oleh proyek yang ditangguhkan.
+
+| Command | Payload | Result agent (tidak dibaca API) |
+| --- | --- | --- |
+| `CreateBucket` | `{ bucket: string, access_key_id: string, secret_access_key: string, quota_mb: integer }` | `{ bucket, access_key_id, quota_mb, created: bool }` |
+| `DeleteBucket` | `{ bucket, access_key_id }` | `{ bucket, deleted: bool }` |
+| `RotateBucketKey` | `{ bucket, access_key_id, secret_access_key }` | `{ bucket, access_key_id }` |
+| `SetBucketQuota` | `{ bucket, quota_mb: integer }` | `{ bucket, quota_mb }` |
+| `LockBucket` | `{ bucket, access_key_id }` | `{ bucket, access_key_id, locked: true }` |
+| `UnlockBucket` | `{ bucket, access_key_id }` | `{ bucket, access_key_id, locked: false }` |
+
+- `bucket` adalah `b-` diikuti 20 huruf kecil dan angka acak (agent menerima `^b-[a-z0-9]{16,40}$`), tidak pernah diturunkan dari input pengguna dan tidak pernah dipakai ulang. Nama policy RustFS sama dengan nama bucket.
+- `access_key_id` adalah `SK` diikuti 18 huruf besar dan angka (agent menerima `^SK[A-Z0-9]{16,38}$`), sekaligus nama user RustFS. Nilainya tetap saat rotasi.
+- `secret_access_key` adalah 40 huruf dan angka (agent menerima `^[A-Za-z0-9]{32,128}$`), dikirim **plaintext** hanya ke node target; di `agent_commands.payload` nilainya terenkripsi, dan node lain yang meminta payload itu ditolak `409`. API meredaksi secret yang tersimpan dan yang dibawa command dari `error_message`, event, dan log command bucket, dan menghapus salinannya dari payload setelah bucket dihapus.
+- `quota_mb` adalah integer 1 sampai 1048576.
+- Agent tidak melaporkan ukuran upload multipart yang belum selesai (`buckets[].incomplete_bytes` tidak ada), jadi `size_bytes` hanya berisi objek yang sudah selesai.
+- RustFS menjawab tulisan pertama setelah setiap perubahan kuota (`CreateBucket`, `SetBucketQuota`) dengan satu `503 SlowDown`; SDK S3 mengulangnya sendiri.
+- `CreateBucket` idempoten: mengulanginya mengatur ulang secret ke nilai payload, tidak pernah mengaktifkan key yang dinonaktifkan, jadi bucket `locked` tetap terkunci. Karena itu API tidak membuat `RotateBucketKey` selama `CreateBucket` masih terbuka, dan `buckets:reconcile` melewati bucket dengan rotasi terbuka.
+
+Efek di API:
+
+| Command | `complete` | `fail` atau kedaluwarsa |
+| --- | --- | --- |
+| `CreateBucket` | `provisioning` → `ready`, audit `bucket.provisioned`; pada bucket `ready` atau `locked` (reconcile) tidak berubah, audit `bucket.reconciled` | `provisioning` → `failed`, audit `bucket.provisioning_failed` |
+| `DeleteBucket` | `deleted`, baris di-soft delete, secret dikosongkan dan dihapus dari payload command, audit `bucket.deleted` | tetap `deleting`, audit `bucket.delete_failed`; `DELETE` lagi mengirim ulang |
+| `RotateBucketKey` | secret baru dari payload disimpan, fingerprint proyek terpasang dihitung ulang, audit `bucket.key_rotated`, deploy ulang diantrekan bila diminta | kegagalan pasti: secret lama dipertahankan, audit `bucket.key_rotation_failed`. `bucket_outcome_unknown` atau lease habis: `RotateBucketKey` baru dengan payload yang sama (secret baru yang sama) dikirim ulang dengan jeda `available_at`, audit `bucket.key_rotation_resent`. Setelah ada kiriman ulang, `bucket_admin_unavailable` juga dikirim ulang dan kode lain berakhir `unknown`, tidak pernah `failed`; paling banyak 10 kiriman |
+| `SetBucketQuota` | `quota_mb` = `reserved_quota_mb` = payload, audit `bucket.quota_changed` | `reserved_quota_mb` = `quota_mb`, audit `bucket.quota_change_failed` |
+| `LockBucket` | `ready` → `locked`, audit `bucket.locked` | tidak berubah, audit `bucket.lock_failed` |
+| `UnlockBucket` | `locked` → `ready`, audit `bucket.unlocked` | tidak berubah, audit `bucket.unlock_failed` |
+
+Urutan lock hasil: command, lalu bucket, lalu proyek yang terpasang. Hasil yang terlambat tidak pernah memindahkan bucket keluar dari `deleting`. `RotateBucketKey` harus dilaporkan `complete` hanya bila secret baru sudah berlaku, dan `fail` hanya bila secret lama masih berlaku. Kegagalan terbaru tampil di `last_failure` resource bucket, semuanya `user_fixable: false`:
+
+| `error_code` | Keterangan |
+| --- | --- |
+| `bucket_capacity_exceeded` | Total kuota node atau batas sisa disk akan terlewati. Operator menaikkan kapasitas atau memindahkan; tidak dicoba ulang otomatis. |
+| `bucket_admin_unavailable` | `docker exec` gagal atau `rc` tidak bisa menjangkau RustFS; node melaporkan `degraded`. Aman diulang nanti. |
+| `bucket_not_found` | Bucket atau user tidak ada (rotasi, kuota, kunci, buka kunci); jalankan `buckets:reconcile`. |
+| `bucket_conflict` | User RustFS sudah membawa policy lain. Tidak ada yang diubah; periksa manual. |
+| `bucket_operation_failed` | `rc` menolak karena alasan lain; pesan berisi ekor stderr yang sudah diredaksi. |
+| `bucket_outcome_unknown` | Agent tidak bisa memastikan apakah RustFS sudah menerapkan command. Untuk `RotateBucketKey`, API mengirim ulang command yang sama. Nama kode mengikuti sakala-agent PR #138; samakan dengan rilis agent. |
+| `bucket_name_invalid`, `bucket_key_invalid`, `bucket_quota_invalid` | Bug di API. |
+| `invalid_runtime_command`, `unsupported_runtime_command` | Payload tidak terbaca, atau node tanpa peran object storage; bug penempatan. |
+
 ## Enum
 
 Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
@@ -1027,8 +1097,9 @@ Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
   `StopProject`, `SleepProject`, `WakeProject`, `HealthCheck`, `RefreshRoute`,
   `ReconcileWorkload`, `CleanupRuntime`, `DrainNode`, `ResumeNode`,
   `CreateDatabase`, `DropDatabase`, `RotateDatabasePassword`, `LockDatabase`,
-  `UnlockDatabase`, `InstallDatabaseExtension` (urutan ini juga urutan enum
-  `CommandType` di agent).
+  `UnlockDatabase`, `InstallDatabaseExtension`, `CreateBucket`, `DeleteBucket`,
+  `RotateBucketKey`, `SetBucketQuota`, `LockBucket`, `UnlockBucket` (urutan ini
+  juga urutan enum `CommandType` di agent).
 - `AgentCommandStatus`: `Pending`, `Claimed`, `Running`, `Succeeded`, `Failed`,
   `Cancelled`, `Expired`.
 - `AgentNodeStatus` (dilaporkan): `ready`, `busy`, `degraded`, `draining`,
@@ -1087,6 +1158,11 @@ diambil dari contoh dokumentasi dan output builder heartbeat pada tag tersebut
 mereplay payload ini apa adanya (poll harus menyajikan bentuk yang sama;
 heartbeat harus diterima; batch harus di-ack penuh dan retry-nya diduplikasi)
 tanpa Agent atau Docker sungguhan. Lihat README di folder tersebut.
+`commands/bucket-commands.json`, `heartbeat/object-storage-host.json`, dan
+`failures/bucket-failures.json` disalin dari `examples/` sakala-agent main `f1fbe78`
+(PR #138) sebelum ada tag rilis; periksa ulang terhadap tag rilis agent. Test
+memastikan setiap kode di `bucket-failures.json` dikenal API dan ditangani sesuai
+bagian 13 kontrak (kirim ulang, `unknown`, atau `failed`).
 
 ## Belum tersedia pada API
 
@@ -1168,3 +1244,12 @@ hanya tidak dijanjikan tanpa build):
 11. Iklankan capability `image-rollback` (driver `docker` saja) dan simpan image
     sesuai [Image rollback](#image-rollback): image live, image bertag
     `previous`, dan GC dengan aturan yang sama.
+
+Tambahan untuk bucket terkelola (opsional; tanpa node `managed-s3` API menolak
+pembuatan bucket dengan `409 BUCKET_REGION_UNAVAILABLE` dan `buckets.available`
+bernilai `false`):
+
+12. Sudah di sakala-agent main `f1fbe78` (PR #138), belum bertag: capability `managed-s3`, `metadata.object_storage` di setiap heartbeat,
+    `metadata.buckets` setelah pembacaan baru, dan keenam command di
+    [Perintah bucket](#perintah-bucket), dengan urutan `CommandType` yang sama
+    seperti di bagian Enum.

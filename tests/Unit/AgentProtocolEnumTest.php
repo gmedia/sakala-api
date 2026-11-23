@@ -30,6 +30,12 @@ test('agent command types match the shared Rust protocol', function () {
         'LockDatabase',
         'UnlockDatabase',
         'InstallDatabaseExtension',
+        'CreateBucket',
+        'DeleteBucket',
+        'RotateBucketKey',
+        'SetBucketQuota',
+        'LockBucket',
+        'UnlockBucket',
     ]);
 });
 
@@ -59,10 +65,14 @@ test('every protocol v4 command fixture uses a known command type', function () 
     expect($fixtures)->not->toBeEmpty();
 
     foreach ($fixtures as $path) {
-        $command = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+        $fixture = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
 
-        expect(AgentCommandType::tryFrom($command['type']))->not->toBeNull($path)
-            ->and(AgentCommandStatus::tryFrom($command['status']))->not->toBeNull($path);
+        // One command per file, or a `data` list like the agent's
+        // database-commands.json and bucket-commands.json.
+        foreach ($fixture['data'] ?? [$fixture] as $command) {
+            expect(AgentCommandType::tryFrom($command['type']))->not->toBeNull($path)
+                ->and(AgentCommandStatus::tryFrom($command['status']))->not->toBeNull($path);
+        }
     }
 });
 

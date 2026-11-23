@@ -7,6 +7,7 @@ namespace App\Actions\Workspace;
 use App\Actions\Project\PurgeDeletedProjectsAction;
 use App\Exceptions\Workspace\WorkspaceIsPersonalException;
 use App\Exceptions\Workspace\WorkspaceNotEmptyException;
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Models\User;
@@ -15,7 +16,7 @@ use App\Support\Workspace\WorkspaceAudit;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Deletes a team that has no projects or managed databases left. The workspace row is locked, and
+ * Deletes a team that has no projects, managed databases, or managed buckets left. The workspace row is locked, and
  * creating a project takes the same lock, so none can appear in between.
  * Soft-deleted projects keep waiting for the purge without a workspace, and
  * their secrets are erased now, as when an account is deleted. Members and
@@ -40,9 +41,11 @@ final class DeleteTeamWorkspaceAction
             // A database on its way out does not hold the team: its row keeps
             // going without a workspace until the node drops it.
             $databases = ManagedDatabase::query()->where('workspace_id', $workspace->id)->holdingWorkspace()->count();
+            // The same for a bucket being deleted.
+            $buckets = ManagedBucket::query()->where('workspace_id', $workspace->id)->holdingWorkspace()->count();
 
-            if ($projects > 0 || $databases > 0) {
-                throw new WorkspaceNotEmptyException($projects, $databases);
+            if ($projects > 0 || $databases > 0 || $buckets > 0) {
+                throw new WorkspaceNotEmptyException($projects, $databases, $buckets);
             }
 
             Project::onlyTrashed()->where('workspace_id', $workspace->id)->get()

@@ -14,6 +14,7 @@ use App\Models\AgentCommand;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Services\Bucket\BucketCommandOutcomeService;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
@@ -41,6 +42,7 @@ final class ExpireAgentCommandsAction
         private readonly DeploymentFailureClassifier $failureClassifier,
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
+        private readonly BucketCommandOutcomeService $bucketOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
     ) {}
 
@@ -112,6 +114,10 @@ final class ExpireAgentCommandsAction
 
             if ($command->type->isDatabase()) {
                 $this->databaseOutcome->failed(self::ACTOR_ID, $command, $code);
+            }
+
+            if ($command->type->isBucket()) {
+                $this->bucketOutcome->failed(self::ACTOR_ID, $command, $code);
             }
 
             if ($command->type === AgentCommandType::RestartProject) {

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\Edge\EvaluateEdgeHealthAction;
+use App\Services\Bucket\BucketQuotaPolicy;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\Domains\ProjectDomainGenerator;
 
@@ -185,6 +186,20 @@ return [
         // values fall back to the defaults below.
         'default_max_count' => env('SAKALA_DATABASE_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_DATABASES),
         'default_max_storage_mb' => env('SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB', PilotRuntimeLimitService::DEFAULT_MAX_DATABASE_STORAGE_MB),
+    ],
+
+    'buckets' => [
+        // Managed S3 buckets (ADR-021). Defaults for a workspace whose limit
+        // profile leaves the field empty, and for a workspace without a
+        // profile, personal or team. Both are 0 because a bucket quota commits
+        // real disk: workspaces are opened one by one through limit profiles.
+        // 0 storage refuses new buckets and quota increases; existing buckets
+        // keep their quotas. Empty values fall back to the defaults below.
+        'default_max_count' => env('SAKALA_BUCKET_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_BUCKETS),
+        'default_max_storage_mb' => env('SAKALA_BUCKET_DEFAULT_MAX_STORAGE_MB', PilotRuntimeLimitService::DEFAULT_MAX_BUCKET_STORAGE_MB),
+        // Quota of a new bucket created without `quota_mb`, in MB, capped at
+        // what the workspace has left.
+        'default_quota_mb' => env('SAKALA_BUCKET_DEFAULT_QUOTA_MB', BucketQuotaPolicy::DEFAULT_QUOTA_MB),
     ],
 
     'workspaces' => [

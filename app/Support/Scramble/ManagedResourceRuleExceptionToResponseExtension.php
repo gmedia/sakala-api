@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Support\Scramble;
 
+use App\Exceptions\Bucket\BucketRuleException;
 use App\Exceptions\Database\DatabaseRuleException;
+use App\Exceptions\ManagedResourceRuleException;
 use Dedoc\Scramble\Extensions\ExceptionToResponseExtension;
 use Dedoc\Scramble\Support\Generator\Reference;
 use Dedoc\Scramble\Support\Generator\Response;
@@ -18,24 +20,24 @@ use Dedoc\Scramble\Support\Type\ObjectType;
 use Dedoc\Scramble\Support\Type\Type;
 
 /**
- * Every managed database rule answer, with its stable `code`
+ * Every managed database and bucket rule answer, with its stable `code`
  * (docs/API_CONVENTIONS.md). The exception class declares the code, status,
  * description, and extra fields, so one extension covers them all;
  * MergeSameStatusResponsesExtension joins those of one status.
  */
-final class DatabaseRuleExceptionToResponseExtension extends ExceptionToResponseExtension
+final class ManagedResourceRuleExceptionToResponseExtension extends ExceptionToResponseExtension
 {
     public function shouldHandle(Type $type): bool
     {
         return $type instanceof ObjectType
-            && $type->isInstanceOf(DatabaseRuleException::class)
-            && $type->name !== DatabaseRuleException::class;
+            && $type->isInstanceOf(ManagedResourceRuleException::class)
+            && ! in_array($type->name, [ManagedResourceRuleException::class, DatabaseRuleException::class, BucketRuleException::class], true);
     }
 
     public function toResponse(Type $type): Response
     {
-        /** @var class-string<DatabaseRuleException> $class */
-        $class = $type instanceof ObjectType ? $type->name : DatabaseRuleException::class;
+        /** @var class-string<ManagedResourceRuleException> $class */
+        $class = $type instanceof ObjectType ? $type->name : ManagedResourceRuleException::class;
 
         $body = (new OpenApiObjectType)
             ->addProperty('message', (new StringType)->setDescription('Error overview, in Indonesian.'))

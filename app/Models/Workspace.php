@@ -153,6 +153,16 @@ class Workspace extends Model
     }
 
     /**
+     * Managed buckets of the workspace, not counting deleted ones.
+     *
+     * @return HasMany<ManagedBucket, $this>
+     */
+    public function buckets(): HasMany
+    {
+        return $this->hasMany(ManagedBucket::class);
+    }
+
+    /**
      * Managed databases of the workspace, not counting dropped ones.
      *
      * @return HasMany<ManagedDatabase, $this>

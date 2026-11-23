@@ -20,6 +20,7 @@ use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
 use App\Models\Deployment;
 use App\Models\LimitProfile;
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Models\User;
@@ -43,6 +44,16 @@ class PilotRuntimeLimitService
     /** Managed database storage in MB of a workspace that follows the global setting, when that is unset or empty. */
     public const DEFAULT_MAX_DATABASE_STORAGE_MB = 512;
 
+    /**
+     * Managed buckets of a workspace that follows the global setting, when
+     * that is unset or empty (ADR-021). 0: buckets commit real disk, so
+     * workspaces are opened one by one through limit profiles.
+     */
+    public const DEFAULT_MAX_BUCKETS = 0;
+
+    /** MB the bucket quotas of such a workspace may reserve together; 0 for the same reason. */
+    public const DEFAULT_MAX_BUCKET_STORAGE_MB = 0;
+
     /** The rolling window the build rate limit counts deployments in: one hour. */
     public const BUILD_RATE_WINDOW_SECONDS = 3600;
 
@@ -65,6 +76,8 @@ class PilotRuntimeLimitService
                 $this->maxBuildsPerHourFor($profile),
                 $this->maxDatabasesFor($profile),
                 $this->maxDatabaseStorageMbFor($profile),
+                $this->maxBucketsFor($profile),
+                $this->maxBucketStorageMbFor($profile),
             );
         }
 
@@ -80,6 +93,8 @@ class PilotRuntimeLimitService
             max_replicas: $this->maxReplicasFor(null),
             max_databases: $this->maxDatabasesFor(null),
             max_database_storage_mb: $this->maxDatabaseStorageMbFor(null),
+            max_buckets: $this->maxBucketsFor(null),
+            max_bucket_storage_mb: $this->maxBucketStorageMbFor(null),
         );
 
         if ($workspace->type === WorkspaceType::Personal) {
@@ -99,6 +114,8 @@ class PilotRuntimeLimitService
             max_replicas: $personal->max_replicas,
             max_databases: $personal->max_databases,
             max_database_storage_mb: $personal->max_database_storage_mb,
+            max_buckets: $personal->max_buckets,
+            max_bucket_storage_mb: $personal->max_bucket_storage_mb,
         );
     }
 
@@ -125,6 +142,31 @@ class PilotRuntimeLimitService
     {
         return max(0, $profile->max_database_storage_mb
             ?? self::configuredOr('sakala.databases.default_max_storage_mb', self::DEFAULT_MAX_DATABASE_STORAGE_MB));
+    }
+
+    /**
+     * Managed buckets a workspace under this profile may hold. A profile
+     * without its own value, and a workspace without a profile, follow
+     * `sakala.buckets.default_max_count`: unset or empty means
+     * DEFAULT_MAX_BUCKETS. 0 allows none. This is the only place that decides.
+     */
+    public function maxBucketsFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_buckets
+            ?? self::configuredOr('sakala.buckets.default_max_count', self::DEFAULT_MAX_BUCKETS));
+    }
+
+    /**
+     * MB the bucket quotas of a workspace under this profile may reserve
+     * together. A profile without its own value, and a workspace without a
+     * profile, follow `sakala.buckets.default_max_storage_mb`: unset or empty
+     * means DEFAULT_MAX_BUCKET_STORAGE_MB. 0 allows no new allocation;
+     * existing buckets keep their quotas. This is the only place that decides.
+     */
+    public function maxBucketStorageMbFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_bucket_storage_mb
+            ?? self::configuredOr('sakala.buckets.default_max_storage_mb', self::DEFAULT_MAX_BUCKET_STORAGE_MB));
     }
 
     /**
@@ -470,6 +512,9 @@ class PilotRuntimeLimitService
             limits: $limits,
             current_databases_count: ManagedDatabase::countIn($workspace->id),
             current_database_storage_bytes: ManagedDatabase::storageBytesIn($workspace->id),
+            current_buckets_count: ManagedBucket::countIn($workspace->id),
+            current_bucket_storage_mb: ManagedBucket::reservedMbIn($workspace->id),
+            current_bucket_usage_bytes: ManagedBucket::usageBytesIn($workspace->id),
         );
     }
 

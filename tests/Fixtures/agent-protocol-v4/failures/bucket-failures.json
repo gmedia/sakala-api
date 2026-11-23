@@ -1,0 +1,72 @@
+[
+  {
+    "type": "CreateBucket",
+    "body": {
+      "error_code": "bucket_name_invalid",
+      "error_message": "CreateBucket bucket must match ^b-[a-z0-9]{16,40}$"
+    }
+  },
+  {
+    "type": "RotateBucketKey",
+    "body": {
+      "error_code": "bucket_key_invalid",
+      "error_message": "RotateBucketKey secret_access_key is not a valid access key"
+    }
+  },
+  {
+    "type": "SetBucketQuota",
+    "body": {
+      "error_code": "bucket_quota_invalid",
+      "error_message": "SetBucketQuota quota_mb must be 1 to 1048576 MiB"
+    }
+  },
+  {
+    "type": "LockBucket",
+    "body": {
+      "error_code": "unsupported_runtime_command",
+      "error_message": "LockBucket needs a node with SAKALA_OBJECT_STORAGE_DRIVER=rustfs"
+    }
+  },
+  {
+    "type": "CreateBucket",
+    "body": {
+      "error_code": "bucket_capacity_exceeded",
+      "error_message": "quotas would total 1064 MiB, above SAKALA_OBJECT_STORAGE_TOTAL_QUOTA_MB=1024"
+    }
+  },
+  {
+    "type": "CreateBucket",
+    "body": {
+      "error_code": "bucket_admin_unavailable",
+      "error_message": "reading bucket quotas failed: the object storage container could not run rc (exit code 1): Error response from daemon: container 3f2a is not running"
+    }
+  },
+  {
+    "type": "LockBucket",
+    "body": {
+      "error_code": "bucket_not_found",
+      "error_message": "the key SK7Q2M9X4K1C8V5B3N0D of b-8k2m4q7x9z1c3v5b6n0d does not exist"
+    }
+  },
+  {
+    "type": "CreateBucket",
+    "body": {
+      "error_code": "bucket_conflict",
+      "error_message": "the key's user carries policies besides b-8k2m4q7x9z1c3v5b6n0d: b-q1w2e3r4t5y6u7i8o9p0; nothing was changed"
+    }
+  },
+  {
+    "type": "CreateBucket",
+    "body": {
+      "error_code": "bucket_operation_failed",
+      "error_message": "creating the bucket failed (exit code 1): ✗ Failed to create bucket: Access Denied"
+    }
+  },
+  {
+    "type": "RotateBucketKey",
+    "body": {
+      "error_code": "bucket_outcome_unknown",
+      "error_message": "docker exec could not run rc: runtime operation docker exceeded its 60s timeout; whether the new secret took effect could not be checked (the signed request could not be sent (exit code 1)); send the same RotateBucketKey again"
+    }
+  }
+]

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Bucket\BucketAttachmentController;
+use App\Http\Controllers\Api\V1\Bucket\BucketController;
 use App\Http\Controllers\Api\V1\Database\DatabaseAttachmentController;
 use App\Http\Controllers\Api\V1\Database\DatabaseController;
 use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
@@ -198,6 +200,35 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
             ->name('api.v1.app.workspaces.databases.attachments.store');
         Route::delete('/workspaces/{workspace}/databases/{database}/attachments/{project}', [DatabaseAttachmentController::class, 'destroy'])
             ->name('api.v1.app.workspaces.databases.attachments.destroy');
+    });
+
+    // Managed S3 buckets of a workspace (ADR-021). Creating one starts using
+    // the service, so it needs the current legal terms like a project.
+    Route::scopeBindings()->whereUuid(['workspace', 'bucket'])->group(function (): void {
+        Route::get('/workspaces/{workspace}/buckets', [BucketController::class, 'index'])
+            ->name('api.v1.app.workspaces.buckets.index');
+        Route::post('/workspaces/{workspace}/buckets', [BucketController::class, 'store'])
+            ->middleware(EnsureLegalAcceptance::class)
+            ->name('api.v1.app.workspaces.buckets.store');
+        Route::get('/workspaces/{workspace}/buckets/{bucket}', [BucketController::class, 'show'])
+            ->name('api.v1.app.workspaces.buckets.show');
+        Route::patch('/workspaces/{workspace}/buckets/{bucket}', [BucketController::class, 'update'])
+            ->name('api.v1.app.workspaces.buckets.update');
+        Route::delete('/workspaces/{workspace}/buckets/{bucket}', [BucketController::class, 'destroy'])
+            ->name('api.v1.app.workspaces.buckets.destroy');
+        Route::get('/workspaces/{workspace}/buckets/{bucket}/credentials', [BucketController::class, 'credentials'])
+            ->name('api.v1.app.workspaces.buckets.credentials');
+        Route::post('/workspaces/{workspace}/buckets/{bucket}/rotate-key', [BucketController::class, 'rotateKey'])
+            ->name('api.v1.app.workspaces.buckets.rotate-key');
+    });
+
+    // The project is not a child of the bucket before it is attached, so the
+    // controller checks that both belong to the workspace.
+    Route::whereUuid(['workspace', 'bucket', 'project'])->group(function (): void {
+        Route::post('/workspaces/{workspace}/buckets/{bucket}/attachments/{project}', [BucketAttachmentController::class, 'store'])
+            ->name('api.v1.app.workspaces.buckets.attachments.store');
+        Route::delete('/workspaces/{workspace}/buckets/{bucket}/attachments/{project}', [BucketAttachmentController::class, 'destroy'])
+            ->name('api.v1.app.workspaces.buckets.attachments.destroy');
     });
 
     // Invitations addressed to the caller

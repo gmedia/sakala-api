@@ -11,6 +11,9 @@ use App\Actions\Deployment\GetDeploymentEventAction;
 use App\Actions\Deployment\GetDeploymentLogAction;
 use App\Actions\Deployment\RollbackDeploymentAction;
 use App\Enums\DeploymentStatus;
+use App\Exceptions\Bucket\BucketEndpointUnavailableException;
+use App\Exceptions\Bucket\BucketKeyRotatingException;
+use App\Exceptions\Bucket\BucketNotReadyException;
 use App\Exceptions\Database\DatabaseEndpointUnavailableException;
 use App\Exceptions\Database\DatabaseNotReadyException;
 use App\Exceptions\GitHub\GithubRateLimitedException;
@@ -45,6 +48,9 @@ final class DeploymentController extends Controller
      * @throws BuildRateLimitExceededException
      * @throws DatabaseEndpointUnavailableException
      * @throws DatabaseNotReadyException
+     * @throws BucketEndpointUnavailableException
+     * @throws BucketNotReadyException
+     * @throws BucketKeyRotatingException
      */
 
     // Untuk Testing
@@ -85,6 +91,9 @@ final class DeploymentController extends Controller
      * @throws BuildRateLimitExceededException
      * @throws DatabaseEndpointUnavailableException
      * @throws DatabaseNotReadyException
+     * @throws BucketEndpointUnavailableException
+     * @throws BucketNotReadyException
+     * @throws BucketKeyRotatingException
      */
     #[HeaderParameter(
         'Idempotency-Key',

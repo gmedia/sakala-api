@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Data\Database;
+namespace App\Data\Attachment;
 
-use App\Enums\DatabaseRedeploySkipReason;
+use App\Enums\AttachedRedeploySkipReason;
 
 /**
  * What deploying an attached project on someone's behalf did: a deployment,
@@ -14,7 +14,7 @@ final readonly class AttachedProjectDeployOutcomeData
 {
     private function __construct(
         public ?string $deploymentId,
-        public ?DatabaseRedeploySkipReason $skippedReason,
+        public ?AttachedRedeploySkipReason $skippedReason,
     ) {}
 
     public static function started(string $deploymentId): self
@@ -22,7 +22,7 @@ final readonly class AttachedProjectDeployOutcomeData
         return new self($deploymentId, null);
     }
 
-    public static function skipped(DatabaseRedeploySkipReason $reason): self
+    public static function skipped(AttachedRedeploySkipReason $reason): self
     {
         return new self(null, $reason);
     }

@@ -28,12 +28,25 @@ enum AgentCommandType: string
     case LockDatabase = 'LockDatabase';
     case UnlockDatabase = 'UnlockDatabase';
     case InstallDatabaseExtension = 'InstallDatabaseExtension';
+    case CreateBucket = 'CreateBucket';
+    case DeleteBucket = 'DeleteBucket';
+    case RotateBucketKey = 'RotateBucketKey';
+    case SetBucketQuota = 'SetBucketQuota';
+    case LockBucket = 'LockBucket';
+    case UnlockBucket = 'UnlockBucket';
 
     /**
      * Capability of a node that hosts the shared PostgreSQL instance of its
      * region and runs the database commands (ADR-020).
      */
     public const MANAGED_POSTGRES_CAPABILITY = 'managed-postgres';
+
+    /**
+     * Capability of a node that runs the S3-compatible object storage
+     * instance (RustFS) and the bucket commands (ADR-021). Named after the
+     * protocol tenants speak, not the engine.
+     */
+    public const MANAGED_S3_CAPABILITY = 'managed-s3';
 
     /**
      * Return the set of node capabilities required to handle this command type.
@@ -60,6 +73,12 @@ enum AgentCommandType: string
             self::LockDatabase,
             self::UnlockDatabase,
             self::InstallDatabaseExtension => [self::MANAGED_POSTGRES_CAPABILITY],
+            self::CreateBucket,
+            self::DeleteBucket,
+            self::RotateBucketKey,
+            self::SetBucketQuota,
+            self::LockBucket,
+            self::UnlockBucket => [self::MANAGED_S3_CAPABILITY],
             self::DrainNode,
             self::ResumeNode => [],
         };
@@ -93,7 +112,13 @@ enum AgentCommandType: string
             self::RotateDatabasePassword,
             self::LockDatabase,
             self::UnlockDatabase,
-            self::InstallDatabaseExtension => false,
+            self::InstallDatabaseExtension,
+            self::CreateBucket,
+            self::DeleteBucket,
+            self::RotateBucketKey,
+            self::SetBucketQuota,
+            self::LockBucket,
+            self::UnlockBucket => false,
         };
     }
 
@@ -136,6 +161,42 @@ enum AgentCommandType: string
     public function carriesDatabasePassword(): bool
     {
         return $this === self::CreateDatabase || $this === self::RotateDatabasePassword;
+    }
+
+    /**
+     * Commands for one managed bucket (`agent_commands.bucket_id`). Like the
+     * database commands, they carry no project or deployment identity and
+     * always go to the node that hosts the bucket.
+     */
+    public function isBucket(): bool
+    {
+        return match ($this) {
+            self::CreateBucket,
+            self::DeleteBucket,
+            self::RotateBucketKey,
+            self::SetBucketQuota,
+            self::LockBucket,
+            self::UnlockBucket => true,
+            default => false,
+        };
+    }
+
+    /**
+     * Bucket commands whose payload carries a secret access key, encrypted at
+     * rest and decrypted only for the pinned node.
+     */
+    public function carriesBucketSecret(): bool
+    {
+        return $this === self::CreateBucket || $this === self::RotateBucketKey;
+    }
+
+    /**
+     * Commands for one managed resource (a database or a bucket), pinned to
+     * the node that hosts it and never reassigned.
+     */
+    public function isManagedResource(): bool
+    {
+        return $this->isDatabase() || $this->isBucket();
     }
 
     /**
@@ -189,7 +250,13 @@ enum AgentCommandType: string
             self::RotateDatabasePassword,
             self::LockDatabase,
             self::UnlockDatabase,
-            self::InstallDatabaseExtension => true,
+            self::InstallDatabaseExtension,
+            self::CreateBucket,
+            self::DeleteBucket,
+            self::RotateBucketKey,
+            self::SetBucketQuota,
+            self::LockBucket,
+            self::UnlockBucket => true,
             default => false,
         };
     }
@@ -201,7 +268,8 @@ enum AgentCommandType: string
      * optional `remove_images` flag that a project delete sets, and
      * SleepProject at most the optional `page` a suspension sets (SleepPage).
      * Database commands carry the database and role names, and a password
-     * where one is set.
+     * where one is set; bucket commands the bucket name and access key ID,
+     * and a secret access key where one is set.
      */
     public function carriesPayload(): bool
     {
@@ -217,7 +285,13 @@ enum AgentCommandType: string
             self::RotateDatabasePassword,
             self::LockDatabase,
             self::UnlockDatabase,
-            self::InstallDatabaseExtension => true,
+            self::InstallDatabaseExtension,
+            self::CreateBucket,
+            self::DeleteBucket,
+            self::RotateBucketKey,
+            self::SetBucketQuota,
+            self::LockBucket,
+            self::UnlockBucket => true,
             default => false,
         };
     }

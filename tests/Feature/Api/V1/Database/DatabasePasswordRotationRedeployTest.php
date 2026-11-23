@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Actions\Database\RedeployAfterPasswordRotationAction;
+use App\Actions\Attachment\RedeployAfterCredentialRotationAction;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
@@ -153,7 +153,7 @@ test('a completed rotation with redeploy_attached redeploys the live commit of e
         ->metadata->toMatchArray(['command_id' => $command->id]);
 
     // Running again changes nothing.
-    app(RedeployAfterPasswordRotationAction::class)->handle($command->id);
+    app(RedeployAfterCredentialRotationAction::class)->handle($command->id);
 
     expect(rotationDeployments())->toHaveCount(1)
         ->and(AuditEvent::query()->where('action', 'database.password_rotation_redeploys_queued')->count())->toBe(1);

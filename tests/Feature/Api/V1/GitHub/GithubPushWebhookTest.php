@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Actions\GitHub\CreatePushDeploymentsAction;
+use App\Enums\BucketStatus;
 use App\Enums\DatabaseStatus;
 use App\Enums\DeploymentStatus;
 use App\Enums\DeploymentTrigger;
@@ -182,6 +183,29 @@ test('a project whose attached database is still being created or failed is skip
         ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe(CreatePushDeploymentsAction::SKIP_DATABASE_NOT_READY)
         ->and($project->user->notifications()->sole()->data['category'])->toBe('project_issue');
 })->with([DatabaseStatus::Provisioning, DatabaseStatus::Failed]);
+
+test('a project whose bucket node has not reported its endpoint is skipped, audited, and the owner is told', function (): void {
+    $project = pushProject();
+    $bucket = bucketIn($project->workspace, storageNode(endpoint: false));
+    attachBucket($bucket, $project);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0)
+        ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe(CreatePushDeploymentsAction::SKIP_BUCKET_ENDPOINT_UNAVAILABLE)
+        ->and($project->user->notifications()->sole()->data['message'])->toContain($bucket->name);
+});
+
+test('a project whose attached bucket is still being created or failed is skipped, audited, and the owner is told', function (BucketStatus $status): void {
+    $project = pushProject();
+    attachBucket(bucketIn($project->workspace, storageNode(), ['status' => $status]), $project);
+
+    sendPush($this, pushPayload())->assertOk();
+
+    expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0)
+        ->and(AuditEvent::query()->where('action', 'project.auto_deploy_skipped')->where('subject_id', $project->id)->sole()->metadata['reason'])->toBe(CreatePushDeploymentsAction::SKIP_BUCKET_NOT_READY)
+        ->and($project->user->notifications()->sole()->data['category'])->toBe('project_issue');
+})->with([BucketStatus::Provisioning, BucketStatus::Failed]);
 
 test('a project with a release command no node runs is skipped, audited, and the owner is told', function (): void {
     $project = pushProject(['release_command' => 'php artisan migrate --force']);

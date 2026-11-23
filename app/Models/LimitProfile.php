@@ -29,6 +29,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $default_region Region the workspace's projects run in unless a project sets its own; null for any region.
  * @property int|null $max_databases Managed databases the workspace may hold. Null follows `SAKALA_DATABASE_DEFAULT_MAX_COUNT`; 0 allows none.
  * @property int|null $max_database_storage_mb Total size of the workspace's managed databases, in MB. Null follows `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB`; 0 allows none.
+ * @property int|null $max_buckets Managed buckets the workspace may hold. Null follows `SAKALA_BUCKET_DEFAULT_MAX_COUNT`; 0 allows none.
+ * @property int|null $max_bucket_storage_mb Sum of the workspace's bucket quotas, in MB. Null follows `SAKALA_BUCKET_DEFAULT_MAX_STORAGE_MB`; 0 allows no new allocation.
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -45,6 +47,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'default_region',
     'max_databases',
     'max_database_storage_mb',
+    'max_buckets',
+    'max_bucket_storage_mb',
 ])]
 class LimitProfile extends Model
 {
@@ -67,6 +71,12 @@ class LimitProfile extends Model
     /** Most managed database storage a profile may allow per workspace: 1 TB, in MB. */
     public const MAX_DATABASE_STORAGE_MB_CEILING = 1024 * 1024;
 
+    /** Most managed buckets a profile may allow per workspace. */
+    public const MAX_BUCKETS_CEILING = 100;
+
+    /** Most bucket storage a profile may allocate per workspace: 1 TiB, in MB. */
+    public const MAX_BUCKET_STORAGE_MB_CEILING = 1024 * 1024;
+
     /** @return HasMany<Workspace, $this> */
     public function workspaces(): HasMany
     {
@@ -87,6 +97,8 @@ class LimitProfile extends Model
             'max_replicas' => 'integer',
             'max_databases' => 'integer',
             'max_database_storage_mb' => 'integer',
+            'max_buckets' => 'integer',
+            'max_bucket_storage_mb' => 'integer',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

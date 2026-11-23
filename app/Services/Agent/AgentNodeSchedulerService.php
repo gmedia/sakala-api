@@ -9,13 +9,17 @@ use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
+use App\Enums\BucketStatus;
 use App\Enums\DeploymentStatus;
+use App\Exceptions\Bucket\BucketCapacityUnavailableException;
+use App\Exceptions\Bucket\BucketRegionUnavailableException;
 use App\Exceptions\Database\DatabaseRegionUnavailableException;
 use App\Exceptions\Runtime\ProjectRegionUnavailableException;
 use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectReplicasUnsupportedException;
 use App\Models\AgentNode;
 use App\Models\Deployment;
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Services\Runtime\PilotRuntimeLimitService;
@@ -217,6 +221,147 @@ final class AgentNodeSchedulerService
     {
         return $this->eligibleNodes(AgentCommandType::CreateDatabase)
             ->contains(static fn (AgentNode $node): bool => $node->databaseReportedAvailable());
+    }
+
+    /**
+     * The storage node a new managed bucket goes to (ADR-021): a node with the
+     * `managed-s3` capability in `$region`, or in any region when it is null,
+     * whose reported `capacity_mb` minus what its buckets already reserve
+     * (ManagedBucket::reservedMbOnNode()) fits `$quotaMb`. Among online
+     * eligible nodes (active, supported protocol) with room, those whose
+     * instance answered at the last reading come first, then the most free
+     * allocation, then the freshest heartbeat. When no online node has room,
+     * an allowed node that is offline and has room is chosen, and the bucket
+     * waits for it. A bucket never moves, so the choice is final.
+     *
+     * The ranking reads without locks; the caller then locks the chosen node
+     * (lockBucketNode()) and checks again (ensureBucketNodeFits()), so two
+     * creates in different workspaces cannot both take its last MB. The agent
+     * still rechecks its real total quota and disk.
+     *
+     * @throws BucketRegionUnavailableException when no node of the region may ever host it.
+     * @throws BucketCapacityUnavailableException when nodes exist but none has room.
+     */
+    public function selectBucketNode(?string $region, int $quotaMb): AgentNode
+    {
+        $online = $this->inRegion($this->eligibleNodes(AgentCommandType::CreateBucket), $region);
+
+        /** @var Collection<int, AgentNode> $allowed */
+        $allowed = AgentNode::query()
+            ->where('auth_status', AgentAuthStatus::Active)
+            ->where('desired_state', AgentNodeDesiredState::Active)
+            ->whereIn('protocol_version', $this->eligibility->supportedProtocolVersions())
+            ->get()
+            ->filter(static fn (AgentNode $node): bool => $node->hasCapability(AgentCommandType::MANAGED_S3_CAPABILITY));
+        $allowed = $this->inRegion($allowed, $region);
+
+        if ($online->isEmpty() && $allowed->isEmpty()) {
+            throw new BucketRegionUnavailableException($region);
+        }
+
+        $free = $this->freeBucketAllocation($online->merge($allowed));
+        $fits = static fn (AgentNode $node): bool => ($free[$node->id] ?? -1) >= $quotaMb;
+        $node = $this->rankByFreeAllocation($online->filter($fits), $free)->first()
+            ?? $this->rankByFreeAllocation($allowed->filter($fits), $free)->first();
+
+        if ($node === null) {
+            throw new BucketCapacityUnavailableException;
+        }
+
+        return $node;
+    }
+
+    /**
+     * Lock the storage node row, so placements and quota increases on one
+     * node are counted one at a time across workspaces. Order: workspace,
+     * then node, then project or bucket; the heartbeat locks the node before
+     * it writes bucket rows, so this order cannot deadlock with it.
+     */
+    public function lockBucketNode(string $nodeId): AgentNode
+    {
+        /** @var AgentNode */
+        return AgentNode::query()->whereKey($nodeId)->lockForUpdate()->firstOrFail();
+    }
+
+    /**
+     * Whether a locked storage node still has room for `$quotaMb`: its
+     * reported capacity minus every live, non-failed bucket's reservation on
+     * it, without `$exceptBucketId` (a bucket being resized).
+     *
+     * @throws BucketCapacityUnavailableException
+     */
+    public function ensureBucketNodeFits(AgentNode $lockedNode, int $quotaMb, ?string $exceptBucketId = null): void
+    {
+        $capacity = $lockedNode->objectStorage()?->capacityMb;
+
+        if ($capacity === null || $capacity - ManagedBucket::reservedMbOnNode($lockedNode->id, except: $exceptBucketId) < $quotaMb) {
+            throw new BucketCapacityUnavailableException;
+        }
+    }
+
+    /**
+     * Whether this installation can host a new managed bucket right now: an
+     * online node that may receive CreateBucket (capability `managed-s3`,
+     * same eligibility as placement) and whose last reading did not say its
+     * instance is down (`metadata.object_storage.available !== false`), with
+     * its object storage reported. Same rule as databasesAvailable().
+     */
+    public function bucketsAvailable(): bool
+    {
+        return $this->eligibleNodes(AgentCommandType::CreateBucket)
+            ->contains(static fn (AgentNode $node): bool => $node->objectStorage() !== null && $node->objectStorageAvailable());
+    }
+
+    /**
+     * Available instances first, then the most free allocation, then the
+     * freshest heartbeat.
+     *
+     * @param  Collection<int, AgentNode>  $nodes
+     * @param  array<string, int>  $free
+     * @return Collection<int, AgentNode>
+     */
+    private function rankByFreeAllocation(Collection $nodes, array $free): Collection
+    {
+        return $nodes
+            ->sortBy([
+                static fn (AgentNode $a, AgentNode $b): int => $b->objectStorageAvailable() <=> $a->objectStorageAvailable(),
+                static fn (AgentNode $a, AgentNode $b): int => ($free[$b->id] ?? -1) <=> ($free[$a->id] ?? -1),
+                static fn (AgentNode $a, AgentNode $b): int => ($b->last_seen_at?->getTimestamp() ?? 0) <=> ($a->last_seen_at?->getTimestamp() ?? 0),
+            ])
+            ->values();
+    }
+
+    /**
+     * MB each node may still allocate: reported `capacity_mb` minus what its
+     * live buckets reserve. A node that has not reported capacity is absent.
+     * One query for the sums, whatever the number of nodes.
+     *
+     * @param  Collection<int, AgentNode>  $nodes
+     * @return array<string, int>
+     */
+    private function freeBucketAllocation(Collection $nodes): array
+    {
+        /** @var array<string, int> $reserved */
+        $reserved = ManagedBucket::query()
+            ->whereIn('node_id', $nodes->pluck('id')->unique()->all())
+            ->where('status', '!=', BucketStatus::Failed)
+            ->groupBy('node_id')
+            ->selectRaw('node_id, sum(reserved_quota_mb) as aggregate')
+            ->pluck('aggregate', 'node_id')
+            ->map(static fn (mixed $sum): int => (int) $sum)
+            ->all();
+
+        $free = [];
+
+        foreach ($nodes as $node) {
+            $capacity = $node->objectStorage()?->capacityMb;
+
+            if ($capacity !== null) {
+                $free[$node->id] = $capacity - ($reserved[$node->id] ?? 0);
+            }
+        }
+
+        return $free;
     }
 
     /**

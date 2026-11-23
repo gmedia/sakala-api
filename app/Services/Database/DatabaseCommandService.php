@@ -61,7 +61,7 @@ final class DatabaseCommandService
 
     /**
      * @param  array<string, mixed>|null  $requestContext  What the control plane does once the node reports
-     *                                                     (DatabasePasswordRotation); never sent to the node.
+     *                                                     (CredentialRotation); never sent to the node.
      */
     public function rotatePassword(ManagedDatabase $database, string $password, ?array $requestContext = null): AgentCommand
     {

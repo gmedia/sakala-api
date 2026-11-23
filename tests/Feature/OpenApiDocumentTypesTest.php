@@ -262,3 +262,24 @@ test('the OpenAPI document describes regions, node placement, and the Edge route
         ->and($routeTable['properties']['skipped_routes']['items']['properties']['reason']['type'])->toBe('string')
         ->and(untypedOpenApiProperties($routeTable, 'EdgeRouteTable'))->toBe([]);
 });
+
+test('the OpenAPI document gives BUCKET_KEY_ROTATING on deploys and bucket credentials', function (): void {
+    $document = openApiDocumentForTypes();
+    $conflictOf = static function (string $suffix, string $method) use ($document): string {
+        foreach ($document['paths'] as $path => $operations) {
+            if (! str_ends_with((string) $path, $suffix) || ! isset($operations[$method]['responses'][409])) {
+                continue;
+            }
+
+            $response = $operations[$method]['responses'][409];
+            $ref = $response['$ref'] ?? null;
+
+            return json_encode(is_string($ref) ? $document['components']['responses'][basename($ref)] : $response, JSON_THROW_ON_ERROR);
+        }
+
+        return '';
+    };
+
+    expect($conflictOf('projects/{project}/deployments', 'post'))->toContain('BUCKET_KEY_ROTATING')
+        ->and($conflictOf('buckets/{bucket}/credentials', 'get'))->toContain('BUCKET_KEY_ROTATING');
+});

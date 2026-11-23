@@ -20,6 +20,9 @@ final class AgentCommandPayloadMaterializer
     /** Key of the encrypted password in CreateDatabase and RotateDatabasePassword payloads. */
     public const PASSWORD_KEY = 'password';
 
+    /** Key of the encrypted secret access key in CreateBucket and RotateBucketKey payloads. */
+    public const SECRET_KEY = 'secret_access_key';
+
     /**
      * @return array<string, mixed>|object
      */
@@ -53,6 +56,18 @@ final class AgentCommandPayloadMaterializer
 
             if (is_string($payload[self::PASSWORD_KEY] ?? null)) {
                 $payload[self::PASSWORD_KEY] = Crypt::decryptString($payload[self::PASSWORD_KEY]);
+            }
+        }
+
+        if ($command->type->carriesBucketSecret()) {
+            if ($command->agent_node_id !== $viewer->id) {
+                // Bucket commands are pinned to the bucket's node; the secret
+                // never leaves for another one.
+                throw new CommandConflictException($command);
+            }
+
+            if (is_string($payload[self::SECRET_KEY] ?? null)) {
+                $payload[self::SECRET_KEY] = Crypt::decryptString($payload[self::SECRET_KEY]);
             }
         }
 

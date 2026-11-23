@@ -28,7 +28,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $deploy_requested_by Who asked for the deployment; the deployment runs as them.
  * @property CarbonImmutable|null $deploy_requested_at
  * @property string|null $deploy_deployment_id
- * @property string|null $deploy_skipped_reason A DatabaseRedeploySkipReason value.
+ * @property string|null $deploy_skipped_reason A AttachedRedeploySkipReason value.
  * @property CarbonImmutable|null $deploy_resolved_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at

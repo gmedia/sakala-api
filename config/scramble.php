@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 use App\Support\Scramble\BuildRateLimitExceptionToResponseExtension;
-use App\Support\Scramble\DatabaseRuleExceptionToResponseExtension;
 use App\Support\Scramble\DeploymentEventPropertyTypeExtension;
 use App\Support\Scramble\DeploymentPropertyTypeExtension;
 use App\Support\Scramble\GithubUnavailableExceptionToResponseExtension;
+use App\Support\Scramble\ManagedResourceRuleExceptionToResponseExtension;
 use App\Support\Scramble\MergeSameStatusResponsesExtension;
 use App\Support\Scramble\ProjectWakeConflictExceptionToResponseExtension;
 use App\Support\Scramble\RollbackAndRestartConflictExceptionToResponseExtension;
@@ -166,7 +166,7 @@ return [
         GithubUnavailableExceptionToResponseExtension::class,
         ProjectWakeConflictExceptionToResponseExtension::class,
         BuildRateLimitExceptionToResponseExtension::class,
-        DatabaseRuleExceptionToResponseExtension::class,
+        ManagedResourceRuleExceptionToResponseExtension::class,
         RollbackAndRestartConflictExceptionToResponseExtension::class,
         MergeSameStatusResponsesExtension::class,
     ],

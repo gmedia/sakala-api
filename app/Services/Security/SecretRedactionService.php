@@ -20,6 +20,10 @@ final class SecretRedactionService
         'access_token',
         'refresh_token',
         'client_secret',
+        // A managed bucket's key as the AWS SDKs name it (ADR-021); `secret`
+        // alone does not match inside a longer name.
+        'aws_secret_access_key',
+        'secret_access_key',
     ];
 
     /** @var list<string> */

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Console\Commands\AssignAgentCommandsCommand;
+use App\Console\Commands\CheckBucketUsageCommand;
 use App\Console\Commands\CheckEdgeHealthCommand;
 use App\Console\Commands\CollectUsageSignalsCommand;
 use App\Console\Commands\EnforceDatabaseStorageQuotaCommand;
@@ -55,6 +56,13 @@ Schedule::command(CheckEdgeHealthCommand::class)
 // Database nodes report sizes with every heartbeat, so a minute keeps a
 // workspace at most about a minute past its storage quota before the lock.
 Schedule::command(EnforceDatabaseStorageQuotaCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// Storage nodes report bucket usage at most once a minute, so a minute
+// warns about a bucket near its quota soon after the node sees it.
+Schedule::command(CheckBucketUsageCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();
