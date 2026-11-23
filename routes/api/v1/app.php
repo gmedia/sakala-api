@@ -56,6 +56,9 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
         ->name('api.v1.app.projects.inspection');
     Route::post('projects/{project}/wake', [ProjectController::class, 'wake'])
         ->name('api.v1.app.projects.wake');
+    Route::post('projects/{project}/restart', [ProjectController::class, 'restart'])
+        ->middleware(EnsureLegalAcceptance::class)
+        ->name('api.v1.app.projects.restart');
     Route::get('projects/{project}/metrics', ProjectMetricsController::class)
         ->name('api.v1.app.projects.metrics');
     Route::get('projects/{project}/skipped-pushes', SkippedPushController::class)
@@ -112,6 +115,9 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
                 Route::get('/logs', [DeploymentController::class, 'logs']);
                 Route::post('/cancel', [DeploymentController::class, 'cancel'])
                     ->name('api.v1.app.projects.deployments.cancel');
+                Route::post('/rollback', [DeploymentController::class, 'rollback'])
+                    ->middleware(EnsureLegalAcceptance::class)
+                    ->name('api.v1.app.projects.deployments.rollback');
             });
     });
 

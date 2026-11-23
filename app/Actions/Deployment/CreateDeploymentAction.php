@@ -6,17 +6,20 @@ namespace App\Actions\Deployment;
 
 use App\Actions\Admin\RecordUsageSignalAction;
 use App\Data\Deployment\CreateDeploymentData;
+use App\Data\Deployment\DeploymentSettingsData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
 use App\Enums\ProjectStatus;
 use App\Enums\RepositoryAccess;
 use App\Enums\RepositoryAccessState;
+use App\Enums\RollbackIneligibleReason;
 use App\Enums\UsageSignalType;
 use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\Runtime\ActiveContainerLimitExceededException;
 use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
+use App\Exceptions\Runtime\DeploymentNotRollbackTargetException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
@@ -32,6 +35,7 @@ use App\Services\Database\DatabaseConnectionEnvironment;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\GitHub\GithubRepositoryAccessService;
 use App\Services\Runtime\PilotRuntimeLimitService;
+use App\Support\Deployment\DeploymentRollbackEligibility;
 use App\Support\GitHub\CommitMessage;
 use App\Support\Project\DeploymentConfigFingerprint;
 use Illuminate\Support\Facades\Crypt;
@@ -66,7 +70,9 @@ final class CreateDeploymentAction
 
         $requestedResources = $data->requested_resources?->toArray();
 
-        if ($existing->branch !== $data->branch || $existing->requested_resources !== $requestedResources) {
+        if ($existing->branch !== $data->branch
+            || $existing->requested_resources !== $requestedResources
+            || $existing->rollback_target_deployment_id !== $data->rollbackTarget?->id) {
             throw new ConflictHttpException(
                 'Idempotency key ini sudah dipakai untuk deployment lain. Pakai key baru.'
             );
@@ -96,6 +102,7 @@ final class CreateDeploymentAction
         private readonly GithubRepositoryAccessService $repositoryAccess,
         private readonly DatabaseConnectionEnvironment $databaseEnvironment,
         private readonly PlanDeploymentBuildAction $planBuild,
+        private readonly RecordRollbackAction $recordRollback,
     ) {}
 
     /**
@@ -130,7 +137,8 @@ final class CreateDeploymentAction
         User $user,
         CreateDeploymentData $data
     ): Deployment {
-        if ($data->branch !== $project->branch) {
+        // A rollback answers a branch change with its own reason, under the lock.
+        if ($data->rollbackTarget === null && $data->branch !== $project->branch) {
             throw ValidationException::withMessages([
                 'branch' => [
                     'Branch yang dipilih berbeda dengan branch proyek. Pilih branch yang terdaftar di proyek ini.',
@@ -142,6 +150,15 @@ final class CreateDeploymentAction
 
         if ($existing !== null) {
             return $existing;
+        }
+
+        // Early, so a refused rollback never asks GitHub; checked again under the lock.
+        $rollbackRefusal = $data->rollbackTarget === null
+            ? null
+            : DeploymentRollbackEligibility::reason($data->rollbackTarget, $project);
+
+        if ($rollbackRefusal !== null) {
+            throw new DeploymentNotRollbackTargetException($rollbackRefusal);
         }
 
         // Early and clear for whoever deploys. The lease checks again, and is
@@ -197,6 +214,28 @@ final class CreateDeploymentAction
                     throw new ProjectSuspendedException;
                 }
 
+                // Decided under the lock: the active deployment and the
+                // branch cannot change before the rollback is created.
+                if ($data->rollbackTarget !== null) {
+                    $reason = DeploymentRollbackEligibility::reason($data->rollbackTarget, $lockedProject);
+
+                    if ($reason !== null) {
+                        throw new DeploymentNotRollbackTargetException($reason);
+                    }
+                }
+
+                // What the deployment runs with: the project's settings, or
+                // what an earlier deployment recorded (a rollback, or a
+                // redeploy of one). Without a record a rollback is refused;
+                // any other deployment runs with the project's settings.
+                $recorded = $data->settingsSource === null ? null : DeploymentSettingsData::recordedBy($data->settingsSource);
+
+                if ($data->rollbackTarget !== null && $recorded === null) {
+                    throw new DeploymentNotRollbackTargetException(RollbackIneligibleReason::SettingsUnavailable);
+                }
+
+                $settings = $recorded ?? DeploymentSettingsData::fromProject($lockedProject);
+
                 // Enforce the workspace's limits under the workspace and project lock
                 $this->runtimeLimitService->checkActiveDeploymentLimit(
                     $user,
@@ -224,7 +263,7 @@ final class CreateDeploymentAction
                 // older one would run one container, or skip the release
                 // command, and report success. Without one the command waits,
                 // unless no node could ever take it.
-                $releaseCommand = $lockedProject->hasReleaseCommand();
+                $releaseCommand = $settings->hasReleaseCommand();
 
                 $node = $this->scheduler->selectNodeFor(
                     AgentCommandType::DeployProject,
@@ -236,9 +275,12 @@ final class CreateDeploymentAction
                 $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas, $releaseCommand);
 
                 // Loaded once: the build fingerprint and the payload must see
-                // the same variables.
+                // the same variables. Recorded settings keep their recorded
+                // build fingerprint: it describes the image they ran.
                 $variables = $lockedProject->environmentVariables;
-                $buildFingerprint = DeploymentConfigFingerprint::forBuild($lockedProject, $variables);
+                $buildFingerprint = $recorded !== null
+                    ? $data->settingsSource->build_fingerprint
+                    : DeploymentConfigFingerprint::forBuild($lockedProject, $variables);
 
                 $buildPlan = $this->planBuild->handle(
                     lockedProject: $lockedProject,
@@ -246,6 +288,7 @@ final class CreateDeploymentAction
                     commitSha: $commit['sha'],
                     buildFingerprint: $buildFingerprint,
                     forceBuild: $data->forceBuild,
+                    rollbackTarget: $data->rollbackTarget,
                 );
 
                 // Only a build counts against the build rate: a deployment
@@ -279,11 +322,14 @@ final class CreateDeploymentAction
                     'sequence' => $sequence,
                     'status' => DeploymentStatus::Queued,
                     'trigger' => $data->trigger,
+                    'triggered_by_name' => $data->triggeredByName,
+                    'rollback_target_deployment_id' => $data->rollbackTarget?->id,
+                    'settings_source_deployment_id' => $recorded === null ? null : $data->settingsSource->id,
                     'branch' => $data->branch,
                     'commit_sha' => $commit['sha'],
                     'commit_message' => CommitMessage::subject($commit['message']),
                     // Fixed at creation: a later port change only affects the next deployment.
-                    'container_port' => $lockedProject->effectivePort(),
+                    'container_port' => $settings->containerPort,
                     // Fixed at creation too: a later change applies from the next deployment.
                     'replicas' => $replicas,
                     // What `redeploy_required` compares with the project later,
@@ -329,12 +375,7 @@ final class CreateDeploymentAction
                     // Optional additions to protocol revision 4; absent unless
                     // set. `release_command` only goes to a node with the
                     // `release-command` capability (selected above).
-                    ...array_filter([
-                        'build_command' => $lockedProject->build_command,
-                        'start_command' => $lockedProject->start_command,
-                        'release_command' => $lockedProject->release_command,
-                        'root_directory' => $lockedProject->root_directory,
-                    ], static fn (?string $value): bool => $value !== null && $value !== ''),
+                    ...$settings->toPayload(),
                     // Optional addition to protocol revision 4, only above one,
                     // and only to a node with the `replicas` capability.
                     ...($replicas > Project::DEFAULT_REPLICAS ? ['replicas' => $replicas] : []),
@@ -361,6 +402,10 @@ final class CreateDeploymentAction
                     // deterministic expiry/recovery arrives with lease handling.
                     'expires_at' => null,
                 ]);
+
+                if ($data->rollbackTarget !== null) {
+                    $this->recordRollback->handle($lockedProject, $deployment, $data->rollbackTarget, $user);
+                }
 
                 return $deployment;
             });

@@ -10,4 +10,7 @@ enum ProjectControlAction: string
     case Suspend = 'suspend';
     case Reconcile = 'reconcile';
     case Unsuspend = 'unsuspend';
+
+    /** A member restarted the live containers without a build (RestartProjectAction). */
+    case Restart = 'restart';
 }

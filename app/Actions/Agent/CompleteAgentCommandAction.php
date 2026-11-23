@@ -7,11 +7,14 @@ namespace App\Actions\Agent;
 use App\Actions\Admin\CreateStopProjectCommandAction;
 use App\Actions\Deployment\AllocateDeploymentRealtimeSequenceAction;
 use App\Actions\Deployment\TransitionDeploymentAction;
+use App\Actions\Project\BroadcastRestartOutcomeAction;
+use App\Actions\Project\RestartProjectAction;
 use App\Data\Agent\DeployProjectResultData;
 use App\Data\Agent\ProjectInspectionResultData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\DeploymentStatus;
+use App\Enums\ProjectRestartState;
 use App\Enums\ProjectStatus;
 use App\Enums\RuntimeStatus;
 use App\Events\Deployment\DeploymentUpdated;
@@ -36,6 +39,7 @@ final class CompleteAgentCommandAction
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateRealtimeSequence,
         private readonly ProjectWorkloadService $workloads,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
+        private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
     ) {}
 
     /**
@@ -165,7 +169,9 @@ final class CompleteAgentCommandAction
 
     /**
      * Restart or wake: the workload runs again. A wake also clears `sleeping`
-     * and is announced like any other runtime change.
+     * and is announced like any other runtime change. A member's restart is
+     * audited and always announced with its outcome, also when the project
+     * was already running (BroadcastRestartOutcomeAction).
      */
     private function completeStart(AgentNode $agent, AgentCommand $command): void
     {
@@ -177,13 +183,39 @@ final class CompleteAgentCommandAction
         $previous = $project->runtime_status;
         $applied = $project->status !== ProjectStatus::Suspended && $this->isCurrentWorkload($project, $command);
 
+        $restart = $command->type === AgentCommandType::RestartProject;
+
         if ($applied) {
             $project->update([
                 'runtime_status' => RuntimeStatus::Running,
-                'active_deployment_id' => $command->deployment_id,
+                ...$this->activation($project, $deployment, $command),
             ]);
 
-            $this->broadcastRuntimeChange($deployment, $previous, RuntimeStatus::Running);
+            if (! $restart) {
+                $this->broadcastRuntimeChange($deployment, $previous, RuntimeStatus::Running);
+            }
+        }
+
+        if ($restart) {
+            AuditEvent::create([
+                'actor_type' => AgentNode::class,
+                'actor_id' => $agent->id,
+                'action' => RestartProjectAction::COMPLETED_AUDIT_ACTION,
+                'subject_type' => Project::class,
+                'subject_id' => $project->id,
+                'metadata' => [
+                    'command_id' => $command->id,
+                    'deployment_id' => $command->deployment_id,
+                    'agent_node_id' => $command->agent_node_id,
+                    'outcome' => ProjectRestartState::Succeeded->value,
+                    // False for a superseded deployment or a suspended project.
+                    'applied' => $applied,
+                ],
+            ]);
+
+            if ($deployment !== null) {
+                $this->broadcastRestartOutcome->handle($deployment, $command, $project->runtime_status, ProjectRestartState::Succeeded);
+            }
         }
 
         if ($command->type === AgentCommandType::WakeProject) {
@@ -226,7 +258,7 @@ final class CompleteAgentCommandAction
             if ($isCurrentWorkload && in_array($previous, [RuntimeStatus::Running, RuntimeStatus::Crashed], true)) {
                 $project->update([
                     'runtime_status' => RuntimeStatus::Sleeping,
-                    'active_deployment_id' => $command->deployment_id,
+                    ...$this->activation($project, $deployment, $command),
                 ]);
 
                 $this->broadcastRuntimeChange($deployment, $previous, RuntimeStatus::Sleeping);
@@ -261,6 +293,19 @@ final class CompleteAgentCommandAction
                 'outcome' => 'succeeded',
             ],
         ]);
+    }
+
+    /**
+     * The command's deployment becomes (or stays) the active one; see
+     * Project::activationAttributes().
+     *
+     * @return array{active_deployment_id: string|null, previous_active_deployment_id?: string}
+     */
+    private function activation(Project $project, ?Deployment $deployment, AgentCommand $command): array
+    {
+        return $deployment !== null
+            ? $project->activationAttributes($deployment)
+            : ['active_deployment_id' => $command->deployment_id];
     }
 
     private function lockDeployment(AgentCommand $command): ?Deployment

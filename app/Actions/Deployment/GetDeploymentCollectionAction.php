@@ -19,7 +19,15 @@ final class GetDeploymentCollectionAction
         GetDeploymentCollectionData $data
     ): LengthAwarePaginator {
         $query = Deployment::query()
-            ->with(['project', 'agentNode', 'imageSource:id,sequence'])
+            // The project once, with what `rollback_target` reads.
+            ->with([
+                'project.activeDeployment.agentNode',
+                'project.previousActiveDeployment',
+                'agentNode',
+                'imageSource:id,sequence',
+                'rollbackTarget:id,sequence',
+                'requester:id,name',
+            ])
             ->whereBelongsTo($project)
             ->when(
                 filled($data->search),

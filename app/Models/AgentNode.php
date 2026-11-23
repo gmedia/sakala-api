@@ -95,6 +95,18 @@ class AgentNode extends Model
     public const IMAGE_REUSE_CAPABILITY = 'image-reuse';
 
     /**
+     * Capability of a node that keeps, per project, the live image and the
+     * image of the workload the last successful deploy replaced (tagged
+     * `previous`), and prunes the rest. The API mirrors that second image as
+     * `projects.previous_active_deployment_id` and only promises a rollback
+     * without a build (`rollback_target.image_expected`) on such a node. A
+     * rollback itself sends no new field: it is a reuse
+     * (IMAGE_REUSE_CAPABILITY) of the target's image, and a node that pruned
+     * it builds instead.
+     */
+    public const IMAGE_ROLLBACK_CAPABILITY = 'image-rollback';
+
+    /**
      * Key under the heartbeat's `metadata.workloads` where an agent with
      * REPLICAS_CAPABILITY reports the most replicas it runs per project
      * (`SAKALA_MAX_REPLICAS_PER_PROJECT`), or null when its driver cannot run

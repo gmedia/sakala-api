@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Deployment;
 
+use App\Enums\DeploymentActorKind;
 use App\Enums\DeploymentBuildFallbackReason;
 use App\Enums\DeploymentBuildMode;
 use App\Enums\DeploymentQueueState;
 use App\Enums\DeploymentStatus;
+use App\Enums\DeploymentTrigger;
 use App\Enums\FinalizationDeferredReason;
 use App\Models\Deployment;
 use App\Services\Agent\AgentCommandEligibilityService;
 use App\Services\Deployment\DeploymentFailureClassifier;
+use App\Support\Deployment\DeploymentRollbackEligibility;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -32,6 +35,18 @@ final class DeploymentResource extends JsonResource
      *     branch: string,
      *     status: string,
      *     trigger: string,
+     *     triggered_by: array{
+     *         kind: DeploymentActorKind,
+     *         name: string|null,
+     *         user_id: int|null
+     *     },
+     *     rollback: array{
+     *         target_deployment_id: string|null,
+     *         target_sequence: int|null
+     *     }|null,
+     *     rollback_target: array{
+     *         image_expected: bool
+     *     }|null,
      *     commit_sha: string|null,
      *     commit_message: string|null,
      *     image_reference: string|null,
@@ -161,6 +176,24 @@ final class DeploymentResource extends JsonResource
             'branch' => $this->resource->branch,
             'status' => $this->resource->status->value,
             'trigger' => $this->resource->trigger->value,
+            /**
+             * Who asked for the deployment. `user`: the member (`name` is their current name; both null once the
+             * account is deleted). `github_push`: the pusher's GitHub name (`name` null for older deployments,
+             * `user_id` always null). `system`: Sakala itself, both null.
+             *
+             * @var array{kind: DeploymentActorKind, name: string|null, user_id: int|null}
+             */
+            'triggered_by' => $this->triggeredBy(),
+            /**
+             * Only for `trigger = rollback`: the deployment it went back to. Both values null once that one is deleted.
+             */
+            'rollback' => $this->rollback(),
+            /**
+             * Non-null when the project can be rolled back to this deployment now: it succeeded, is not the active one,
+             * has a commit, ran the project's current branch, and the project is not suspended. `image_expected` is
+             * true when the node is expected to still hold its image, so the rollback builds nothing.
+             */
+            'rollback_target' => $this->rollbackTarget(),
             'commit_sha' => $this->resource->commit_sha,
             'commit_message' => $this->resource->commit_message,
             'image_reference' => $this->resource->image_reference,
@@ -228,6 +261,72 @@ final class DeploymentResource extends JsonResource
             'image_source_sequence' => $sourceId === null ? null : $this->resource->imageSource?->sequence,
             'fallback_reason' => $this->resource->build_fallback_reason,
         ];
+    }
+
+    /**
+     * Who asked for the deployment. `user` (manual, redeploy, rollback) names
+     * the member who asked, by their current name, and is null for both once
+     * that account is deleted. `github_push` names the pusher from the push
+     * payload, null for webhook deployments from before it was recorded; the
+     * workspace member a push deploys as is never shown. `system` names
+     * nobody. Lists eager-load `requester` (GetDeploymentCollectionAction).
+     *
+     * @return array{kind: DeploymentActorKind, name: string|null, user_id: int|null}
+     */
+    private function triggeredBy(): array
+    {
+        $kind = $this->resource->trigger->actorKind();
+
+        return match ($kind) {
+            DeploymentActorKind::User => [
+                'kind' => $kind,
+                'name' => $this->resource->requested_by === null ? null : $this->resource->requester?->name,
+                'user_id' => $this->resource->requested_by,
+            ],
+            DeploymentActorKind::GithubPush => ['kind' => $kind, 'name' => $this->resource->triggered_by_name, 'user_id' => null],
+            DeploymentActorKind::System => ['kind' => $kind, 'name' => null, 'user_id' => null],
+        };
+    }
+
+    /**
+     * The deployment a rollback went back to, only for `trigger = rollback`.
+     * Both values are null once that deployment is deleted. Lists eager-load
+     * `rollbackTarget`.
+     *
+     * @return array{target_deployment_id: string|null, target_sequence: int|null}|null
+     */
+    private function rollback(): ?array
+    {
+        if ($this->resource->trigger !== DeploymentTrigger::Rollback) {
+            return null;
+        }
+
+        $targetId = $this->resource->rollback_target_deployment_id;
+
+        return [
+            'target_deployment_id' => $targetId,
+            'target_sequence' => $targetId === null ? null : $this->resource->rollbackTarget?->sequence,
+        ];
+    }
+
+    /**
+     * Non-null when the project can be rolled back to this deployment now
+     * (DeploymentRollbackEligibility::isTarget()); `image_expected` says
+     * whether that rollback is expected to start the kept image instead of
+     * building. Lists eager-load the project with its active deployment's
+     * node and its previous active deployment.
+     *
+     * @return array{image_expected: bool}|null
+     */
+    private function rollbackTarget(): ?array
+    {
+        $project = $this->resource->project;
+
+        if ($project === null || ! DeploymentRollbackEligibility::isTarget($this->resource, $project)) {
+            return null;
+        }
+
+        return ['image_expected' => DeploymentRollbackEligibility::imageExpected($this->resource, $project)];
     }
 
     /**
