@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\LegalDocument;
 use App\Models\User;
 use App\Notifications\Auth\ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailNotification;
@@ -101,7 +102,7 @@ test('auth options are public, need no database, and report what is configured',
             'legal' => [
                 'terms_version' => 'syarat-v1',
                 'acceptable_use_version' => 'penggunaan-wajar-v1',
-                'privacy_notice_version' => 'privasi-v1',
+                'privacy_notice_version' => LegalDocument::PrivacyNotice->currentVersion(),
             ],
         ]]);
 
@@ -121,7 +122,7 @@ test('auth options report delivery and providers when they are on', function ():
             'legal' => [
                 'terms_version' => 'syarat-v1',
                 'acceptable_use_version' => 'penggunaan-wajar-v1',
-                'privacy_notice_version' => 'privasi-v1',
+                'privacy_notice_version' => LegalDocument::PrivacyNotice->currentVersion(),
             ],
         ]]);
 });

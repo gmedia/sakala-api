@@ -21,6 +21,7 @@ use App\Notifications\Messages\SakalaMailMessage;
 use App\Services\Notification\NotificationUnsubscribeLinks;
 use App\Services\Notification\UserNotifier;
 use App\Support\Mail\MailPreviewCatalog;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Notifications\Notification;
@@ -440,6 +441,35 @@ test('deleting the account confirms it to the old address, with nothing to click
     expectWellFormedMail($email, null, [(string) $user->password]);
 });
 
+test('a legal change reaches every verified account once, with the date, the changes, and the page', function (): void {
+    $this->travelTo(CarbonImmutable::parse('2026-11-24 10:00:00', 'Asia/Jakarta'));
+    $user = User::factory()->create(['email' => 'rani@example.test', 'name' => 'Rani Lestari']);
+
+    $this->artisan('legal:announce-change', ['version' => 'privasi-v2', '--interval' => 0])->assertSuccessful();
+
+    $email = onlyMailTo('rani@example.test');
+    $html = (string) $email->getHtmlBody();
+    $text = (string) $email->getTextBody();
+
+    expect($email->getSubject())->toBe('Pemberitahuan Privasi Sakala berubah mulai 30 November 2026')
+        ->and(primaryLink($email))->toBe(MAIL_SITE.'/privasi')
+        ->and($text)->toContain('Halo Rani Lestari,')
+        ->and($text)->toContain('Versi baru, privasi-v2, berlaku mulai 30 November 2026. Sampai tanggal itu, yang berlaku masih privasi-v1.')
+        ->and($text)->toContain('- Password database hanya bisa dibuka pemilik workspace dan admin Sakala')
+        ->and($text)->toContain('tidak meminta persetujuanmu')
+        ->and(substr_count($html, '<li'))->toBe(5);
+
+    expectAddressLink($email, (string) config('sakala.contact.privacy_email'));
+
+    // The button and the footer both point at the notice, so the shared check
+    // gets no single link to count.
+    expectWellFormedMail($email, null, [(string) $user->password]);
+
+    $this->artisan('legal:announce-change', ['version' => 'privasi-v2', '--interval' => 0])->assertSuccessful();
+
+    expect(deliveredMail())->toHaveCount(1);
+});
+
 test('every notification with a mail version is in the preview catalog', function (): void {
     $withMail = [];
 
@@ -465,7 +495,7 @@ const MAIL_NAMES = [
     'verify-email', 'reset-password', 'existing-account', 'email-change-confirm', 'email-change-requested',
     'email-change-applied', 'workspace-invitation', 'workspace-invitation-owner', 'project-suspended', 'edge-unhealthy', 'edge-recovered',
     'project-deployment-failed', 'project-deployment-failed-repeated', 'project-deployment-succeeded',
-    'project-app-crashed', 'project-auto-deploy-skipped', 'account-deleted',
+    'project-app-crashed', 'project-auto-deploy-skipped', 'account-deleted', 'legal-document-changed',
 ];
 
 dataset('catalog', MAIL_NAMES);
