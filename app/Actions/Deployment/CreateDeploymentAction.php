@@ -31,6 +31,7 @@ use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Agent\AgentNodeSchedulerService;
+use App\Services\Bucket\BucketConnectionEnvironment;
 use App\Services\Database\DatabaseConnectionEnvironment;
 use App\Services\Deployment\DeploymentInspectionHold;
 use App\Services\GitHub\GithubBranchService;
@@ -102,6 +103,7 @@ final class CreateDeploymentAction
         private readonly AgentNodeSchedulerService $scheduler,
         private readonly GithubRepositoryAccessService $repositoryAccess,
         private readonly DatabaseConnectionEnvironment $databaseEnvironment,
+        private readonly BucketConnectionEnvironment $bucketEnvironment,
         private readonly PlanDeploymentBuildAction $planBuild,
         private readonly RecordRollbackAction $recordRollback,
         private readonly DeploymentInspectionHold $inspectionHold,
@@ -315,6 +317,9 @@ final class CreateDeploymentAction
                 // itself keeps its value. Refuses the deployment while the
                 // database node has not reported where projects reach it.
                 $databaseEnvironment = $this->databaseEnvironment->forProject($lockedProject);
+                // The same for the attached bucket (ADR-021): refused while it
+                // is not created yet or its node has not reported the endpoint.
+                $bucketEnvironment = $this->bucketEnvironment->forProject($lockedProject);
 
                 $deployment = Deployment::create([
                     'project_id' => $lockedProject->id,
@@ -376,6 +381,10 @@ final class CreateDeploymentAction
                         ...array_map(
                             static fn (string $value): string => Crypt::encryptString($value),
                             $databaseEnvironment,
+                        ),
+                        ...array_map(
+                            static fn (string $value): string => Crypt::encryptString($value),
+                            $bucketEnvironment,
                         ),
                     ],
                     'resources' => $effectiveLimits->toResourcesArray(),

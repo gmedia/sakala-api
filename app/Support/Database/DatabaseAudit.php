@@ -41,7 +41,7 @@ final class DatabaseAudit
     /** That deployment was created (`deployment_id`). */
     public const PROJECT_DEPLOY_STARTED = 'database.project_deploy_started';
 
-    /** That deployment was not created (`reason`, a DatabaseRedeploySkipReason value). */
+    /** That deployment was not created (`reason`, a AttachedRedeploySkipReason value). */
     public const PROJECT_DEPLOY_SKIPPED = 'database.project_deploy_skipped';
 
     public const CREDENTIALS_VIEWED = 'database.credentials_viewed';

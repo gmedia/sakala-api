@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Database;
 
-use App\Data\Database\AttachedProjectDeployOutcomeData;
-use App\Enums\DatabaseRedeploySkipReason;
+use App\Data\Attachment\AttachedProjectDeployOutcomeData;
+use App\Enums\AttachedRedeploySkipReason;
 use App\Enums\NotificationCategory;
 use App\Jobs\Database\DeployAfterDatabaseReadyJob;
 use App\Models\AgentNode;
@@ -63,7 +63,7 @@ final class DatabaseDeployRequests
             ->get();
 
         foreach ($attachments as $attachment) {
-            $this->record($actor, $attachment, $lockedDatabase, AttachedProjectDeployOutcomeData::skipped(DatabaseRedeploySkipReason::DatabaseProvisioningFailed));
+            $this->record($actor, $attachment, $lockedDatabase, AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::DatabaseProvisioningFailed));
 
             if ($attachment->project !== null) {
                 $this->notifier->sendToProject(

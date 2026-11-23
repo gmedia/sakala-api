@@ -58,6 +58,16 @@ final class LimitProfileResource extends JsonResource
              */
             'max_database_storage_mb' => $profile->max_database_storage_mb,
             /**
+             * Managed buckets the workspace may hold. `null` follows the global `SAKALA_BUCKET_DEFAULT_MAX_COUNT`;
+             * `0` allows none.
+             */
+            'max_buckets' => $profile->max_buckets,
+            /**
+             * MB the quotas of the workspace's buckets may reserve together. `null` follows the global
+             * `SAKALA_BUCKET_DEFAULT_MAX_STORAGE_MB`; `0` refuses new buckets and quota increases.
+             */
+            'max_bucket_storage_mb' => $profile->max_bucket_storage_mb,
+            /**
              * Workspaces running under this profile. A profile is deleted only at zero.
              *
              * @var int|null

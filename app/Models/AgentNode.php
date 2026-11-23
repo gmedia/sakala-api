@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Data\Agent\NodeCapacityData;
+use App\Data\Bucket\ObjectStorageData;
 use App\Data\Database\DatabaseEndpointData;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
 use App\Rules\EdgeAddress;
 use App\Rules\NetworkHost;
+use App\Rules\ObjectStorageEndpoint;
 use App\Rules\RegionSlug;
 use Carbon\CarbonImmutable;
 use Database\Factories\AgentNodeFactory;
@@ -152,6 +154,24 @@ class AgentNode extends Model
     /** `metadata.database.available`: whether the agent's last size reading of the instance worked. */
     public const DATABASE_AVAILABLE_METADATA_KEY = 'available';
 
+    /**
+     * Heartbeat `metadata.object_storage`, sent by nodes with the `managed-s3`
+     * capability (additive in protocol revision 4, ADR-021).
+     */
+    public const OBJECT_STORAGE_METADATA_KEY = 'object_storage';
+
+    /** `metadata.object_storage.endpoint`: the public S3 endpoint (App\Rules\ObjectStorageEndpoint). */
+    public const OBJECT_STORAGE_ENDPOINT_METADATA_KEY = 'endpoint';
+
+    /** `metadata.object_storage.region`: the S3 signing region. */
+    public const OBJECT_STORAGE_REGION_METADATA_KEY = 'region';
+
+    /** `metadata.object_storage.capacity_mb`: MB the node may allocate to bucket quotas. */
+    public const OBJECT_STORAGE_CAPACITY_METADATA_KEY = 'capacity_mb';
+
+    /** `metadata.object_storage.available`: whether the agent's last usage reading worked. */
+    public const OBJECT_STORAGE_AVAILABLE_METADATA_KEY = 'available';
+
     /** Highest TCP port. */
     public const MAX_PORT = 65535;
 
@@ -242,6 +262,42 @@ class AgentNode extends Model
         $database = $this->metadata[self::DATABASE_METADATA_KEY] ?? null;
 
         return is_array($database) && ($database[self::DATABASE_AVAILABLE_METADATA_KEY] ?? null) === true;
+    }
+
+    /**
+     * The node's object storage instance from its last heartbeat; null when
+     * it reported none or a malformed one.
+     */
+    public function objectStorage(): ?ObjectStorageData
+    {
+        $storage = $this->metadata[self::OBJECT_STORAGE_METADATA_KEY] ?? null;
+
+        if (! is_array($storage)) {
+            return null;
+        }
+
+        $endpoint = $storage[self::OBJECT_STORAGE_ENDPOINT_METADATA_KEY] ?? null;
+        $region = $storage[self::OBJECT_STORAGE_REGION_METADATA_KEY] ?? null;
+        $capacity = $storage[self::OBJECT_STORAGE_CAPACITY_METADATA_KEY] ?? null;
+
+        if (! ObjectStorageEndpoint::isValid($endpoint) || ! RegionSlug::isValid($region) || ! is_int($capacity) || $capacity < 1) {
+            return null;
+        }
+
+        /** @var string $endpoint */
+        /** @var string $region */
+        return new ObjectStorageData($endpoint, $region, $capacity);
+    }
+
+    /**
+     * Whether the node's object storage answered its agent at the last
+     * reading (`metadata.object_storage.available`). Absent means available.
+     */
+    public function objectStorageAvailable(): bool
+    {
+        $storage = $this->metadata[self::OBJECT_STORAGE_METADATA_KEY] ?? null;
+
+        return ! is_array($storage) || ($storage[self::OBJECT_STORAGE_AVAILABLE_METADATA_KEY] ?? true) !== false;
     }
 
     /** Free memory and container slots from the last heartbeat. */

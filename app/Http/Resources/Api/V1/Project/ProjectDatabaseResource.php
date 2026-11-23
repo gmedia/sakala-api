@@ -63,7 +63,7 @@ final class ProjectDatabaseResource extends JsonResource
              * deployment exists (`deployment_id`), `skipped` when none was created (`skipped_reason`).
              * `skipped_reason` is one of `requester_cannot_deploy`, `legal_acceptance_required`, `project_suspended`,
              * `active_deployment_limit`, `active_container_limit`, `build_rate_limit`, `repository_access_revoked`,
-             * `database_endpoint_unavailable`, `release_command_unsupported`, `database_provisioning_failed`, or
+             * `database_endpoint_unavailable`, `database_not_ready`, `bucket_endpoint_unavailable`, `bucket_not_ready`, `release_command_unsupported`, `database_provisioning_failed`, or
              * `failed`.
              */
             'deploy_when_ready' => $this->deployWhenReady(),

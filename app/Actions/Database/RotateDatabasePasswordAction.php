@@ -10,8 +10,8 @@ use App\Exceptions\Database\DatabaseNotReadyException;
 use App\Models\ManagedDatabase;
 use App\Models\User;
 use App\Services\Database\DatabaseCommandService;
+use App\Support\Attachment\CredentialRotation;
 use App\Support\Database\DatabaseAudit;
-use App\Support\Database\DatabasePasswordRotation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -21,7 +21,7 @@ use Illuminate\Support\Str;
  * password requires. The stored one stays until the node reports success;
  * then the new one is stored, every attached project shows
  * `redeploy_required`, and, when `$redeployAttached`, the attached projects
- * are redeployed (RedeployAfterPasswordRotationAction). Allowed while locked,
+ * are redeployed (RedeployAfterCredentialRotationAction). Allowed while locked,
  * because a leaked password must be replaceable.
  */
 final class RotateDatabasePasswordAction
@@ -51,7 +51,7 @@ final class RotateDatabasePasswordAction
             $command = $this->commands->rotatePassword(
                 $locked,
                 Str::random(ManagedDatabase::PASSWORD_LENGTH),
-                DatabasePasswordRotation::requestContext($actor, $redeployAttached),
+                CredentialRotation::requestContext($actor, $redeployAttached),
             );
 
             DatabaseAudit::record($actor, DatabaseAudit::PASSWORD_ROTATION_REQUESTED, $locked, [

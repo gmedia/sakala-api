@@ -24,6 +24,7 @@ use App\Models\AgentNode;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Services\Bucket\BucketCommandOutcomeService;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Project\ProjectInspectionOutcomeService;
 use App\Services\Runtime\ProjectWorkloadService;
@@ -39,6 +40,7 @@ final class CompleteAgentCommandAction
         private readonly AllocateDeploymentRealtimeSequenceAction $allocateRealtimeSequence,
         private readonly ProjectWorkloadService $workloads,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
+        private readonly BucketCommandOutcomeService $bucketOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
     ) {}
 
@@ -124,6 +126,10 @@ final class CompleteAgentCommandAction
 
             if ($command->type->isDatabase()) {
                 $this->databaseOutcome->completed($agent, $command);
+            }
+
+            if ($command->type->isBucket()) {
+                $this->bucketOutcome->completed($agent, $command);
             }
 
             if ($command->type->isNodeLevel()) {

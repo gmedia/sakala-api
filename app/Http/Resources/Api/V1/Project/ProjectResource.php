@@ -7,6 +7,7 @@ namespace App\Http\Resources\Api\V1\Project;
 use App\Actions\Project\RestartProjectAction;
 use App\Enums\ProjectRestartState;
 use App\Enums\VariableBuildReason;
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Services\Runtime\PilotRuntimeLimitService;
@@ -46,6 +47,28 @@ final class ProjectResource extends JsonResource
 
         return array_values($databases
             ->map(fn (ManagedDatabase $database): array => (new ProjectDatabaseResource($database))->withProjectKeys($keys)->resolve())
+            ->all());
+    }
+
+    /**
+     * The attached bucket with the names of the project's own variables, like
+     * databases().
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function buckets(): array
+    {
+        $buckets = $this->resource->loadMissing('buckets')->buckets;
+
+        if ($buckets->isEmpty()) {
+            return [];
+        }
+
+        /** @var list<string> $keys */
+        $keys = $this->resource->loadMissing('environmentVariables')->environmentVariables->pluck('key')->values()->all();
+
+        return array_values($buckets
+            ->map(fn (ManagedBucket $bucket): array => (new ProjectBucketResource($bucket))->withProjectKeys($keys)->resolve())
             ->all());
     }
 
@@ -156,8 +179,8 @@ final class ProjectResource extends JsonResource
             'restart' => $this->restart(),
             /**
              * True while the serving deployment was created with another deploy-relevant configuration: branch, port,
-             * build configuration, replicas, environment variables, or the attached database (attaching, detaching, and a
-             * rotated password). Changing a value back makes it false again.
+             * build configuration, replicas, environment variables, or the attached database or bucket (attaching,
+             * detaching, and a rotated password or key). Changing a value back makes it false again.
              *
              * @var bool
              */
@@ -192,6 +215,13 @@ final class ProjectResource extends JsonResource
              * @var list<array{id: string, name: string, status: string, region: string|null, variables: list<string>, overridden_variables: list<string>, deploy_when_ready: array{status: 'waiting'|'started'|'skipped', requested_at: string, deployment_id: string|null, skipped_reason: string|null}|null}>
              */
             'databases' => $this->databases(),
+            /**
+             * The managed bucket attached to the project, as a list of at most one: a project uses one bucket at a
+             * time. Its variables reach the next deployment; see each item's `variables`.
+             *
+             * @var list<array{id: string, name: string, status: string, region: string|null, variables: list<string>, overridden_variables: list<string>}>
+             */
+            'buckets' => $this->buckets(),
             /**
              * The workspace that owns the project. Null only for a project that is being purged.
              */

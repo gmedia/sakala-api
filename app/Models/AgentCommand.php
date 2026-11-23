@@ -20,6 +20,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 
 /**
  * @property string|null $database_id The managed database a database command acts on.
+ * @property string|null $bucket_id The managed bucket a bucket command acts on.
  * @property AgentCommandType $type
  * @property AgentCommandStatus $status
  * @property array<string, mixed>|null $payload
@@ -43,6 +44,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
     'project_id',
     'deployment_id',
     'database_id',
+    'bucket_id',
     'agent_node_id',
     'type',
     'status',
@@ -199,6 +201,12 @@ class AgentCommand extends Model
     public function database(): BelongsTo
     {
         return $this->belongsTo(ManagedDatabase::class, 'database_id')->withTrashed();
+    }
+
+    /** @return BelongsTo<ManagedBucket, $this> */
+    public function bucket(): BelongsTo
+    {
+        return $this->belongsTo(ManagedBucket::class, 'bucket_id')->withTrashed();
     }
 
     /** @return BelongsTo<AgentNode, $this> */

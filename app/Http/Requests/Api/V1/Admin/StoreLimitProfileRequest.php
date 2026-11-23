@@ -16,7 +16,7 @@ class StoreLimitProfileRequest extends FormRequest
 {
     use RequiresAdminReason;
 
-    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region', 'max_databases', 'max_database_storage_mb'];
+    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region', 'max_databases', 'max_database_storage_mb', 'max_buckets', 'max_bucket_storage_mb'];
 
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
@@ -59,6 +59,17 @@ class StoreLimitProfileRequest extends FormRequest
              * `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB`; `0` allows none, so every database of the workspace is locked.
              */
             'max_database_storage_mb' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_DATABASE_STORAGE_MB_CEILING],
+            /**
+             * Managed buckets the workspace may hold. `null` (the default) follows `SAKALA_BUCKET_DEFAULT_MAX_COUNT`;
+             * `0` allows none.
+             */
+            'max_buckets' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_BUCKETS_CEILING],
+            /**
+             * MB the quotas of the workspace's buckets may reserve together. `null` (the default) follows
+             * `SAKALA_BUCKET_DEFAULT_MAX_STORAGE_MB`; `0` refuses new buckets and quota increases. Lowering it never
+             * shrinks an existing bucket.
+             */
+            'max_bucket_storage_mb' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_BUCKET_STORAGE_MB_CEILING],
         ];
     }
 

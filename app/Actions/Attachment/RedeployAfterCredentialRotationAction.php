@@ -2,27 +2,29 @@
 
 declare(strict_types=1);
 
-namespace App\Actions\Database;
+namespace App\Actions\Attachment;
 
-use App\Data\Database\AttachedProjectDeployOutcomeData;
+use App\Data\Attachment\AttachedProjectDeployOutcomeData;
 use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
-use App\Enums\DatabaseRedeploySkipReason;
-use App\Enums\DeploymentTrigger;
+use App\Enums\AttachedRedeploySkipReason;
 use App\Models\AgentCommand;
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Models\User;
-use App\Services\Database\AttachedProjectDeployer;
+use App\Services\Attachment\AttachedProjectDeployer;
+use App\Support\Attachment\CredentialRotation;
+use App\Support\Bucket\BucketAudit;
 use App\Support\Database\DatabaseAudit;
-use App\Support\Database\DatabasePasswordRotation;
 use Illuminate\Support\Facades\DB;
 
 /**
- * After a rotation that asked for it took effect, redeploys every attached
- * project that has a live deployment, so its containers get the new
- * password. Runs from a queued job after the command's transaction, because
+ * After a credential rotation that asked for it took effect (a database
+ * password or a bucket key), redeploys every project attached to that
+ * resource that has a live deployment, so its containers get the new
+ * credential. Runs from a queued job after the command's transaction, because
  * creating a deployment may ask GitHub. Each project goes through the normal
  * deployment path as whoever asked for the rotation, with every limit; a
  * project that cannot be redeployed is skipped with a reason and keeps
@@ -36,7 +38,7 @@ use Illuminate\Support\Facades\DB;
  * nothing: the outcome is recorded once, and each deployment has an
  * idempotency key per rotation.
  */
-final class RedeployAfterPasswordRotationAction
+final class RedeployAfterCredentialRotationAction
 {
     public function __construct(
         private readonly AttachedProjectDeployer $deployer,
@@ -47,26 +49,36 @@ final class RedeployAfterPasswordRotationAction
         $command = AgentCommand::query()->find($commandId);
 
         if ($command === null
-            || $command->type !== AgentCommandType::RotateDatabasePassword
+            || ! CredentialRotation::isRotation($command)
             || $command->status !== AgentCommandStatus::Succeeded
-            || ! DatabasePasswordRotation::redeploysAttached($command)
-            || DatabasePasswordRotation::redeploysQueued($command)) {
+            || ! CredentialRotation::redeploysAttached($command)
+            || CredentialRotation::redeploysQueued($command)) {
             return;
         }
 
-        $database = $command->database_id === null ? null : ManagedDatabase::query()->find($command->database_id);
-        $requester = DatabasePasswordRotation::requester($command);
+        $resource = $this->resourceOf($command);
+        $requester = CredentialRotation::requester($command);
         $redeploys = [];
 
-        if ($database !== null && $database->status->isProvisioned()) {
-            $projects = $database->projects()->with(['activeDeployment.settingsSource', 'workspace'])->orderBy('name')->orderBy('projects.id')->get();
+        if ($resource !== null && $resource->status->isProvisioned()) {
+            $projects = $resource->projects()->with(['activeDeployment.settingsSource', 'workspace'])->orderBy('name')->orderBy('projects.id')->get();
 
             foreach ($projects as $project) {
                 $redeploys[] = ['project_id' => $project->id, ...$this->redeploy($command, $project, $requester)];
             }
         }
 
-        $this->record($command, $database, $redeploys);
+        $this->record($command, $resource, $redeploys);
+    }
+
+    /** The database or bucket whose credential the command rotated, if it still exists. */
+    private function resourceOf(AgentCommand $command): ManagedDatabase|ManagedBucket|null
+    {
+        return match ($command->type) {
+            AgentCommandType::RotateDatabasePassword => $command->database_id === null ? null : ManagedDatabase::query()->find($command->database_id),
+            AgentCommandType::RotateBucketKey => $command->bucket_id === null ? null : ManagedBucket::query()->find($command->bucket_id),
+            default => null,
+        };
     }
 
     /** @return array{deployment_id: string|null, skipped_reason: string|null} */
@@ -75,7 +87,7 @@ final class RedeployAfterPasswordRotationAction
         $active = $project->active_deployment_id === null ? null : $project->activeDeployment;
 
         if ($active === null) {
-            return AttachedProjectDeployOutcomeData::skipped(DatabaseRedeploySkipReason::NoActiveDeployment)->toArray();
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::NoActiveDeployment)->toArray();
         }
 
         // The live commit, unless the project has moved to another branch
@@ -86,8 +98,8 @@ final class RedeployAfterPasswordRotationAction
 
         return $this->deployer->deploy($project, $requester, new CreateDeploymentData(
             branch: $project->branch,
-            idempotencyKey: DatabasePasswordRotation::idempotencyKey($command),
-            trigger: DeploymentTrigger::DatabasePasswordRotated,
+            idempotencyKey: CredentialRotation::idempotencyKey($command),
+            trigger: CredentialRotation::trigger($command),
             commit_sha: $sameBranch ? $active->commit_sha : null,
             commit_message: $sameBranch ? $active->commit_message : null,
             settingsSource: $sameBranch ? $active->settingsSource : null,
@@ -95,30 +107,32 @@ final class RedeployAfterPasswordRotationAction
     }
 
     /** @param  list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>  $redeploys */
-    private function record(AgentCommand $command, ?ManagedDatabase $database, array $redeploys): void
+    private function record(AgentCommand $command, ManagedDatabase|ManagedBucket|null $resource, array $redeploys): void
     {
-        DB::transaction(function () use ($command, $database, $redeploys): void {
+        DB::transaction(function () use ($command, $resource, $redeploys): void {
             /** @var AgentCommand $locked */
             $locked = AgentCommand::query()->whereKey($command->id)->lockForUpdate()->firstOrFail();
 
-            if (DatabasePasswordRotation::redeploysQueued($locked)) {
+            if (CredentialRotation::redeploysQueued($locked)) {
                 return;
             }
 
             $locked->update([
                 'request_context' => [
                     ...($locked->request_context ?? []),
-                    DatabasePasswordRotation::REDEPLOYS_QUEUED_AT_KEY => now()->toAtomString(),
-                    DatabasePasswordRotation::REDEPLOYS_KEY => $redeploys,
+                    CredentialRotation::REDEPLOYS_QUEUED_AT_KEY => now()->toAtomString(),
+                    CredentialRotation::REDEPLOYS_KEY => $redeploys,
                 ],
             ]);
 
-            if ($database !== null) {
-                DatabaseAudit::record(DatabasePasswordRotation::requester($locked), DatabaseAudit::PASSWORD_ROTATION_REDEPLOYS_QUEUED, $database, [
-                    'command_id' => $locked->id,
-                    'redeploys' => $redeploys,
-                ]);
-            }
+            $metadata = ['command_id' => $locked->id, 'redeploys' => $redeploys];
+            $requester = CredentialRotation::requester($locked);
+
+            match (true) {
+                $resource instanceof ManagedDatabase => DatabaseAudit::record($requester, DatabaseAudit::PASSWORD_ROTATION_REDEPLOYS_QUEUED, $resource, $metadata),
+                $resource instanceof ManagedBucket => BucketAudit::record($requester, BucketAudit::KEY_ROTATION_REDEPLOYS_QUEUED, $resource, $metadata),
+                default => null,
+            };
         });
     }
 }

@@ -7,7 +7,7 @@ namespace App\Enums;
 /**
  * Where a deployment asked for with `deploy_when_ready` stands: the project
  * waits for its new database, got its deployment, or was skipped with a
- * DatabaseRedeploySkipReason.
+ * AttachedRedeploySkipReason.
  */
 enum DatabaseDeployRequestStatus: string
 {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Agent;
 
+use App\Actions\Bucket\RecordBucketSizesAction;
 use App\Actions\Database\RecordDatabaseSizesAction;
 use App\Data\Agent\AgentHeartbeatData;
 use App\Models\AgentNode;
@@ -18,6 +19,7 @@ final class HeartbeatAgentAction
         private readonly RecordWorkloadReplicasAction $recordWorkloadReplicas,
         private readonly RecordWorkloadMetricsAction $recordWorkloadMetrics,
         private readonly RecordDatabaseSizesAction $recordDatabaseSizes,
+        private readonly RecordBucketSizesAction $recordBucketSizes,
     ) {}
 
     public function handle(
@@ -58,6 +60,10 @@ final class HeartbeatAgentAction
 
             if ($data->databaseSizes !== null) {
                 $this->recordDatabaseSizes->handleWithinTransaction($agent, $data->databaseSizes);
+            }
+
+            if ($data->bucketSizes !== null) {
+                $this->recordBucketSizes->handleWithinTransaction($agent, $data->bucketSizes);
             }
 
             return $agent->refresh();

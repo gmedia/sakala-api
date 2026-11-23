@@ -23,6 +23,7 @@ use App\Services\Database\ProjectDatabaseAttacher;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\Database\DatabaseAudit;
 use App\Support\Database\DatabaseSize;
+use App\Support\Naming\UniqueDisplayName;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -43,12 +44,6 @@ use InvalidArgumentException;
  */
 final class CreateDatabaseAction
 {
-    /** Separates a project's name from the number that makes a database name unique. */
-    private const NAME_SUFFIX_SEPARATOR = ' ';
-
-    /** The first number appended when the project's name is taken. */
-    private const FIRST_NAME_SUFFIX = 2;
-
     public function __construct(
         private readonly PilotRuntimeLimitService $limits,
         private readonly AgentNodeSchedulerService $scheduler,
@@ -141,11 +136,11 @@ final class CreateDatabaseAction
      */
     private function nameFor(Workspace $workspace, ?string $requested, ?Project $project): string
     {
-        /** @var array<string, true> $taken */
-        $taken = array_fill_keys(ManagedDatabase::query()->where('workspace_id', $workspace->id)->pluck('name')->all(), true);
+        /** @var list<string> $taken */
+        $taken = ManagedDatabase::query()->where('workspace_id', $workspace->id)->pluck('name')->all();
 
         if ($requested !== null) {
-            if (isset($taken[$requested])) {
+            if (in_array($requested, $taken, true)) {
                 throw ValidationException::withMessages(['name' => [__('validation.unique', ['attribute' => __('validation.attributes.name')])]]);
             }
 
@@ -156,15 +151,7 @@ final class CreateDatabaseAction
             throw new InvalidArgumentException('A database without a project needs a name.');
         }
 
-        $base = trim(mb_substr(trim($project->name), 0, ManagedDatabase::MAX_NAME_LENGTH));
-        $name = $base;
-
-        for ($number = self::FIRST_NAME_SUFFIX; isset($taken[$name]); $number++) {
-            $suffix = self::NAME_SUFFIX_SEPARATOR.$number;
-            $name = rtrim(mb_substr($base, 0, ManagedDatabase::MAX_NAME_LENGTH - mb_strlen($suffix))).$suffix;
-        }
-
-        return $name;
+        return UniqueDisplayName::from($project->name, $taken, ManagedDatabase::MAX_NAME_LENGTH);
     }
 
     /**

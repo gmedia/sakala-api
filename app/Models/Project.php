@@ -50,6 +50,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property CarbonImmutable|null $config_changed_at Last deploy-relevant change; only read for an active deployment without a config_fingerprint.
  * @property string|null $environment_fingerprint DeploymentConfigFingerprint::forEnvironment() of the stored variables; null until the first variable change or deployment after it was introduced.
  * @property string|null $database_fingerprint DeploymentConfigFingerprint::forDatabase() of the attached managed database; null without one.
+ * @property string|null $bucket_fingerprint DeploymentConfigFingerprint::forBucket() of the attached managed bucket; null without one.
  * @property bool $auto_deploy
  * @property CarbonImmutable|null $auto_deploy_paused_at Set while auto-deploy is paused after a rollback (`auto_deploy` is then false); cleared when someone sets `auto_deploy` again.
  * @property string|null $auto_deploy_paused_by_deployment_id The rollback deployment that paused auto-deploy. Null when not paused, or once that deployment is deleted.
@@ -100,7 +101,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'last_deployed_at',
     'last_request_at',
 ])]
-#[Hidden(['environment_fingerprint', 'database_fingerprint'])]
+#[Hidden(['environment_fingerprint', 'database_fingerprint', 'bucket_fingerprint'])]
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
@@ -286,6 +287,27 @@ class Project extends Model
     public function refreshDatabaseFingerprint(): void
     {
         $this->database_fingerprint = DeploymentConfigFingerprint::forDatabase($this->databases()->first());
+    }
+
+    /**
+     * Recompute `bucket_fingerprint` from the attached bucket, without
+     * saving. Call it under the project row lock, like the database one.
+     */
+    public function refreshBucketFingerprint(): void
+    {
+        $this->bucket_fingerprint = DeploymentConfigFingerprint::forBucket($this->buckets()->first());
+    }
+
+    /**
+     * The managed bucket attached to the project; at most one (unique
+     * `bucket_attachments.project_id`), because its variables have fixed names.
+     *
+     * @return BelongsToMany<ManagedBucket, $this>
+     */
+    public function buckets(): BelongsToMany
+    {
+        return $this->belongsToMany(ManagedBucket::class, 'bucket_attachments', 'project_id', 'bucket_id')
+            ->withTimestamps();
     }
 
     /**

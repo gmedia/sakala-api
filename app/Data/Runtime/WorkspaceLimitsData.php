@@ -30,9 +30,13 @@ final readonly class WorkspaceLimitsData
         public int $max_databases = 0,
         /** Effective total managed database storage in MB; 0 = none. */
         public int $max_database_storage_mb = 0,
+        /** Effective managed buckets the workspace may hold; 0 = none. */
+        public int $max_buckets = 0,
+        /** Effective MB the workspace's bucket quotas may reserve together; 0 = no new allocation. */
+        public int $max_bucket_storage_mb = 0,
     ) {}
 
-    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas, ?int $maxBuildsPerHour, int $maxDatabases, int $maxDatabaseStorageMb): self
+    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas, ?int $maxBuildsPerHour, int $maxDatabases, int $maxDatabaseStorageMb, int $maxBuckets, int $maxBucketStorageMb): self
     {
         return new self(
             max_projects: $profile->max_projects,
@@ -46,6 +50,8 @@ final readonly class WorkspaceLimitsData
             max_replicas: $maxReplicas,
             max_databases: $maxDatabases,
             max_database_storage_mb: $maxDatabaseStorageMb,
+            max_buckets: $maxBuckets,
+            max_bucket_storage_mb: $maxBucketStorageMb,
         );
     }
 }

@@ -18,9 +18,23 @@ final class PilotLimitsResource extends JsonResource
     /** Whether the installation offers managed databases (AgentNodeSchedulerService::databasesAvailable()). */
     public bool $databasesAvailable = false;
 
+    /** Whether the installation offers managed buckets (AgentNodeSchedulerService::bucketsAvailable()). */
+    public bool $bucketsAvailable = false;
+
+    /** Quota of a bucket created without `quota_mb` (BucketQuotaPolicy::defaultQuotaMb()). */
+    public int $bucketDefaultQuotaMb = 0;
+
     public function withDatabasesAvailable(bool $available): static
     {
         $this->databasesAvailable = $available;
+
+        return $this;
+    }
+
+    public function withBuckets(bool $available, int $defaultQuotaMb): static
+    {
+        $this->bucketsAvailable = $available;
+        $this->bucketDefaultQuotaMb = $defaultQuotaMb;
 
         return $this;
     }
@@ -71,6 +85,22 @@ final class PilotLimitsResource extends JsonResource
                 'max_database_storage_mb' => $limits->max_database_storage_mb,
                 /** Size of the workspace's managed databases from the database node's last report, in bytes. */
                 'current_database_storage_bytes' => $this->resource->current_database_storage_bytes,
+                /** Managed buckets the workspace may hold, from its limit profile or the global setting; `0` allows none. */
+                'max_buckets' => $limits->max_buckets,
+                /** Managed buckets that count towards `max_buckets`: every live one except those whose creation failed. */
+                'current_buckets_count' => $this->resource->current_buckets_count,
+                /**
+                 * MB the quotas of the workspace's buckets may reserve together, from its limit profile or the global
+                 * setting. `0` refuses new buckets and quota increases; existing buckets keep their quotas.
+                 */
+                'max_bucket_storage_mb' => $limits->max_bucket_storage_mb,
+                /**
+                 * MB the workspace's buckets reserve now: the sum of their quotas, a pending increase included.
+                 * Allocated, not used; see `current_bucket_usage_bytes`.
+                 */
+                'current_bucket_storage_mb' => $this->resource->current_bucket_storage_mb,
+                /** Usage of the workspace's buckets from the storage nodes' last reports, in bytes; a bucket never measured counts 0. */
+                'current_bucket_usage_bytes' => $this->resource->current_bucket_usage_bytes,
             ],
             'runtime_defaults' => [
                 /** @var int */
@@ -111,6 +141,16 @@ final class PilotLimitsResource extends JsonResource
              */
             'databases' => [
                 'available' => $this->databasesAvailable,
+            ],
+            /**
+             * Managed S3 buckets on this installation (ADR-021). `available` is true while at least one online node
+             * with the `managed-s3` capability may receive new buckets, has reported its object storage, and did not
+             * report it down. `default_quota_mb` is the quota of a bucket created without `quota_mb`, before it is
+             * capped at what the workspace has left. Absent on an API without buckets.
+             */
+            'buckets' => [
+                'available' => $this->bucketsAvailable,
+                'default_quota_mb' => $this->bucketDefaultQuotaMb,
             ],
         ];
     }

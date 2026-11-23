@@ -24,6 +24,12 @@ enum DeploymentTrigger: string
     case DatabaseReady = 'database_ready';
 
     /**
+     * Queued by the API after a managed bucket's new secret key took effect,
+     * for a project attached to it, when the rotation asked for it.
+     */
+    case BucketKeyRotated = 'bucket_key_rotated';
+
+    /**
      * A member went back to an earlier successful deployment: its commit and
      * recorded settings, with the project's current variables
      * (RollbackDeploymentAction).
@@ -39,7 +45,7 @@ enum DeploymentTrigger: string
         return match ($this) {
             self::Manual, self::Redeploy, self::Rollback => DeploymentActorKind::User,
             self::Webhook => DeploymentActorKind::GithubPush,
-            self::System, self::DatabasePasswordRotated, self::DatabaseReady => DeploymentActorKind::System,
+            self::System, self::DatabasePasswordRotated, self::DatabaseReady, self::BucketKeyRotated => DeploymentActorKind::System,
         };
     }
 }

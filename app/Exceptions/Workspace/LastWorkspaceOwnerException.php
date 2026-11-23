@@ -10,8 +10,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * A team always keeps an owner. Thrown when the last owner leaves, is removed
- * or demoted, or deletes their account while the team still has projects or
- * managed databases.
+ * or demoted, or deletes their account while the team still has projects,
+ * managed databases, or managed buckets.
  */
 final class LastWorkspaceOwnerException extends WorkspaceRuleException
 {
@@ -21,7 +21,7 @@ final class LastWorkspaceOwnerException extends WorkspaceRuleException
         bool $accountDeletion = false,
     ) {
         parent::__construct($accountDeletion
-            ? 'Kamu satu-satunya pemilik workspace tim yang masih punya proyek atau database. Jadikan anggota lain pemilik, atau hapus proyek dan database-nya, sebelum menghapus akun.'
+            ? 'Kamu satu-satunya pemilik workspace tim yang masih punya proyek, database, atau bucket. Jadikan anggota lain pemilik, atau hapus semuanya, sebelum menghapus akun.'
             : 'Workspace tim harus punya setidaknya satu pemilik. Jadikan anggota lain pemilik dulu.');
     }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\V1\Agent;
 
 use App\Data\Agent\AgentHeartbeatData;
+use App\Data\Agent\BucketSizesData;
 use App\Data\Agent\CrashedWorkloadsData;
 use App\Data\Agent\DatabaseSizesData;
 use App\Data\Agent\WorkloadMetricsData;
@@ -12,10 +13,12 @@ use App\Data\Agent\WorkloadReplicasData;
 use App\Data\Agent\WorkloadTrafficData;
 use App\Enums\AgentNodeStatus;
 use App\Models\AgentNode;
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Rules\EdgeAddress;
 use App\Rules\NetworkHost;
+use App\Rules\ObjectStorageEndpoint;
 use App\Rules\RegionSlug;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
@@ -66,6 +69,15 @@ final class AgentHeartbeatRequest extends FormRequest
     /** 1 PiB, like memory: far beyond any database, and inside a signed 64-bit integer when summed per workspace. */
     public const MAX_REPORTED_DATABASE_BYTES = 1_125_899_906_842_624;
 
+    /** Key of the bucket usage list under `metadata` (ADR-021). */
+    public const BUCKETS_KEY = 'buckets';
+
+    /** Buckets one heartbeat may list; the agent truncates to this many and reports the full count. */
+    public const MAX_BUCKET_ITEMS = 1000;
+
+    /** 1 PiB, like a database: far beyond any bucket, and inside a signed 64-bit integer when summed per workspace. */
+    public const MAX_REPORTED_BUCKET_BYTES = 1_125_899_906_842_624;
+
     /** Highest value the unsigned integer restart column holds on every database. */
     public const MAX_REPORTED_RESTART_COUNT = 2147483647;
 
@@ -114,6 +126,8 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.detail_counts.'.self::METRICS_KEY => ['sometimes', 'integer', 'min:0'],
             // Additive within protocol revision 4, sent with `databases`.
             'metadata.detail_counts.'.self::DATABASES_KEY => ['sometimes', 'integer', 'min:0'],
+            // Additive within protocol revision 4, sent with `buckets`.
+            'metadata.detail_counts.'.self::BUCKETS_KEY => ['sometimes', 'integer', 'min:0'],
 
             'metadata.resources' => ['required', 'array'],
             'metadata.resources.cpu_total' => ['present', 'nullable', 'integer', 'min:1'],
@@ -206,6 +220,25 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.'.self::DATABASES_KEY.'.*.name' => ['required', 'string', 'regex:'.ManagedDatabase::IDENTIFIER_PATTERN],
             'metadata.'.self::DATABASES_KEY.'.*.size_bytes' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_DATABASE_BYTES],
 
+            // Optional and additive within protocol revision 4, from nodes with
+            // the `managed-s3` capability (ADR-021): the public S3 endpoint,
+            // its signing region, the MB the node may allocate to bucket
+            // quotas, and the usage of every managed bucket it hosts. Strict
+            // like the database fields: a malformed value rejects the heartbeat.
+            'metadata.'.AgentNode::OBJECT_STORAGE_METADATA_KEY => ['sometimes', 'array'],
+            'metadata.'.AgentNode::OBJECT_STORAGE_METADATA_KEY.'.'.AgentNode::OBJECT_STORAGE_ENDPOINT_METADATA_KEY => ['required_with:metadata.'.AgentNode::OBJECT_STORAGE_METADATA_KEY, 'string', 'max:'.ObjectStorageEndpoint::MAX_LENGTH, new ObjectStorageEndpoint],
+            'metadata.'.AgentNode::OBJECT_STORAGE_METADATA_KEY.'.'.AgentNode::OBJECT_STORAGE_REGION_METADATA_KEY => ['required_with:metadata.'.AgentNode::OBJECT_STORAGE_METADATA_KEY, 'string', 'max:'.RegionSlug::MAX_LENGTH, new RegionSlug],
+            'metadata.'.AgentNode::OBJECT_STORAGE_METADATA_KEY.'.'.AgentNode::OBJECT_STORAGE_CAPACITY_METADATA_KEY => ['required_with:metadata.'.AgentNode::OBJECT_STORAGE_METADATA_KEY, 'integer', 'min:1'],
+            // False while the agent cannot read the instance; the node then
+            // reports `degraded` and gets no new bucket first.
+            'metadata.'.AgentNode::OBJECT_STORAGE_METADATA_KEY.'.'.AgentNode::OBJECT_STORAGE_AVAILABLE_METADATA_KEY => ['sometimes', 'boolean:strict'],
+            // Only on a heartbeat right after a fresh usage reading (at most
+            // once a minute): absence means no new reading, never zero.
+            'metadata.'.self::BUCKETS_KEY => ['sometimes', 'array', 'max:'.self::MAX_BUCKET_ITEMS],
+            'metadata.'.self::BUCKETS_KEY.'.*' => ['required', 'array'],
+            'metadata.'.self::BUCKETS_KEY.'.*.name' => ['required', 'string', 'regex:'.ManagedBucket::S3_NAME_PATTERN],
+            'metadata.'.self::BUCKETS_KEY.'.*.size_bytes' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_BUCKET_BYTES],
+
             'metadata.disk_pressure' => ['required', 'array'],
             'metadata.disk_pressure.state' => ['required', 'string', 'max:50'],
             'metadata.disk_pressure.minimum_workspace_free_bytes' => ['required', 'integer', 'min:0'],
@@ -262,6 +295,7 @@ final class AgentHeartbeatRequest extends FormRequest
             workloadReplicas: $this->workloadReplicas(),
             workloadMetrics: $this->workloadMetrics(),
             databaseSizes: $this->databaseSizes(),
+            bucketSizes: $this->bucketSizes(),
         );
     }
 
@@ -271,8 +305,8 @@ final class AgentHeartbeatRequest extends FormRequest
      * fields from newer agent releases. The metric samples are the exception:
      * they are stored in project_metric_minutes, and keeping up to
      * MAX_METRIC_ITEMS of them in agent_nodes.metadata would rewrite them on
-     * every heartbeat for no reader. The database sizes go to `databases` the
-     * same way.
+     * every heartbeat for no reader. The database sizes go to `databases` and
+     * the bucket usage to `buckets` the same way.
      *
      * @return array<string, mixed>
      */
@@ -284,7 +318,7 @@ final class AgentHeartbeatRequest extends FormRequest
             unset($metadata['workloads'][self::METRICS_KEY]);
         }
 
-        unset($metadata[self::DATABASES_KEY]);
+        unset($metadata[self::DATABASES_KEY], $metadata[self::BUCKETS_KEY]);
 
         return $metadata;
     }
@@ -295,6 +329,14 @@ final class AgentHeartbeatRequest extends FormRequest
         $items = $this->validated('metadata.'.self::DATABASES_KEY);
 
         return $items === null ? null : DatabaseSizesData::fromReport($items);
+    }
+
+    private function bucketSizes(): ?BucketSizesData
+    {
+        /** @var list<array{name: string, size_bytes: int}>|null $items */
+        $items = $this->validated('metadata.'.self::BUCKETS_KEY);
+
+        return $items === null ? null : BucketSizesData::fromReport($items);
     }
 
     private function workloadMetrics(): ?WorkloadMetricsData

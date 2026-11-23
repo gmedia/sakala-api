@@ -47,6 +47,10 @@ final class WorkspaceQuotaResource extends JsonResource
                 'max_databases' => $limits->max_databases,
                 /** Effective total managed database storage in MB, from the profile or the global setting. `0` allows none. */
                 'max_database_storage_mb' => $limits->max_database_storage_mb,
+                /** Effective managed buckets, from the profile or the global setting. `0` allows none. */
+                'max_buckets' => $limits->max_buckets,
+                /** Effective MB the bucket quotas may reserve together, from the profile or the global setting. `0` allows no new allocation. */
+                'max_bucket_storage_mb' => $limits->max_bucket_storage_mb,
                 /** Global, the same for every workspace. */
                 'max_active_deployments_per_project' => $this->resource->max_active_deployments_per_project,
             ],
@@ -59,6 +63,12 @@ final class WorkspaceQuotaResource extends JsonResource
                 'databases' => $this->resource->current_databases_count,
                 /** Reported size of the workspace's managed databases, in bytes. */
                 'database_storage_bytes' => $this->resource->current_database_storage_bytes,
+                /** Managed buckets that count towards `max_buckets`. */
+                'buckets' => $this->resource->current_buckets_count,
+                /** MB the workspace's bucket quotas reserve (allocated, not used). */
+                'bucket_storage_mb' => $this->resource->current_bucket_storage_mb,
+                /** Reported usage of the workspace's buckets, in bytes. */
+                'bucket_usage_bytes' => $this->resource->current_bucket_usage_bytes,
             ],
         ];
     }

@@ -26,5 +26,6 @@ final readonly class AgentHeartbeatData
         public ?WorkloadReplicasData $workloadReplicas = null,
         public ?WorkloadMetricsData $workloadMetrics = null,
         public ?DatabaseSizesData $databaseSizes = null,
+        public ?BucketSizesData $bucketSizes = null,
     ) {}
 }

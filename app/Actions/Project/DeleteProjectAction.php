@@ -11,11 +11,13 @@ use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Models\AgentCommand;
 use App\Models\AuditEvent;
+use App\Models\BucketAttachment;
 use App\Models\DatabaseAttachment;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\Runtime\ProjectWorkloadService;
+use App\Support\Bucket\BucketAudit;
 use App\Support\Database\DatabaseAudit;
 use Illuminate\Support\Facades\DB;
 
@@ -49,6 +51,7 @@ final class DeleteProjectAction
 
             $stopCommandId = $this->stopServingWorkload($locked);
             $this->detachDatabases($locked, $user);
+            $this->detachBuckets($locked, $user);
 
             $locked->delete();
 
@@ -99,6 +102,26 @@ final class DeleteProjectAction
                 DatabaseAudit::record($user ?? self::SYSTEM_ACTOR_ID, DatabaseAudit::DETACHED, $attachment->database, [
                     'project_id' => $project->id,
                     'reason' => DetachDatabaseAction::REASON_PROJECT_DELETED,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * A managed bucket outlives the projects it is attached to (ADR-021),
+     * the same way as a database, and under the same lock rule.
+     */
+    private function detachBuckets(Project $project, ?User $user): void
+    {
+        $attachments = BucketAttachment::query()->with('bucket')->where('project_id', $project->id)->get();
+
+        foreach ($attachments as $attachment) {
+            $attachment->delete();
+
+            if ($attachment->bucket !== null) {
+                BucketAudit::record($user ?? self::SYSTEM_ACTOR_ID, BucketAudit::DETACHED, $attachment->bucket, [
+                    'project_id' => $project->id,
+                    'reason' => BucketAudit::DETACH_REASON_PROJECT_DELETED,
                 ]);
             }
         }

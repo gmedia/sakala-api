@@ -8,7 +8,7 @@ use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\DeploymentTrigger;
 use App\Models\DatabaseAttachment;
 use App\Models\ManagedDatabase;
-use App\Services\Database\AttachedProjectDeployer;
+use App\Services\Attachment\AttachedProjectDeployer;
 use App\Services\Database\DatabaseDeployRequests;
 
 /**

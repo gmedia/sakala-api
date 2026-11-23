@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Project;
 
 use App\Models\EnvironmentVariable;
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 
@@ -19,9 +20,10 @@ use App\Models\Project;
  * gets, so a newly detected port counts while none is configured), the build,
  * start, and release commands, the root directory, the project's `replicas`
  * setting, the environment variables' keys and values, and the attached
- * managed database's credentials. Not: the name, thumbnail, auto-deploy,
+ * managed database's and bucket's credentials. Not: the name, thumbnail, auto-deploy,
  * region, or `is_secret`. Resources are requested per deployment, not stored
- * on the project. The database node's address is not either: it comes from a
+ * on the project. The database node's address and the bucket endpoint and
+ * region are not either: it comes from a
  * heartbeat at deploy time, and a node that moves needs a redeploy anyway.
  *
  * Both fingerprints are HMAC-SHA256 keyed with APP_KEY, because environment
@@ -69,7 +71,24 @@ final class DeploymentConfigFingerprint
             // Same for an attached database: detaching it gives back the
             // fingerprint of before it was attached.
             ...($project->database_fingerprint !== null ? ['database', $project->database_fingerprint] : []),
+            // And for an attached bucket.
+            ...($project->bucket_fingerprint !== null ? ['bucket', $project->bucket_fingerprint] : []),
         ]);
+    }
+
+    /**
+     * What an attached bucket hands a deployment: its identity, name on the
+     * node, access key ID, and secret, so attaching, detaching, and rotating
+     * the key all change it. The endpoint and region are left out, like the
+     * database endpoint. Null without a bucket.
+     */
+    public static function forBucket(?ManagedBucket $bucket): ?string
+    {
+        if ($bucket === null) {
+            return null;
+        }
+
+        return self::sign([$bucket->id, $bucket->s3_bucket, $bucket->access_key_id, (string) $bucket->secret_access_key]);
     }
 
     /**
