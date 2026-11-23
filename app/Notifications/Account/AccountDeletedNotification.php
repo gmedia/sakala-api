@@ -35,7 +35,7 @@ final class AccountDeletedNotification extends Notification implements ShouldQue
             ->line('Akun Sakala kamu sudah dihapus dan tidak bisa dipulihkan. Kamu tidak perlu melakukan apa-apa lagi.')
             ->line('Proyekmu sudah dihentikan, dan datanya dihapus permanen setelah masa simpan yang tertulis di Pemberitahuan Privasi.')
             ->line('Izin GitHub App Sakala di akun GitHub-mu tidak ikut dicabut. Kalau dulu kamu memasangnya, hapus dari pengaturan GitHub-mu.')
-            ->line("Kalau bukan kamu yang menghapus akun ini, segera kirim email ke {$contact}.")
+            ->lineWithAddress('Kalau bukan kamu yang menghapus akun ini, segera kirim email ke :address.', $contact)
             ->reason('Kamu menerima email ini karena alamat ini adalah email akun Sakala yang baru saja dihapus.');
     }
 }

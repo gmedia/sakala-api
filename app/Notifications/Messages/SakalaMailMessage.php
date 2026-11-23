@@ -27,6 +27,17 @@ final class SakalaMailMessage extends MailMessage
         return $this;
     }
 
+    /**
+     * A paragraph naming an address the reader should write to, for example
+     * "kirim email ke :address". The address becomes a mailto: link.
+     */
+    public function lineWithAddress(string $text, string $address): self
+    {
+        $this->line(AddressLine::fromTemplate($text, $address));
+
+        return $this;
+    }
+
     /** The heading at the top of the card. */
     public function headline(string $text): self
     {

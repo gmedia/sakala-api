@@ -1,0 +1,2 @@
+@props(['address'])
+{{ $address }}
