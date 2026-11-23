@@ -4,6 +4,10 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- A redeploy pressed right after a root directory change no longer costs one needless build later (ledger X-36). It is created before the inspection of the new directory lands, so its build fingerprint counts every variable (`unknown_stack`); when the inspection then finds a plain server, every later deployment's fingerprint differs from it, and the first runtime-only variable change after it (or after a rollback to it, which inherits the fingerprint) built instead of reusing the image. A succeeded inspection now gives deployments of the inspected commit whose fingerprint is exactly the `unknown_stack` one over the project's current settings and variables the classified fingerprint (`ClassifyFallbackBuildFingerprintsAction`, under the project row lock). Static sites, prerendering frameworks, and stacks that stay unknown keep their fingerprint and still build on any variable change; a deployment of another commit, or whose variables changed since, keeps its fingerprint too.
+
 ## [0.11.0] - 2026-11-23
 
 ### Added

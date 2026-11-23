@@ -126,7 +126,25 @@ final class DeploymentConfigFingerprint
      */
     public static function forBuild(Project $project, iterable $variables): string
     {
-        $everyVariable = VariableBuildPolicy::everyVariableIsBuildTime($project);
+        return self::build($project, $variables, VariableBuildPolicy::everyVariableIsBuildTime($project));
+    }
+
+    /**
+     * What forBuild() gives the same project and variables while it has no
+     * usable inspection (VariableBuildPolicy rule 5): every variable under its
+     * own scope marker. A static site and a prerendering framework get this
+     * value too, which is why the two can only be told apart by inspection.
+     *
+     * @param  iterable<EnvironmentVariable>  $variables
+     */
+    public static function forBuildWithoutInspection(Project $project, iterable $variables): string
+    {
+        return self::build($project, $variables, true);
+    }
+
+    /** @param  iterable<EnvironmentVariable>  $variables */
+    private static function build(Project $project, iterable $variables, bool $everyVariable): string
+    {
         $pairs = [];
 
         foreach ($variables as $variable) {
