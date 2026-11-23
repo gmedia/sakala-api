@@ -32,7 +32,7 @@ class StoreLimitProfileRequest extends FormRequest
             'max_memory_mb' => ['required', 'integer', 'between:64,65536'],
             /** Per project, in thousandths of a CPU. */
             'max_cpu_millis' => ['required', 'integer', 'between:100,64000'],
-            /** Reserved for the build rate limit; stored but not enforced yet. */
+            /** Deployments that build an image a workspace may create in the rolling hour; redeploys that reuse the live image do not count. Null follows SAKALA_PROJECT_MAX_BUILDS_PER_HOUR (default 20). */
             'max_builds_per_hour' => ['sometimes', 'nullable', 'integer', 'between:1,1000'],
             /**
              * Minutes without a request before a project sleeps, up to a week. `0` never puts the workspace's
