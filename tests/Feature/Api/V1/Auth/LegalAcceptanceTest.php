@@ -258,10 +258,10 @@ test('without an effective date the newest version applies at once', function ()
     expect(LegalDocument::PrivacyNotice->currentVersion())->toBe('privasi-v2');
 });
 
-test('the shipped defaults publish privasi-v2 from 30 November 2026 WIB', function (): void {
+test('the shipped defaults publish privasi-v3 from 7 December 2026 WIB', function (): void {
     $defaults = require config_path('sakala.php');
 
-    expect($defaults['legal']['versions']['privacy_notice'])->toBe('privasi-v2')
-        ->and($defaults['legal']['previous_versions']['privacy_notice'])->toBe('privasi-v1')
-        ->and(CarbonImmutable::parse($defaults['legal']['effective_at']['privacy_notice'])->eq(CarbonImmutable::parse('2026-11-30 00:00:00', 'Asia/Jakarta')))->toBeTrue();
+    expect($defaults['legal']['versions']['privacy_notice'])->toBe('privasi-v3')
+        ->and($defaults['legal']['previous_versions']['privacy_notice'])->toBe('privasi-v2')
+        ->and(CarbonImmutable::parse($defaults['legal']['effective_at']['privacy_notice'])->eq(CarbonImmutable::parse('2026-12-07 00:00:00', 'Asia/Jakarta')))->toBeTrue();
 });

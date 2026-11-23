@@ -19,7 +19,7 @@ use Illuminate\Console\Command;
 final class AnnounceLegalChangeCommand extends Command
 {
     protected $signature = 'legal:announce-change
-                            {version : The new version, for example privasi-v2; it needs a summary in LegalChangeCatalog}
+                            {version : The new version, for example privasi-v3; it needs a summary in LegalChangeCatalog}
                             {--effective= : Effective date, YYYY-MM-DD in WIB (defaults to the configured one; must match it when both exist)}
                             {--dry-run : Count the accounts that would get the email, and queue nothing}
                             {--limit= : Queue at most this many emails in this run, for a daily sending quota}

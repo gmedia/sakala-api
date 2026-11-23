@@ -171,10 +171,10 @@ Link reset mengarah ke `SAKALA_CONSOLE_URL/reset-password?token=&email=`, memaka
 Versi yang berlaku ada di `config/sakala.php`, dan `GET /api/v1/auth/options` mengirimnya:
 
 ```json
-{ "data": { "legal": { "terms_version": "syarat-v1", "acceptable_use_version": "penggunaan-wajar-v1", "privacy_notice_version": "privasi-v1" } } }
+{ "data": { "legal": { "terms_version": "syarat-v1", "acceptable_use_version": "penggunaan-wajar-v1", "privacy_notice_version": "privasi-v2" } } }
 ```
 
-Yang dikirim dan dicatat selalu versi yang sedang berlaku. Contoh di atas adalah jawaban sebelum 30 November 2026, saat `privasi-v2` sudah terbit tetapi belum berlaku.
+Yang dikirim dan dicatat selalu versi yang sedang berlaku. Contoh di atas adalah jawaban sebelum 7 Desember 2026, saat `privasi-v3` sudah terbit tetapi belum berlaku.
 
 Formulir punya satu kotak centang wajib, yaitu `accept_terms`, untuk satu pernyataan: "Saya berusia minimal 18 tahun atau sudah mendapat persetujuan orang tua atau wali, dan menyetujui Syarat Layanan dan Kebijakan Penggunaan Wajar." Bersamanya Console mengirim `terms_version` dan `acceptable_use_version` yang ditampilkannya, supaya persetujuan tidak tercatat untuk versi yang tidak pernah dilihat orang itu. Versi lama dijawab `422`.
 
@@ -196,10 +196,10 @@ Pemberitahuan privasi berjanji mengumumkan perubahan yang berarti lewat situs da
 `php artisan legal:announce-change <versi>` mengantrekan email pengumuman ke setiap akun yang emailnya sudah terverifikasi, apa pun pengaturan notifikasinya. Ringkasan perubahannya diambil dari `App\Support\Legal\LegalChangeCatalog`, jadi versi tanpa ringkasan ditolak. Perintah ini juga menolak versi yang belum menjadi versi terbaru di konfigurasi, `--effective` yang berbeda dari `effective_at`, waktu yang sudah lewat dari tanggal berlaku, dan email yang dimatikan (`sakala.email_delivery_enabled`).
 
 ```bash
-php artisan legal:announce-change privasi-v2 --dry-run        # hitung saja: sudah diumumkan, menunggu, akan diantrekan
-php artisan legal:announce-change privasi-v2 --effective=2026-11-30
-php artisan legal:announce-change privasi-v2 --limit=250      # sebagian dulu, misalnya karena kuota harian penyedia email
-php artisan legal:announce-change privasi-v2 --interval=2     # jeda antaremail dalam detik (default 1)
+php artisan legal:announce-change privasi-v3 --dry-run        # hitung saja: sudah diumumkan, menunggu, akan diantrekan
+php artisan legal:announce-change privasi-v3 --effective=2026-12-07
+php artisan legal:announce-change privasi-v3 --limit=250      # sebagian dulu, misalnya karena kuota harian penyedia email
+php artisan legal:announce-change privasi-v3 --interval=2     # jeda antaremail dalam detik (default 1)
 ```
 
 Setiap akun mendapat satu baris di `legal_change_announcements` dan emailnya di satu transaction, jadi menjalankan ulang, atau dua run bersamaan, tidak pernah mengirim dua kali. Email yang gagal masuk antrean membatalkan barisnya, dan run berikutnya mencobanya lagi. Email dikirim queue worker dengan jeda `--interval`; email yang gagal di worker ada di `failed_jobs` seperti job lain. Akun yang terverifikasi setelah sebuah run mendapat emailnya di run berikutnya. Output hanya berisi angka, tidak pernah alamat email.
