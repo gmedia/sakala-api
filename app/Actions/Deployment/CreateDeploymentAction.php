@@ -32,6 +32,7 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Agent\AgentNodeSchedulerService;
 use App\Services\Database\DatabaseConnectionEnvironment;
+use App\Services\Deployment\DeploymentInspectionHold;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\GitHub\GithubRepositoryAccessService;
 use App\Services\Runtime\PilotRuntimeLimitService;
@@ -103,6 +104,7 @@ final class CreateDeploymentAction
         private readonly DatabaseConnectionEnvironment $databaseEnvironment,
         private readonly PlanDeploymentBuildAction $planBuild,
         private readonly RecordRollbackAction $recordRollback,
+        private readonly DeploymentInspectionHold $inspectionHold,
     ) {}
 
     /**
@@ -328,8 +330,15 @@ final class CreateDeploymentAction
                     'branch' => $data->branch,
                     'commit_sha' => $commit['sha'],
                     'commit_message' => CommitMessage::subject($commit['message']),
-                    // Fixed at creation: a later port change only affects the next deployment.
+                    // Fixed at creation: a later port change only affects the next
+                    // deployment. While the inspection that may find the port is
+                    // still running, the command is held and gets the port then.
+                    // Recorded settings carry their own port, so a rollback (or a
+                    // redeploy of one) is never held.
                     'container_port' => $settings->containerPort,
+                    'awaiting_inspection_until' => $recorded === null && $this->inspectionHold->shouldHold($lockedProject)
+                        ? $this->inspectionHold->deadline()
+                        : null,
                     // Fixed at creation too: a later change applies from the next deployment.
                     'replicas' => $replicas,
                     // What `redeploy_required` compares with the project later,

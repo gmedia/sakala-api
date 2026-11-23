@@ -78,6 +78,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $finished_at
  * @property CarbonImmutable|null $cancelled_at
  * @property CarbonImmutable|null $cancel_requested_at
+ * @property CarbonImmutable|null $awaiting_inspection_until
  * @property CarbonImmutable|null $crash_notified_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
@@ -121,6 +122,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'finished_at',
     'cancelled_at',
     'cancel_requested_at',
+    'awaiting_inspection_until',
     'crash_notified_at',
 ])]
 #[Hidden(['config_fingerprint', 'build_fingerprint'])]
@@ -269,6 +271,7 @@ class Deployment extends Model
             'finished_at' => 'immutable_datetime',
             'cancelled_at' => 'immutable_datetime',
             'cancel_requested_at' => 'immutable_datetime',
+            'awaiting_inspection_until' => 'immutable_datetime',
             'crash_notified_at' => 'immutable_datetime',
         ];
     }

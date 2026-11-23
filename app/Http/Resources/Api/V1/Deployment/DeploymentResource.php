@@ -207,7 +207,7 @@ final class DeploymentResource extends JsonResource
             'is_active' => $this->resource->project?->active_deployment_id === $this->resource->id,
             /** @var string|null */
             'cancel_requested_at' => $this->resource->cancel_requested_at?->toAtomString(),
-            /** @var 'assigned'|'waiting_for_node'|null */
+            /** @var 'assigned'|'waiting_for_node'|'waiting_for_inspection'|null */
             'queue_state' => $this->queueState()?->value,
             'started_at' => $startedAt,
             'finished_at' => $finishedAt,
@@ -330,14 +330,19 @@ final class DeploymentResource extends JsonResource
     }
 
     /**
-     * Why a queued deployment has not started. Only a node that can take
-     * workload right now counts: a pinned node that went offline or is
-     * draining leaves the deployment waiting all the same.
+     * Why a queued deployment has not started. Waiting for the project's
+     * inspection comes first: the command is held whatever the node. Then only
+     * a node that can take workload right now counts: a pinned node that went
+     * offline or is draining leaves the deployment waiting all the same.
      */
     private function queueState(): ?DeploymentQueueState
     {
         if ($this->resource->status !== DeploymentStatus::Queued) {
             return null;
+        }
+
+        if ($this->resource->awaiting_inspection_until !== null) {
+            return DeploymentQueueState::WaitingForInspection;
         }
 
         $node = $this->resource->agentNode;

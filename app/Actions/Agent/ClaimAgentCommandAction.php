@@ -71,7 +71,7 @@ final class ClaimAgentCommandAction
                     ->firstOrFail();
             }
 
-            $this->assertClaimable($command, $node);
+            $this->assertClaimable($command, $node, $deployment);
 
             if ($command->type === AgentCommandType::ReconcileWorkload
                 && $deployment !== null
@@ -180,7 +180,7 @@ final class ClaimAgentCommandAction
     /**
      * @throws CommandConflictException
      */
-    private function assertClaimable(AgentCommand $command, AgentNode $node): void
+    private function assertClaimable(AgentCommand $command, AgentNode $node, ?Deployment $deployment): void
     {
         if ($command->status->value !== AgentCommandStatus::Pending->value) {
             throw new CommandConflictException($command);
@@ -195,6 +195,12 @@ final class ClaimAgentCommandAction
         }
 
         if ($command->expires_at !== null && $command->expires_at < now()) {
+            throw new CommandConflictException($command);
+        }
+
+        // Held until the project's inspection reports the port; the lock on
+        // the deployment row orders this with DeploymentInspectionHold.
+        if ($deployment?->awaiting_inspection_until !== null) {
             throw new CommandConflictException($command);
         }
 

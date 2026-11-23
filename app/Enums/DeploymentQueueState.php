@@ -11,4 +11,10 @@ enum DeploymentQueueState: string
 
     /** No eligible node exists right now; it waits without a deadline. */
     case WaitingForNode = 'waiting_for_node';
+
+    /**
+     * The project's inspection has not reported the port yet, so the command
+     * is held; it is released, or the deployment fails, once it does.
+     */
+    case WaitingForInspection = 'waiting_for_inspection';
 }
