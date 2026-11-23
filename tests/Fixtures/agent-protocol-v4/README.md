@@ -22,14 +22,15 @@ rather than enum-level.
   sends each with an `Idempotency-Key` header (UUID v4, unique per request,
   reused on retry) and never sends single-object bodies any more.
 
-- `commands/bucket-commands.json`, `heartbeat/object-storage-host.json` —
-  managed buckets (ADR-021), copied byte for byte from `examples/` on the
-  sakala-agent branch `feat/managed-s3` at `81f02f7` (PR #138), **before a
-  tagged release ships them**. Replace both from the agent release tag before
-  the API release. The heartbeat file carries only the object storage fields;
-  tests merge them into a full heartbeat. Command results are not in the
-  agent example, so the lifecycle test writes them from the contract
-  (section 3.4).
+- `commands/bucket-commands.json`, `heartbeat/object-storage-host.json`,
+  `failures/bucket-failures.json` — managed buckets (ADR-021), copied byte for
+  byte from `examples/` of **sakala-agent main `f1fbe78`** (PR #138), before a
+  tagged release; **re-check them against the release tag**. The heartbeat file
+  carries only the object storage fields; tests merge them into a full
+  heartbeat. Command results are not in the agent example, so the lifecycle
+  test writes them from the contract (section 3.4). `BucketFailureFixturesTest`
+  replays every `fail` body and checks the API's handling per contract
+  section 13: resend, `unknown`, or `failed`.
 
 Do not "fix" these files to match the API; when the agent contract changes,
 replace them from the new tag and adjust the API.

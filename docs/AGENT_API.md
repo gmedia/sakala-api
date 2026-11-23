@@ -1158,9 +1158,11 @@ diambil dari contoh dokumentasi dan output builder heartbeat pada tag tersebut
 mereplay payload ini apa adanya (poll harus menyajikan bentuk yang sama;
 heartbeat harus diterima; batch harus di-ack penuh dan retry-nya diduplikasi)
 tanpa Agent atau Docker sungguhan. Lihat README di folder tersebut.
-`commands/bucket-commands.json` dan `heartbeat/object-storage-host.json` ditulis dari
-kontrak object storage sebelum tag agent yang memuatnya ada, dan harus diganti dari
-`examples/` tag agent itu sebelum rilis API (saat ini disalin dari branch agent `feat/managed-s3` commit `81f02f7`).
+`commands/bucket-commands.json`, `heartbeat/object-storage-host.json`, dan
+`failures/bucket-failures.json` disalin dari `examples/` sakala-agent main `f1fbe78`
+(PR #138) sebelum ada tag rilis; periksa ulang terhadap tag rilis agent. Test
+memastikan setiap kode di `bucket-failures.json` dikenal API dan ditangani sesuai
+bagian 13 kontrak (kirim ulang, `unknown`, atau `failed`).
 
 ## Belum tersedia pada API
 
@@ -1247,8 +1249,7 @@ Tambahan untuk bucket terkelola (opsional; tanpa node `managed-s3` API menolak
 pembuatan bucket dengan `409 BUCKET_REGION_UNAVAILABLE` dan `buckets.available`
 bernilai `false`):
 
-12. Dikerjakan paralel di sakala-agent branch `feat/managed-s3` dari kontrak yang
-    sama: capability `managed-s3`, `metadata.object_storage` di setiap heartbeat,
+12. Sudah di sakala-agent main `f1fbe78` (PR #138), belum bertag: capability `managed-s3`, `metadata.object_storage` di setiap heartbeat,
     `metadata.buckets` setelah pembacaan baru, dan keenam command di
     [Perintah bucket](#perintah-bucket), dengan urutan `CommandType` yang sama
     seperti di bagian Enum.
