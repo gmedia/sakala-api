@@ -20,7 +20,8 @@ final class PollAgentCommandsAction
 
     /**
      * Return pending, non-expired commands eligible for the given agent node.
-     * Eligibility: available_at <= now, expires_at not passed, the command is
+     * Eligibility: available_at <= now, expires_at not passed, not held for
+     * an inspection (DeploymentInspectionHold), the command is
      * scoped to the node (assigned to it, or unassigned and not of a pinned
      * type), and the node may execute the command type given its protocol
      * revision, authorisation, reported status, desired lifecycle state, and
@@ -46,6 +47,11 @@ final class PollAgentCommandsAction
             ->where(function ($query): void {
                 $query->whereNull('expires_at')
                     ->orWhere('expires_at', '>', now());
+            })
+            // A deployment waiting for its project's inspection holds its
+            // command until the port is known (DeploymentInspectionHold).
+            ->whereDoesntHave('deployment', function ($query): void {
+                $query->whereNotNull('awaiting_inspection_until');
             });
 
         $query = $this->eligibility->applyNodeScopeToQuery($query, $agent);

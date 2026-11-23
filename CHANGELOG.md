@@ -4,6 +4,10 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- **Deploy without waiting for inspection.** A deployment created while the project's inspection is still `pending` and no port is configured is answered `201` `queued` as before, but its `DeployProject` command is held from the nodes (poll skips it, claim answers `409`) until the inspection reports the port. `queue_state` gains `waiting_for_inspection` for that time. A finished inspection, or a port configured meanwhile, releases the command with the port in effect then (`container_port` on the deployment and in the payload); everything else in the payload is from the click. A failed inspection fails the deployment at stage `queued`, with the inspection's error code when the classifier knows it and the new `inspection_failed` otherwise; an inspection still pending after `SAKALA_DEPLOYMENT_INSPECTION_WAIT_SECONDS` (default 900) fails it with the new `inspection_timeout`. Every creation path holds, including `deploy_when_ready`, so a deployment waits for its database and then its inspection. Settling runs from `SettleInspectionHoldsJob` after the inspection outcome commits and from the new minute sweep `deployments:settle-inspection-holds`. New nullable column `deployments.awaiting_inspection_until` (indexed). Clients can now deploy right after creating a project.
+
 ### Fixed
 
 - The owner invitation email no longer says that anyone who opens the link with a Sakala account can accept it, or that the reader can simply sign up first. An owner invitation is accepted only by an account with the invited address verified, so the email now names that address and says to sign up and verify with it; member and viewer invitations keep the warning about forwarding the link. `mail:preview` gains `workspace-invitation-owner`.

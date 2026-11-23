@@ -9,6 +9,7 @@ use App\Enums\AgentCommandType;
 use App\Enums\ProjectInspectionStatus;
 use App\Models\AgentCommand;
 use App\Models\Project;
+use App\Services\Deployment\DeploymentInspectionHold;
 
 /**
  * Writes the outcome of an InspectProject command onto its project.
@@ -19,9 +20,16 @@ use App\Models\Project;
  * stale check; RequestProjectInspectionAction locks the same row when it
  * creates a newer command, which makes the ordering deterministic in either
  * direction. Must be called inside a transaction.
+ *
+ * A deployment held for this inspection (DeploymentInspectionHold) is
+ * settled by a job queued once the outcome commits.
  */
 final class ProjectInspectionOutcomeService
 {
+    public function __construct(
+        private readonly DeploymentInspectionHold $inspectionHold,
+    ) {}
+
     /**
      * @return Project|null the project when the outcome was written, null when
      *                      the command had already been superseded
@@ -54,6 +62,8 @@ final class ProjectInspectionOutcomeService
             ]),
         ]);
 
+        $this->inspectionHold->settleAfterCommit($project);
+
         return $project;
     }
 
@@ -65,10 +75,16 @@ final class ProjectInspectionOutcomeService
     {
         $project = $this->lockUnlessSuperseded($command);
 
-        $project?->update([
+        if ($project === null) {
+            return null;
+        }
+
+        $project->update([
             'inspection_status' => ProjectInspectionStatus::Failed,
             'inspection_error_code' => $errorCode,
         ]);
+
+        $this->inspectionHold->settleAfterCommit($project);
 
         return $project;
     }

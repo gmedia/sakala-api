@@ -332,6 +332,10 @@ Polling **tidak** memberi kepemilikan. Field `cancel_requested` dijelaskan di
   dan `desired_state = active`; `DrainNode`/`ResumeNode` juga ditawarkan saat
   draining/drained/maintenance;
 - command `Pending`, `available_at <= now`, dan `expires_at` belum lewat;
+- untuk `DeployProject`: deployment-nya tidak sedang menunggu inspeksi project
+  (`deployments.awaiting_inspection_until` kosong). Control plane mengisi port
+  di payload saat melepasnya; claim yang datang lebih dulu dijawab `409`
+  karena claim mengunci baris deployment yang sama;
 - command terikat ke node (`agent_node_id = node`), atau belum terikat dan
   tipenya bukan *pinned* (`InspectProject`, `DeployProject`, `CleanupRuntime`,
   `DrainNode`, `ResumeNode`, dan keenam command database selalu pinned; command
@@ -992,7 +996,7 @@ dilihat console (`failure.category`):
 | Kategori | Bisa diperbaiki student | Error code |
 | --- | --- | --- |
 | `checkout` | ya | `repository_not_found`, `repository_access_denied`, `repository_auth_failed`, `repository_credential_unavailable`, `repository_commit_not_found`, `repository_access_revoked` (control plane) |
-| `checkout` | tidak | `repository_credential_expired`, `repository_checkout_failed`, `runtime_repository_failed`, `repository_access_check_failed` (control plane) |
+| `checkout` | tidak | `repository_credential_expired`, `repository_checkout_failed`, `runtime_repository_failed`, `repository_access_check_failed` (control plane), `inspection_failed` (control plane: inspeksi yang ditunggu deployment gagal dengan kode yang tidak dikenali) |
 | `build` | ya | `runtime_build_failed`, `runtime_root_directory_invalid` |
 | `release` | ya | `release_command_failed` (perintah rilis keluar dengan kode selain 0), `release_command_timeout` (perintah rilis melewati batas waktu); versi sebelumnya tetap melayani |
 | `start` | ya | `runtime_app_crashed`, `runtime_app_exec_denied`, `runtime_app_host_blocked` (framework menolak domain project: `allowedHosts` Vite atau `ALLOWED_HOSTS` Django; versi sebelumnya tetap melayani), `runtime_port_conflict` |
@@ -1004,7 +1008,7 @@ dilihat console (`failure.category`):
 | `resource` | ya | `runtime_app_out_of_memory`, `runtime_replicas_exceeded` (replika melebihi batas node; kurangi di pengaturan proyek) |
 | `resource` | tidak | `runtime_capacity_exceeded`, `runtime_disk_pressure` |
 | `node` | tidak | `runtime_preflight_failed`, `runtime_dependency_failed`, `invalid_runtime_configuration`, `invalid_runtime_command`, `unsupported_runtime_command`, `runtime_cancelled`, serta kode lain yang belum dikenali dan berawalan `runtime_registry` atau `runtime_network` (node gagal menjangkau registry image atau jaringan) |
-| `scheduling` | tidak | `command_expired` (control plane) |
+| `scheduling` | tidak | `command_expired` (control plane), `inspection_timeout` (control plane: inspeksi yang ditunggu deployment belum selesai sampai batas waktunya) |
 | `unknown` | tidak | lainnya |
 
 Kolom kedua muncul di console sebagai `failure.user_fixable`. Kode `runtime_app_*`
