@@ -30,10 +30,10 @@ final class LegalChangeCatalog
                 previousVersion: 'privasi-v1',
                 changes: [
                     'Ada bagian baru tentang database PostgreSQL terkelola, yang masih pilot. Isi database adalah datamu dan data pengguna aplikasimu, dan kami memprosesnya hanya untuk menjalankan proyekmu.',
-                    'Setiap database terkelola di-backup setiap malam dalam bentuk terenkripsi, dan salinannya disimpan sekitar 14 hari. Menghapus database langsung menghapusnya dari server database, tetapi salinannya masih ada di backup selama itu.',
-                    'Database tidak ikut terhapus saat proyek dihapus. Database di workspace pribadimu ikut dihapus saat akunmu dihapus.',
+                    'Setiap database terkelola di-backup setiap malam dalam bentuk terenkripsi, dan salinannya disimpan sekitar 14 hari. Menghapus database langsung menghapusnya dari server database, tetapi salinannya masih ada di backup selama itu. Database tidak ikut terhapus saat proyek dihapus, tetapi database di workspace pribadimu ikut dihapus saat akunmu dihapus.',
                     'Password database hanya bisa dibuka pemilik workspace dan admin Sakala, dan setiap pembukaannya dicatat.',
                     'Backup data akun dan proyek kini juga disalin, tetap terenkripsi, ke server kedua di pusat data yang sama.',
+                    'Daftar email kini lengkap, termasuk undangan workspace dan email notifikasi proyek yang bisa kamu atur sendiri. Pembatasan lalu lintas keluar dari container pengguna kini disebut sebagai pengaman yang sudah berjalan.',
                 ],
             ),
         ];
