@@ -28,6 +28,7 @@ final class GetProjectCollectionAction
                 'latestSuspendRequest',
                 'workspace',
                 'databases' => fn ($query) => $query->select(['databases.id', 'databases.name', 'databases.status']),
+                'buckets' => fn ($query) => $query->select(['buckets.id', 'buckets.name', 'buckets.status']),
             ])
             ->whereIn('workspace_id', WorkspaceMember::query()->select('workspace_id')->where('user_id', $user->id))
             ->when($data->workspaceId !== null, fn ($query) => $query->where('workspace_id', $data->workspaceId))

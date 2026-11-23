@@ -186,6 +186,23 @@ test('the OpenAPI document describes replicas on projects, limits, and the wake 
         ->and($conflict['properties']['requested']['type'])->toBe('integer');
 });
 
+test('the OpenAPI document types the bucket default quota and the buckets on the project list', function (): void {
+    $schemas = openApiDocumentForTypes()['components']['schemas'];
+    $defaultQuota = $schemas['PilotLimitsResource']['properties']['buckets']['properties']['default_quota_mb'];
+    $listed = $schemas['GetCollectionProjectResource'];
+    $bucket = $listed['properties']['buckets']['items'];
+
+    expect($defaultQuota['type'])->toBe('integer')
+        ->and($defaultQuota)->not->toHaveKey('const')
+        ->and($defaultQuota['description'])->toContain('in MB')
+        ->and($listed['required'])->toContain('buckets')
+        ->and($listed['properties']['buckets']['type'])->toBe('array')
+        ->and($bucket['properties']['id']['type'])->toBe('string')
+        ->and($bucket['properties']['name']['type'])->toBe('string')
+        ->and($bucket['properties']['status']['$ref'])->toBe('#/components/schemas/BucketStatus')
+        ->and($bucket['required'])->toBe(['id', 'name', 'status']);
+});
+
 test('responses send the types the OpenAPI document gives', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();

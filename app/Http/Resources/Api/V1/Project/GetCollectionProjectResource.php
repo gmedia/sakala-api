@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Project;
 
+use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Support\Project\ProjectPreviewPresenter;
@@ -61,6 +62,19 @@ final class GetCollectionProjectResource extends JsonResource
                     'id' => $database->id,
                     'name' => $database->name,
                     'status' => $database->status,
+                ])
+                ->values()
+                ->all(),
+            /**
+             * The managed bucket attached to the project, as a list of at most one: a project uses one bucket at a
+             * time. Only `id`, `name`, and `status`; the project detail has the connection variables.
+             */
+            'buckets' => $this->resource->buckets
+                ->sortBy('name')
+                ->map(static fn (ManagedBucket $bucket): array => [
+                    'id' => $bucket->id,
+                    'name' => $bucket->name,
+                    'status' => $bucket->status,
                 ])
                 ->values()
                 ->all(),
