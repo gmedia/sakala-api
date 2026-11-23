@@ -366,7 +366,57 @@ capability `replicas`, dan yang membawa `release_command` juga butuh capability
 `release-command`; lihat [DeployProject](#deployproject). API hanya mengirim
 `reuse_image_from_deployment_id` ke node yang mengiklankan capability
 `image-reuse`, tetapi capability ini tidak memengaruhi penempatan: tanpa itu
-deployment tetap dibuat dan di-build seperti biasa.
+deployment tetap dibuat dan di-build seperti biasa. Capability `image-rollback`
+juga tidak memengaruhi penempatan; API hanya memakainya untuk memperkirakan
+apakah rollback bisa tanpa build (lihat [Image rollback](#image-rollback)).
+
+### Image rollback
+
+Capability `image-rollback` (driver `docker` saja) adalah janji agent tentang
+image yang disimpannya, tanpa field payload baru dan tanpa command baru:
+
+- Setelah `DeployProject` sukses (workload baru live, workload lama sudah
+  dihapus), di bawah lock project, agent menyimpan tepat dua image project itu:
+  image yang live dan image *previous*, lalu menghapus image
+  `sakala/project-<project>:*` lain yang tidak dipakai container mana pun.
+- *Previous* adalah image workload yang digantikan deploy sukses terakhir, bila
+  berbeda dari image live yang baru. Deploy yang memakai ulang image live
+  (redeploy konfigurasi) tidak memindahkannya. Setelah rollback dari I5 ke I3,
+  previous adalah I5.
+- Penandanya tag Docker di repository yang sama,
+  `sakala/project-<project>:previous`. Image tetap memegang tag aslinya, jadi
+  pencarian pakai ulang lewat nama yang diturunkan tetap bekerja. Memindahkan tag
+  tidak pernah menghapus image dengan sendirinya.
+- GC image berkala memakai aturan yang sama untuk project yang masih punya
+  container: simpan setiap image yang dipakai container (status apa pun, jadi
+  yang tidur dan semua replika ikut dihitung) ditambah image bertag `previous`;
+  bila tidak ada image yang memegang tag itu (image dari agent lama), simpan image
+  terbaru yang lebih tua dari image terbaru yang dipakai, seperti sebelumnya.
+  `image_gc_max_age` tidak lagi melindungi image project seperti itu. Project
+  tanpa container apa pun tetap memakai aturan masa tenggang yatim seperti
+  sebelumnya.
+- Kepemilikan: hanya image yang setiap referensinya
+  `sakala/project-<project itu>:<tag>` dan yang label `dev.sakala.project-id`-nya
+  menyebut project itu yang boleh dihapus atau diberi tag (aturan `stale_image`
+  yang sudah ada).
+- Deploy yang gagal tidak pernah memindahkan `previous` dan tetap hanya menghapus
+  image kandidat yang dibangunnya.
+
+API mencerminkan *previous* di `projects.previous_active_deployment_id`: saat
+`active_deployment_id` berpindah dari A ke D dan deployment yang mem-build image
+D berbeda dari milik A, nilainya menjadi A. Rollback ke deployment yang
+image-nya adalah image live atau previous, di node deployment aktif yang
+mengiklankan `image-rollback` dan `image-reuse`, ditampilkan sebagai tanpa build
+(`rollback_target.image_expected`). Rollback ke image yang sudah dihapus tetap
+benar: agent tidak menemukan image-nya, mem-build commit itu, dan melaporkan
+`deployment.image.reuse_skipped` dengan `image_missing` seperti biasa.
+
+`RestartProject` dari anggota workspace (`request_context.reason`
+`user_restart`) hanya dikirim API saat `runtime_status` project `running` atau
+`crashed`. Agent dengan capability ini juga menyalakan ulang project yang semua
+container-nya sudah keluar (crash, crash loop), bukan hanya yang masih berjalan;
+project yang tidur tetap ditolak dengan `WorkloadNotRunning`. Restart yang
+sukses dihitung API sebagai satu restart per replika di metrik project.
 
 ### Pembatalan command
 
@@ -478,7 +528,13 @@ Payload mengikuti `DeployProjectPayload` protocol v4:
   dan build, tetapi tetap menjalankan `release_command`, health check, replika,
   dan pergantian tanpa downtime seperti biasa. Deployment pakai ulang yang gagal
   tidak boleh menghapus image itu, karena image itu milik deployment yang sedang
-  melayani.
+  melayani. Rollback memakai field yang sama tanpa tambahan apa pun: `commit_sha`
+  adalah commit deployment tujuan dan field ini deployment yang mem-build image
+  tujuan, sehingga deployment rollback tidak harus sama commit-nya dengan
+  deployment aktif. Payload-nya juga membawa `build_command`, `start_command`,
+  `release_command`, `root_directory`, dan `container_port` yang tercatat di
+  deployment tujuan, bukan nilai project saat ini. Lihat
+  [Image rollback](#image-rollback).
 - `domain` adalah `projects.default_domain` saat deployment dibuat, yaitu
   `<slug>.<SAKALA_PROJECT_DEFAULT_DOMAIN>` (hosted: `<slug>.sakala.app`,
   staging: `<slug>.staging.sakala.app`). Agent hanya menerima domain satu label
@@ -1101,3 +1157,10 @@ pernah menerima field-nya dan selalu mem-build):
     `dev.sakala.package-directory` pada setiap image, pakai ulang image sesuai
     `reuse_image_from_deployment_id` di [DeployProject](#deployproject), dan
     kirim `deployment.image.reused` atau `deployment.image.reuse_skipped`.
+
+Tambahan untuk rollback (opsional; tanpa capability ini rollback tetap bekerja,
+hanya tidak dijanjikan tanpa build):
+
+11. Iklankan capability `image-rollback` (driver `docker` saja) dan simpan image
+    sesuai [Image rollback](#image-rollback): image live, image bertag
+    `previous`, dan GC dengan aturan yang sama.
