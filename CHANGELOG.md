@@ -4,6 +4,10 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- Moving a project's root directory back to a directory already inspected at the same commit (A, then B, then A) no longer leaves the stack unknown. The inspection of A is reused without asking a node again, but only its status and port were restored: `projects.inspection` kept B's result, which describes another directory, so `stack` was `null` and `variable_changes` said `unknown_stack` (every variable change built). The reused result is now written back as the stored inspection for the current directory, with `inspected_at` from that inspection, the way a finished inspection writes it.
+
 ## [0.11.0] - 2026-11-23
 
 ### Added

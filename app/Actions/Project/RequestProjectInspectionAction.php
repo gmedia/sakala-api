@@ -91,12 +91,21 @@ final class RequestProjectInspectionAction
                 ->first(static fn (AgentCommand $command): bool => ($command->payload['root_directory'] ?? null) === $locked->root_directory);
 
             if ($existing !== null && ! in_array($existing->status, self::RETRYABLE, true) && ! $this->predatesExposedPorts($existing)) {
-                if ($existing->status === AgentCommandStatus::Succeeded && $locked->inspection !== null) {
+                if ($existing->status === AgentCommandStatus::Succeeded && is_array($existing->result)) {
                     $result = ProjectInspectionResultData::fromArray($existing->result);
 
                     $locked->update([
+                        // The stored inspection may describe the directory the
+                        // project moved away from; the stack and the variable
+                        // build policy read it only when its directory is the
+                        // project's, so restore this one, as recordSuccess writes it.
+                        'inspection' => [
+                            ...$result->toArray(),
+                            'root_directory' => $locked->root_directory,
+                        ],
                         'inspection_status' => ProjectInspectionStatus::Succeeded,
                         'inspection_error_code' => null,
+                        'inspected_at' => $existing->completed_at ?? now(),
                         // Moving to another directory and back cleared the port
                         // this directory exposed; the reused result still has it.
                         ...($result->exposedPorts === null ? [] : ['detected_port' => $result->detectedPort()]),
