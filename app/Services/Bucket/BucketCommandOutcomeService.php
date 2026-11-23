@@ -152,23 +152,31 @@ final class BucketCommandOutcomeService
     }
 
     /**
-     * A rotation that failed for sure keeps the old secret. One whose outcome
-     * the node could not confirm (BucketCommandFailure::uncertainRotationCodes())
-     * may already have switched the key, so the old secret is not trusted to
-     * work either: the same new secret is sent again in a new RotateBucketKey,
-     * with the same request context, until the node confirms or refuses it.
-     * The stored secret stays the old one and no redeploy is queued until a
-     * send completes. After MAX_UNCERTAIN_ATTEMPTS sends, the API stops and
-     * `key_rotation.status` shows `unknown`; a new rotation settles it.
+     * A first send that failed for sure keeps the old secret (`failed`). One
+     * whose outcome the node could not confirm (BucketCommandFailure::
+     * uncertainRotationCodes()) may already have switched the key, so the old
+     * secret is not trusted either: the same new secret is sent again, with
+     * the same request context and a growing delay, until a send completes.
+     * Once a resend exists every non-complete result is uncertain, because an
+     * earlier send may have applied the new secret: a transient one
+     * (resendableRotationCodes()) is sent again, anything else ends the
+     * rotation `unknown`, never `failed`. The stored secret stays the old one
+     * and no redeploy is queued until a send completes. After
+     * MAX_UNCERTAIN_ATTEMPTS sends the API stops too. While the key is
+     * uncertain, deployments and credentials answer BUCKET_KEY_ROTATING
+     * (BucketKeyWindow); a new rotation or `buckets:reconcile` settles it.
      *
      * @param  array<string, mixed>  $metadata
      */
     private function failRotation(AgentNode|string $actor, AgentCommand $command, ManagedBucket $bucket, string $errorCode, array $metadata): bool
     {
-        $uncertain = in_array($errorCode, BucketCommandFailure::uncertainRotationCodes(), true);
         $attempt = CredentialRotation::attempt($command);
+        $resendable = $attempt > 1
+            ? BucketCommandFailure::resendableRotationCodes()
+            : BucketCommandFailure::uncertainRotationCodes();
+        $uncertain = $attempt > 1 || in_array($errorCode, BucketCommandFailure::uncertainRotationCodes(), true);
 
-        if ($uncertain && $bucket->status->isProvisioned() && $attempt < CredentialRotation::MAX_UNCERTAIN_ATTEMPTS) {
+        if (in_array($errorCode, $resendable, true) && $bucket->status->isProvisioned() && $attempt < CredentialRotation::MAX_UNCERTAIN_ATTEMPTS) {
             $retry = $this->commands->resendRotation($bucket, $command);
 
             return $this->audit($actor, BucketAudit::KEY_ROTATION_RESENT, $bucket, [

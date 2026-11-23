@@ -18,6 +18,7 @@ use App\Enums\ProjectAlert;
 use App\Enums\PushSkipReason;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Bucket\BucketEndpointUnavailableException;
+use App\Exceptions\Bucket\BucketKeyRotatingException;
 use App\Exceptions\Bucket\BucketNotReadyException;
 use App\Exceptions\Database\DatabaseEndpointUnavailableException;
 use App\Exceptions\Database\DatabaseNotReadyException;
@@ -80,6 +81,9 @@ final class CreatePushDeploymentsAction
 
     /** Audit reason of a push skipped because the attached bucket is still being created, or failed to be. */
     public const SKIP_BUCKET_NOT_READY = 'bucket_not_ready';
+
+    /** Audit reason of a push skipped while the attached bucket's key rotation is unconfirmed (BucketKeyWindow). */
+    public const SKIP_BUCKET_KEY_ROTATING = 'bucket_key_rotating';
 
     public function __construct(
         private readonly CreateDeploymentAction $createDeployment,
@@ -323,6 +327,8 @@ final class CreatePushDeploymentsAction
                 : 'Database proyek ini gagal dibuat, jadi push terbaru tidak di-deploy. Lepas database itu dari proyek, buat yang baru, lalu deploy manual.');
         } catch (BucketEndpointUnavailableException $e) {
             $this->skip($project, $actor, self::SKIP_BUCKET_ENDPOINT_UNAVAILABLE, $commit, "Server penyimpanan untuk bucket {$e->bucket->name} belum melaporkan alamatnya, jadi push terbaru tidak di-deploy. Deploy manual beberapa saat lagi.");
+        } catch (BucketKeyRotatingException $e) {
+            $this->skip($project, $actor, self::SKIP_BUCKET_KEY_ROTATING, $commit, "Secret key bucket {$e->bucket->name} sedang diganti dan belum dipastikan, jadi push terbaru tidak di-deploy. Deploy manual setelah penggantiannya selesai.");
         } catch (BucketNotReadyException $e) {
             $this->skip($project, $actor, self::SKIP_BUCKET_NOT_READY, $commit, $e->status === BucketStatus::Provisioning
                 ? 'Bucket proyek ini masih dibuat, jadi push terbaru tidak di-deploy. Deploy manual setelah bucket-nya siap.'

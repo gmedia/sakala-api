@@ -82,8 +82,9 @@ final class BucketResource extends JsonResource
              * The newest key rotation; `null` when the key was never rotated. `status` is `pending` while the storage
              * node has not reported, `completed` once only the new secret works, and `failed` when the node failed it
              * definitively (the old secret still works; see `last_failure`), and `unknown` when the node could not
-             * confirm the outcome even after the API resent the same secret several times: neither secret is known to
-             * work, and a new rotation settles it. While the outcome is unconfirmed the API resends the same new
+             * confirm the outcome and a resend of the same secret did not complete either: neither secret is known to
+             * work, deployments and credentials answer `409 BUCKET_KEY_ROTATING`, and a new rotation or
+             * `buckets:reconcile` settles it. While the outcome is unconfirmed the API resends the same new
              * secret and the status stays `pending`. The node switches as soon
              * as it runs the request, so a `pending` rotation can already have cut off the old secret. The access key
              * ID never changes. `requested_at` is when it was asked for, `completed_at` and `failed_at` are set only
@@ -94,7 +95,7 @@ final class BucketResource extends JsonResource
              * `requester_cannot_deploy`, `legal_acceptance_required`, `project_suspended`, `active_deployment_limit`,
              * `active_container_limit`, `build_rate_limit`, `repository_access_revoked`,
              * `database_endpoint_unavailable`, `database_not_ready`, `bucket_endpoint_unavailable`,
-             * `bucket_not_ready`, `release_command_unsupported`, or `failed`.
+             * `bucket_not_ready`, `bucket_key_rotating`, `release_command_unsupported`, or `failed`.
              *
              * @var array{status: 'pending'|'completed'|'failed'|'unknown', requested_at: string, completed_at: string|null, failed_at: string|null, redeploy_attached: bool, redeploys: list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>|null}|null
              */

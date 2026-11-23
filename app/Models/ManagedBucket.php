@@ -233,14 +233,16 @@ class ManagedBucket extends Model
     }
 
     /**
-     * MB every live bucket of the node reserves, failed ones included: a
-     * failed creation may have left part of a bucket and its quota on the
-     * node. What node placement subtracts from `capacity_mb`.
+     * MB the live buckets of the node reserve, except failed ones (contract
+     * section 13): what node placement subtracts from `capacity_mb`. A failed
+     * creation's leftovers on the node are the agent's capacity check to
+     * count; deleting one sends DeleteBucket, which counts again until done.
      */
     public static function reservedMbOnNode(string $nodeId, ?string $except = null): int
     {
         return (int) self::query()
             ->where('node_id', $nodeId)
+            ->where('status', '!=', BucketStatus::Failed)
             ->when($except !== null, static fn (Builder $query) => $query->whereKeyNot($except))
             ->sum('reserved_quota_mb');
     }

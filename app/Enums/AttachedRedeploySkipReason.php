@@ -45,6 +45,9 @@ enum AttachedRedeploySkipReason: string
     /** The project's attached bucket is still being created, or failed to be. */
     case BucketNotReady = 'bucket_not_ready';
 
+    /** The project's attached bucket is in its key uncertain window (BucketKeyWindow). */
+    case BucketKeyRotating = 'bucket_key_rotating';
+
     case ReleaseCommandUnsupported = 'release_command_unsupported';
 
     /** Only for `deploy_when_ready`: the database's creation failed or expired, so there is nothing to connect to. */

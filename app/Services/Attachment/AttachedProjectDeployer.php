@@ -10,6 +10,7 @@ use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\AttachedRedeploySkipReason;
 use App\Enums\ProjectStatus;
 use App\Exceptions\Bucket\BucketEndpointUnavailableException;
+use App\Exceptions\Bucket\BucketKeyRotatingException;
 use App\Exceptions\Bucket\BucketNotReadyException;
 use App\Exceptions\Database\DatabaseEndpointUnavailableException;
 use App\Exceptions\Database\DatabaseNotReadyException;
@@ -69,6 +70,8 @@ final class AttachedProjectDeployer
             return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::DatabaseNotReady);
         } catch (BucketEndpointUnavailableException) {
             return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::BucketEndpointUnavailable);
+        } catch (BucketKeyRotatingException) {
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::BucketKeyRotating);
         } catch (BucketNotReadyException) {
             return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::BucketNotReady);
         } catch (ProjectReleaseCommandUnsupportedException) {

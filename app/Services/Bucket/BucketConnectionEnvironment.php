@@ -7,9 +7,11 @@ namespace App\Services\Bucket;
 use App\Data\Bucket\BucketCredentialsData;
 use App\Data\Bucket\ObjectStorageData;
 use App\Exceptions\Bucket\BucketEndpointUnavailableException;
+use App\Exceptions\Bucket\BucketKeyRotatingException;
 use App\Exceptions\Bucket\BucketNotReadyException;
 use App\Models\ManagedBucket;
 use App\Models\Project;
+use App\Support\Bucket\BucketKeyWindow;
 
 /**
  * The variables a project receives from its attached bucket (ADR-021): what
@@ -94,6 +96,7 @@ final class BucketConnectionEnvironment
      *
      * @throws BucketNotReadyException while the attached bucket is still being created, or failed to be.
      * @throws BucketEndpointUnavailableException when the storage node has not reported its endpoint.
+     * @throws BucketKeyRotatingException while nobody knows which secret works (BucketKeyWindow).
      */
     public function forProject(Project $project): array
     {
@@ -113,6 +116,10 @@ final class BucketConnectionEnvironment
 
         if ($storage === null) {
             throw new BucketEndpointUnavailableException($bucket);
+        }
+
+        if (BucketKeyWindow::isOpen($bucket)) {
+            throw new BucketKeyRotatingException($bucket);
         }
 
         $own = $project->environmentVariables()->pluck('key')->all();

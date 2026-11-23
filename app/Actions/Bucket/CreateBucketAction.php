@@ -40,8 +40,9 @@ use InvalidArgumentException;
  * Admins acting are not limited by either, as with projects and databases,
  * but node capacity applies to them too. With a project, the bucket is
  * attached to it in the same transaction, the only way a bucket that is
- * still being created gets attached. Locks follow the workspace, then the
- * project, as databases and deployments take them.
+ * still being created gets attached. Locks: the workspace, then the chosen
+ * storage node (so creates in different workspaces cannot overbook it), then
+ * the project.
  */
 final class CreateBucketAction
 {
@@ -76,23 +77,31 @@ final class CreateBucketAction
         return DB::transaction(function () use ($actor, $workspace, $data, $project): ManagedBucket {
             /** @var Workspace $locked */
             $locked = Workspace::query()->whereKey($workspace->id)->lockForUpdate()->firstOrFail();
-            /** @var Project|null $lockedProject */
-            $lockedProject = $project === null ? null : Project::query()->whereKey($project->id)->lockForUpdate()->firstOrFail();
 
-            if ($lockedProject !== null) {
-                $this->attacher->ensureNoneAttached($this->attacher->attachmentOf($lockedProject));
+            if ($project !== null) {
+                $this->attacher->ensureNoneAttached($this->attacher->attachmentOf($project));
             }
 
             $quotaMb = $actor->isAdmin()
                 ? $data->quotaMb ?? $this->quotas->defaultQuotaMb()
                 : $this->quotas->ensureCreateAllowed($locked, $data->quotaMb);
 
-            $name = $this->nameFor($locked, $data->name, $lockedProject);
+            $name = $this->nameFor($locked, $data->name, $project);
             $region = $data->region
-                ?? ($lockedProject === null ? null : $this->scheduler->regionOf($lockedProject))
+                ?? ($project === null ? null : $this->scheduler->regionOf($project))
                 ?? $this->limits->defaultRegionOf($locked);
 
-            $node = $this->scheduler->selectBucketNode($region, $quotaMb);
+            $node = $this->scheduler->lockBucketNode($this->scheduler->selectBucketNode($region, $quotaMb)->id);
+            $this->scheduler->ensureBucketNodeFits($node, $quotaMb);
+
+            /** @var Project|null $lockedProject */
+            $lockedProject = $project === null ? null : Project::query()->whereKey($project->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedProject !== null) {
+                // Checked again under the project lock, which attaching takes too.
+                $this->attacher->ensureNoneAttached($this->attacher->attachmentOf($lockedProject));
+            }
+
             $secret = Str::random(ManagedBucket::SECRET_LENGTH);
 
             $bucket = ManagedBucket::query()->create([

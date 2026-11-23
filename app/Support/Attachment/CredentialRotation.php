@@ -45,6 +45,12 @@ final class CredentialRotation
      */
     public const MAX_UNCERTAIN_ATTEMPTS = 10;
 
+    /** Delay before the second send of a rotation; it doubles for each later send. */
+    public const RESEND_BASE_DELAY_SECONDS = 15;
+
+    /** Longest delay between two sends of a rotation. */
+    public const RESEND_MAX_DELAY_SECONDS = 600;
+
     /** Prefix of the idempotency key of each redeploy after a database password rotation, followed by the command ID. */
     private const DATABASE_IDEMPOTENCY_PREFIX = 'database-password-rotation:';
 
@@ -85,13 +91,24 @@ final class CredentialRotation
 
     /**
      * Whether a closed bucket key rotation ended without knowing if the node
-     * switched to the new secret (BucketCommandFailure::uncertainRotationCodes()).
+     * switched to the new secret: a first send that failed with an uncertain
+     * code (BucketCommandFailure::uncertainRotationCodes()), or any send after
+     * the first that did not complete, since an earlier send may have applied
+     * the new secret already.
      */
     public static function uncertain(AgentCommand $command): bool
     {
         return $command->type === AgentCommandType::RotateBucketKey
-            && in_array($command->status, [AgentCommandStatus::Failed, AgentCommandStatus::Expired], true)
-            && in_array((string) $command->error_code, BucketCommandFailure::uncertainRotationCodes(), true);
+            && in_array($command->status, [AgentCommandStatus::Failed, AgentCommandStatus::Expired, AgentCommandStatus::Cancelled], true)
+            && (self::attempt($command) > 1 || in_array((string) $command->error_code, BucketCommandFailure::uncertainRotationCodes(), true));
+    }
+
+    /** Seconds to wait before send number `$attempt` (from 2): doubling from RESEND_BASE_DELAY_SECONDS, capped. */
+    public static function resendDelaySeconds(int $attempt): int
+    {
+        $exponent = max(0, $attempt - 2);
+
+        return (int) min(self::RESEND_MAX_DELAY_SECONDS, self::RESEND_BASE_DELAY_SECONDS * (2 ** $exponent));
     }
 
     public static function redeploysAttached(AgentCommand $command): bool

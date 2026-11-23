@@ -9,15 +9,18 @@ use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AttachedRedeploySkipReason;
+use App\Enums\NotificationCategory;
 use App\Models\AgentCommand;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\Attachment\AttachedProjectDeployer;
+use App\Services\Notification\UserNotifier;
 use App\Support\Attachment\CredentialRotation;
 use App\Support\Bucket\BucketAudit;
 use App\Support\Database\DatabaseAudit;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -42,6 +45,7 @@ final class RedeployAfterCredentialRotationAction
 {
     public function __construct(
         private readonly AttachedProjectDeployer $deployer,
+        private readonly UserNotifier $notifier,
     ) {}
 
     public function handle(string $commandId): void
@@ -59,6 +63,7 @@ final class RedeployAfterCredentialRotationAction
         $resource = $this->resourceOf($command);
         $requester = CredentialRotation::requester($command);
         $redeploys = [];
+        $projects = new Collection;
 
         if ($resource !== null && $resource->status->isProvisioned()) {
             $projects = $resource->projects()->with(['activeDeployment.settingsSource', 'workspace'])->orderBy('name')->orderBy('projects.id')->get();
@@ -68,7 +73,42 @@ final class RedeployAfterCredentialRotationAction
             }
         }
 
-        $this->record($command, $resource, $redeploys);
+        $this->record($command, $resource, $redeploys, $projects);
+    }
+
+    /**
+     * A live project that could not be redeployed still runs with the old
+     * credential, which no longer works. The rotation list shows it, but
+     * nobody may be looking, so the people who can deploy it are told.
+     *
+     * @param  list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>  $redeploys
+     * @param  Collection<int, Project>  $projects
+     */
+    private function tellSkipped(ManagedDatabase|ManagedBucket $resource, array $redeploys, Collection $projects): void
+    {
+        $byId = $projects->keyBy('id');
+        $noun = $resource instanceof ManagedBucket ? 'Secret key bucket' : 'Password database';
+
+        foreach ($redeploys as $item) {
+            $project = $byId->get($item['project_id']);
+
+            if ($project === null || $item['skipped_reason'] === null || $item['skipped_reason'] === AttachedRedeploySkipReason::NoActiveDeployment->value) {
+                continue;
+            }
+
+            $this->notifier->sendToProject(
+                project: $project,
+                category: NotificationCategory::ProjectIssue,
+                title: 'Proyek perlu di-deploy ulang',
+                message: sprintf(
+                    '%s %s sudah diganti, tetapi %s belum bisa di-deploy ulang otomatis (%s). Aplikasi yang berjalan masih memakai nilai lama yang sudah tidak berlaku; deploy ulang proyek ini.',
+                    $noun,
+                    $resource->name,
+                    $project->name,
+                    $item['skipped_reason'],
+                ),
+            );
+        }
     }
 
     /** The database or bucket whose credential the command rotated, if it still exists. */
@@ -106,10 +146,13 @@ final class RedeployAfterCredentialRotationAction
         ))->toArray();
     }
 
-    /** @param  list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>  $redeploys */
-    private function record(AgentCommand $command, ManagedDatabase|ManagedBucket|null $resource, array $redeploys): void
+    /**
+     * @param  list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>  $redeploys
+     * @param  Collection<int, Project>  $projects
+     */
+    private function record(AgentCommand $command, ManagedDatabase|ManagedBucket|null $resource, array $redeploys, Collection $projects): void
     {
-        DB::transaction(function () use ($command, $resource, $redeploys): void {
+        DB::transaction(function () use ($command, $resource, $redeploys, $projects): void {
             /** @var AgentCommand $locked */
             $locked = AgentCommand::query()->whereKey($command->id)->lockForUpdate()->firstOrFail();
 
@@ -133,6 +176,10 @@ final class RedeployAfterCredentialRotationAction
                 $resource instanceof ManagedBucket => BucketAudit::record($requester, BucketAudit::KEY_ROTATION_REDEPLOYS_QUEUED, $resource, $metadata),
                 default => null,
             };
+
+            if ($resource !== null) {
+                $this->tellSkipped($resource, $redeploys, $projects);
+            }
         });
     }
 }

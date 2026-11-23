@@ -9,6 +9,7 @@ use App\Exceptions\Bucket\BucketBusyException;
 use App\Exceptions\Bucket\BucketCapacityUnavailableException;
 use App\Exceptions\Bucket\BucketNotReadyException;
 use App\Exceptions\Bucket\BucketStorageLimitExceededException;
+use App\Models\AgentNode;
 use App\Models\ManagedBucket;
 use App\Models\User;
 use App\Models\Workspace;
@@ -29,7 +30,8 @@ use Illuminate\Validation\ValidationException;
  * before the node applies it.
  *
  * Locks: the workspace row first, as every path that reads the workspace's
- * reserved storage takes it, then the bucket row.
+ * reserved storage takes it, then the bucket's node (for a quota change), then
+ * the bucket row.
  */
 final class UpdateBucketAction
 {
@@ -52,6 +54,8 @@ final class UpdateBucketAction
         return DB::transaction(function () use ($actor, $bucket, $name, $quotaMb): array {
             /** @var Workspace|null $workspace */
             $workspace = $bucket->workspace_id === null ? null : Workspace::query()->whereKey($bucket->workspace_id)->lockForUpdate()->first();
+            // A bucket never moves, so its node is known before the bucket row is locked.
+            $node = $quotaMb === null ? null : $this->scheduler->lockBucketNode($bucket->node_id);
             /** @var ManagedBucket $locked */
             $locked = ManagedBucket::query()->whereKey($bucket->id)->lockForUpdate()->firstOrFail();
 
@@ -60,7 +64,8 @@ final class UpdateBucketAction
             }
 
             $requested = $quotaMb !== null && $quotaMb !== $locked->quota_mb
-                && $this->changeQuota($actor, $workspace, $locked, $quotaMb);
+                && $node !== null
+                && $this->changeQuota($actor, $workspace, $node, $locked, $quotaMb);
 
             return ['bucket' => $locked, 'quota_change_requested' => $requested];
         });
@@ -84,7 +89,7 @@ final class UpdateBucketAction
      * @throws BucketStorageLimitExceededException
      * @throws BucketCapacityUnavailableException
      */
-    private function changeQuota(User $actor, ?Workspace $workspace, ManagedBucket $bucket, int $quotaMb): bool
+    private function changeQuota(User $actor, ?Workspace $workspace, AgentNode $lockedNode, ManagedBucket $bucket, int $quotaMb): bool
     {
         if (! $bucket->status->isProvisioned()) {
             throw new BucketNotReadyException($bucket->status);
@@ -99,7 +104,7 @@ final class UpdateBucketAction
                 $this->quotas->ensureIncreaseAllowed($workspace, $bucket, $quotaMb);
             }
 
-            $this->scheduler->ensureBucketNodeFits($bucket->loadMissing('node'), $quotaMb);
+            $this->scheduler->ensureBucketNodeFits($lockedNode, $quotaMb, $bucket->id);
         }
 
         $from = $bucket->quota_mb;

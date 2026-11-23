@@ -12,6 +12,7 @@ use App\Actions\Bucket\UpdateBucketAction;
 use App\Exceptions\Bucket\BucketBusyException;
 use App\Exceptions\Bucket\BucketCapacityUnavailableException;
 use App\Exceptions\Bucket\BucketInUseException;
+use App\Exceptions\Bucket\BucketKeyRotatingException;
 use App\Exceptions\Bucket\BucketLimitExceededException;
 use App\Exceptions\Bucket\BucketNotReadyException;
 use App\Exceptions\Bucket\BucketRegionUnavailableException;
@@ -141,9 +142,11 @@ final class BucketController extends Controller
 
     /**
      * The bucket's key with its secret and the variables attached projects receive. Owners and admins only, recorded
-     * in the audit trail before it is sent, never cached. The key works from the internet.
+     * in the audit trail before it is sent, never cached. The key works from the internet. `409 BUCKET_KEY_ROTATING`
+     * while a rotation reached the node and the node has not confirmed which secret works.
      *
      * @throws BucketNotReadyException
+     * @throws BucketKeyRotatingException
      */
     public function credentials(Request $request, Workspace $workspace, ManagedBucket $bucket, RevealBucketCredentialsAction $action): JsonResponse
     {

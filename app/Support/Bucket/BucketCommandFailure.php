@@ -58,6 +58,18 @@ final class BucketCommandFailure
     }
 
     /**
+     * Failure codes of a resend (attempt > 1) after which the same secret is
+     * sent again: the uncertain ones, and the node not reaching RustFS for a
+     * moment. Any other failure of a resend ends the rotation `unknown`.
+     *
+     * @return list<string>
+     */
+    public static function resendableRotationCodes(): array
+    {
+        return [...self::uncertainRotationCodes(), self::ADMIN_UNAVAILABLE];
+    }
+
+    /**
      * `command`, `code`, `user_fixable`, `summary`, and `failed_at` when the
      * latest command of the bucket failed or expired; null otherwise.
      *

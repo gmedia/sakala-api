@@ -9,6 +9,7 @@ use App\Enums\AgentAuthStatus;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\AgentNodeDesiredState;
+use App\Enums\BucketStatus;
 use App\Enums\DeploymentStatus;
 use App\Exceptions\Bucket\BucketCapacityUnavailableException;
 use App\Exceptions\Bucket\BucketRegionUnavailableException;
@@ -233,10 +234,10 @@ final class AgentNodeSchedulerService
      * an allowed node that is offline and has room is chosen, and the bucket
      * waits for it. A bucket never moves, so the choice is final.
      *
-     * The capacity check reads without locking the node, so two creates in
-     * different workspaces may both fit the last MB here; the agent rechecks
-     * its real total quota and disk before applying one, and the loser fails
-     * with `bucket_capacity_exceeded`.
+     * The ranking reads without locks; the caller then locks the chosen node
+     * (lockBucketNode()) and checks again (ensureBucketNodeFits()), so two
+     * creates in different workspaces cannot both take its last MB. The agent
+     * still rechecks its real total quota and disk.
      *
      * @throws BucketRegionUnavailableException when no node of the region may ever host it.
      * @throws BucketCapacityUnavailableException when nodes exist but none has room.
@@ -271,16 +272,29 @@ final class AgentNodeSchedulerService
     }
 
     /**
-     * Whether the bucket's own node still has room to raise its quota to
-     * `$quotaMb`: capacity minus every other bucket's reservation on it.
+     * Lock the storage node row, so placements and quota increases on one
+     * node are counted one at a time across workspaces. Order: workspace,
+     * then node, then project or bucket; the heartbeat locks the node before
+     * it writes bucket rows, so this order cannot deadlock with it.
+     */
+    public function lockBucketNode(string $nodeId): AgentNode
+    {
+        /** @var AgentNode */
+        return AgentNode::query()->whereKey($nodeId)->lockForUpdate()->firstOrFail();
+    }
+
+    /**
+     * Whether a locked storage node still has room for `$quotaMb`: its
+     * reported capacity minus every live, non-failed bucket's reservation on
+     * it, without `$exceptBucketId` (a bucket being resized).
      *
      * @throws BucketCapacityUnavailableException
      */
-    public function ensureBucketNodeFits(ManagedBucket $bucket, int $quotaMb): void
+    public function ensureBucketNodeFits(AgentNode $lockedNode, int $quotaMb, ?string $exceptBucketId = null): void
     {
-        $capacity = $bucket->node?->objectStorage()?->capacityMb;
+        $capacity = $lockedNode->objectStorage()?->capacityMb;
 
-        if ($capacity === null || $capacity - ManagedBucket::reservedMbOnNode($bucket->node_id, except: $bucket->id) < $quotaMb) {
+        if ($capacity === null || $capacity - ManagedBucket::reservedMbOnNode($lockedNode->id, except: $exceptBucketId) < $quotaMb) {
             throw new BucketCapacityUnavailableException;
         }
     }
@@ -330,6 +344,7 @@ final class AgentNodeSchedulerService
         /** @var array<string, int> $reserved */
         $reserved = ManagedBucket::query()
             ->whereIn('node_id', $nodes->pluck('id')->unique()->all())
+            ->where('status', '!=', BucketStatus::Failed)
             ->groupBy('node_id')
             ->selectRaw('node_id, sum(reserved_quota_mb) as aggregate')
             ->pluck('aggregate', 'node_id')

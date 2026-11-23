@@ -10,6 +10,7 @@ use App\Models\AgentCommand;
 use App\Models\ManagedBucket;
 use App\Services\Agent\AgentCommandPayloadMaterializer;
 use App\Support\Attachment\CredentialRotation;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 
@@ -70,17 +71,19 @@ final class BucketCommandService
      * Send a RotateBucketKey again with the same new secret, after an outcome
      * the node could not confirm: the agent's rotation is idempotent, so the
      * same secret either takes effect now or already had. The control-plane
-     * context goes along, with the next attempt number.
+     * context goes along, with the next attempt number, and the node sees it
+     * only after CredentialRotation::resendDelaySeconds().
      */
     public function resendRotation(ManagedBucket $bucket, AgentCommand $previous): AgentCommand
     {
         /** @var array<string, string|int> $payload */
         $payload = $previous->payload ?? [];
+        $attempt = CredentialRotation::attempt($previous) + 1;
 
         return $this->dispatch($bucket, AgentCommandType::RotateBucketKey, $payload, [
             ...($previous->request_context ?? []),
-            CredentialRotation::ATTEMPT_KEY => CredentialRotation::attempt($previous) + 1,
-        ]);
+            CredentialRotation::ATTEMPT_KEY => $attempt,
+        ], now()->addSeconds(CredentialRotation::resendDelaySeconds($attempt)));
     }
 
     public function setQuota(ManagedBucket $bucket, int $quotaMb): AgentCommand
@@ -153,7 +156,7 @@ final class BucketCommandService
      * @param  array<string, string|int>  $payload
      * @param  array<string, mixed>|null  $requestContext
      */
-    private function dispatch(ManagedBucket $bucket, AgentCommandType $type, array $payload, ?array $requestContext = null): AgentCommand
+    private function dispatch(ManagedBucket $bucket, AgentCommandType $type, array $payload, ?array $requestContext = null, ?CarbonInterface $availableAt = null): AgentCommand
     {
         return AgentCommand::query()->create([
             'bucket_id' => $bucket->id,
@@ -163,7 +166,7 @@ final class BucketCommandService
             'payload' => $payload,
             'request_context' => $requestContext,
             'idempotency_key' => (string) Str::uuid(),
-            'available_at' => now(),
+            'available_at' => $availableAt ?? now(),
             // Waits for the bucket's node however long it is offline: the
             // bucket cannot move to another node.
             'expires_at' => null,
