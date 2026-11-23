@@ -79,6 +79,36 @@ test('rejects reserved slugs (matches current impl)', function () {
 
 });
 
+test('rejects the slug of the object storage host, s3', function (string $name): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'web')
+        ->postJson('/api/v1/app/projects', [
+            'name' => $name,
+            'repository_url' => 'https://github.com/user/repo',
+            'branch' => 'main',
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['name' => 'dicadangkan Sakala']);
+
+    expect(Project::query()->where('slug', 's3')->exists())->toBeFalse();
+})->with(['s3', 'S3', ' s3 ']);
+
+test('renaming a project to S3 keeps its slug, so it never takes the object storage host', function (): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->create(['user_id' => $user->id, 'slug' => 'my-app']);
+
+    $this->actingAs($user, 'web')
+        ->putJson("/api/v1/app/projects/{$project->id}", [
+            'name' => 'S3',
+            'repository_url' => 'https://github.com/user/repo',
+            'branch' => 'main',
+        ])
+        ->assertOk();
+
+    expect($project->fresh()->slug)->toBe('my-app');
+});
+
 test('slug does not change on rename (matches current impl)', function () {
     $user = User::factory()->create();
     $project = Project::factory()->create(['user_id' => $user->id]);

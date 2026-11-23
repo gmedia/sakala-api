@@ -114,6 +114,9 @@ return [
             'support', 'help', 'status', 'mail', 'test', 'run',
             // Hosted staging serves its projects under staging.<default_domain>.
             'staging',
+            // Managed object storage serves S3 at s3.<default_domain> (ADR-021);
+            // that host-level site wins over the project wildcard.
+            's3',
         ],
     ],
 
