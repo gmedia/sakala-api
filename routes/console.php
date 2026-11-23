@@ -14,6 +14,7 @@ use App\Console\Commands\PruneUsageSignalsCommand;
 use App\Console\Commands\PruneWorkspaceInvitationsCommand;
 use App\Console\Commands\PurgeDeletedProjectsCommand;
 use App\Console\Commands\RollUpProjectMetricsCommand;
+use App\Console\Commands\SettleInspectionHoldsCommand;
 use App\Console\Commands\SleepIdleProjectsCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -25,6 +26,13 @@ Schedule::command(AssignAgentCommandsCommand::class)
     ->onOneServer();
 
 Schedule::command(ExpireAgentCommandsCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// Fails held deployments at their deadline, and settles any whose
+// SettleInspectionHoldsJob was lost.
+Schedule::command(SettleInspectionHoldsCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();

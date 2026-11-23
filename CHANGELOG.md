@@ -4,6 +4,10 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- **Deploy without waiting for inspection.** A deployment created while the project's inspection is still `pending` and no port is configured is answered `201` `queued` as before, but its `DeployProject` command is held from the nodes (poll skips it, claim answers `409`) until the inspection reports the port. `queue_state` gains `waiting_for_inspection` for that time. A finished inspection, or a port configured meanwhile, releases the command with the port in effect then (`container_port` on the deployment and in the payload); everything else in the payload is from the click. A failed inspection fails the deployment at stage `queued`, with the inspection's error code when the classifier knows it and the new `inspection_failed` otherwise; an inspection still pending after `SAKALA_DEPLOYMENT_INSPECTION_WAIT_SECONDS` (default 900) fails it with the new `inspection_timeout`. Every creation path holds, including `deploy_when_ready`, so a deployment waits for its database and then its inspection. Settling runs from `SettleInspectionHoldsJob` after the inspection outcome commits and from the new minute sweep `deployments:settle-inspection-holds`. New nullable column `deployments.awaiting_inspection_until` (indexed). Clients can now deploy right after creating a project.
+
 ### Fixed
 
 - A rejection recorded as a `rejected_limits` signal keeps its `limit_name` for the two workspace limits that were being dropped: `max_active_containers` (now `ActiveContainerLimitExceededException::LIMIT_NAME`) and `max_active_deployments_per_workspace`. Both are part of the `RecordUsageSignalAction` allowlist, so a deployment refused by the workspace container limit or by the per-workspace active deployment limit is told apart in the admin signals instead of being stored without a `limit_name`. The unit test reads every limit name the deployment path records from `CreateDeploymentAction::LIMIT_EXCEPTION_MAP` and the exception constants, so a new limit cannot lag behind the allowlist again.
