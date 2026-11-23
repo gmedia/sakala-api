@@ -15,11 +15,16 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A post-rotation redeploy that is skipped for a live project (database password or bucket key) now notifies its owners and members (`project_issue`), because the app still runs with a dead credential.
 - Bucket placement and quota increases lock the storage node row (workspace, node, then project or bucket), and failed buckets no longer reserve node capacity.
 - Artisan `buckets:check-usage` (every minute: one notice per crossing of 80 % of a bucket's quota, no lock), `buckets:lock {bucket} --reason=` and `buckets:unlock {bucket}` for abuse, and `buckets:reconcile {--node=} {--bucket=}` to recreate buckets on a restored storage host.
+- `GET app/projects` lists the bucket each project uses as `buckets` (0 or 1 item: `id`, `name`, `status`), like `databases`, so the Console attach dialog can mark projects that already use another bucket. Eager-loaded with the page: one bucket query however many projects are listed.
 
 ### Changed
 
 - One implementation now serves database password and bucket key rotations: `RedeployAfterCredentialRotationAction`, `RedeployAfterCredentialRotationJob`, `CredentialRotation`, `AttachedProjectDeployer`, and the skip reason enum `AttachedRedeploySkipReason` (renamed from `DatabaseRedeploySkipReason`; values unchanged). `RedeployAfterPasswordRotationJob` stays for jobs queued before the upgrade. Rotation redeploys now report `database_not_ready`, `bucket_endpoint_unavailable`, and `bucket_not_ready` instead of `failed` for a project whose other attached resource cannot be used.
 - Database and bucket rule exceptions share `ManagedResourceRuleException` and one Scramble extension.
+
+### Fixed
+
+- The OpenAPI document types `buckets.default_quota_mb` in `GET app/pilot-limits` as an integer (MB, never null) instead of the constant `0`, the resource property's initial value.
 
 ## [0.11.1] - 2026-11-23
 
