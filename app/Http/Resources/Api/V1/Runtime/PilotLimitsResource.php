@@ -150,6 +150,13 @@ final class PilotLimitsResource extends JsonResource
              */
             'buckets' => [
                 'available' => $this->bucketsAvailable,
+                // Typed by hand: Scramble would document the property's initial 0 as a constant.
+                /**
+                 * Quota of a bucket created without `quota_mb`, in MB: `SAKALA_BUCKET_DEFAULT_QUOTA_MB`, or 256 when
+                 * unset, kept between 1 and 1048576. Never null.
+                 *
+                 * @var int
+                 */
                 'default_quota_mb' => $this->bucketDefaultQuotaMb,
             ],
         ];
