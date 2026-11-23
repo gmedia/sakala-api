@@ -110,19 +110,25 @@ test('admins are exempt from the workspace limits but not from node capacity', f
     expect(ManagedBucket::query()->count())->toBe(1);
 });
 
-test('placement picks the node with the most free allocation, and never one without room', function (): void {
-    $small = storageNode(capacityMb: 100);
+test('placement picks the node with the most free allocation, never one without room, and failed buckets reserve nothing', function (): void {
+    $small = storageNode(capacityMb: 90);
     $large = storageNode(capacityMb: 1000);
     $team = bucketTeam();
-    // The large node is mostly reserved already, by any workspace and by a failed bucket.
+    // The large node is mostly reserved already, by any workspace; a failed bucket reserves nothing.
     bucketIn(bucketTeam()['workspace'], $large, ['quota_mb' => 900, 'reserved_quota_mb' => 900]);
     bucketIn($team['workspace'], $large, ['status' => BucketStatus::Failed, 'quota_mb' => 50, 'reserved_quota_mb' => 50]);
 
+    expect(ManagedBucket::reservedMbOnNode($large->id))->toBe(900);
+
     $id = createBucketAs($team['owner'], $team['workspace']->id, ['name' => 'Satu', 'quota_mb' => 40])->assertCreated()->json('data.id');
+    expect(ManagedBucket::query()->findOrFail($id)->node_id)->toBe($large->id);
+
+    // 90 left on the small node, 60 on the large one.
+    $id = createBucketAs($team['owner'], $team['workspace']->id, ['name' => 'Dua', 'quota_mb' => 61])->assertCreated()->json('data.id');
     expect(ManagedBucket::query()->findOrFail($id)->node_id)->toBe($small->id);
 
-    // 60 left on the small node, 50 on the large one.
-    createBucketAs($team['owner'], $team['workspace']->id, ['name' => 'Dua', 'quota_mb' => 61])
+    // 29 left on the small node, 60 on the large one.
+    createBucketAs($team['owner'], $team['workspace']->id, ['name' => 'Tiga', 'quota_mb' => 61])
         ->assertConflict()
         ->assertJsonPath('code', 'BUCKET_CAPACITY_UNAVAILABLE')
         ->assertJsonMissingPath('capacity_mb');

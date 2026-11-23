@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use App\Actions\Attachment\RedeployAfterCredentialRotationAction;
+use App\Actions\GitHub\CreatePushDeploymentsAction;
+use App\Data\Deployment\CreateDeploymentData;
 use App\Enums\AgentCommandStatus;
 use App\Enums\AgentCommandType;
 use App\Enums\BucketStatus;
@@ -17,6 +19,7 @@ use App\Models\Deployment;
 use App\Models\ManagedBucket;
 use App\Models\Project;
 use App\Models\Workspace;
+use App\Services\Attachment\AttachedProjectDeployer;
 use App\Services\Bucket\BucketCommandService;
 use App\Support\Attachment\CredentialRotation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -332,4 +335,164 @@ test('a definite rotation failure is not resent, and resending stops at the limi
 
     // A new rotation settles it.
     rotateBucket($bucket)->assertAccepted();
+});
+
+/** Probe A: the state the key uncertain window is in, set up on a fresh rotation. */
+function keyWindowRotation(ManagedBucket $bucket, string $state): void
+{
+    $service = app(BucketCommandService::class);
+    $secret = 'WindowSecret0123456789abcdefghijklmnopqr';
+
+    match ($state) {
+        'first send pending' => $service->rotateKey($bucket, $secret, ['attempt' => 1]),
+        'first send claimed' => $service->rotateKey($bucket, $secret)->update(['status' => AgentCommandStatus::Claimed, 'claimed_at' => now()]),
+        'first send running' => $service->rotateKey($bucket, $secret)->update(['status' => AgentCommandStatus::Running, 'claimed_at' => now()]),
+        'resend pending' => $service->rotateKey($bucket, $secret, ['attempt' => 2]),
+        'ended unknown' => $service->rotateKey($bucket, $secret, ['attempt' => 3])->update([
+            'status' => AgentCommandStatus::Failed, 'failed_at' => now(), 'error_code' => 'bucket_not_found',
+        ]),
+        'failed for sure' => $service->rotateKey($bucket, $secret)->update([
+            'status' => AgentCommandStatus::Failed, 'failed_at' => now(), 'error_code' => 'bucket_not_found',
+        ]),
+    };
+}
+
+test('probe A: deploys and credentials answer BUCKET_KEY_ROTATING inside the key uncertain window only', function (string $state, bool $blocked): void {
+    $node = keyRotationNode();
+    $team = bucketTeam();
+    $bucket = bucketIn($team['workspace'], $node);
+    $project = Project::factory()->inWorkspace($team['workspace'])->create(['branch' => 'main']);
+    attachBucket($bucket, $project);
+    keyWindowRotation($bucket, $state);
+
+    $this->actingAs($team['owner'], 'web');
+    $deploy = $this->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'main']);
+    $credentials = $this->getJson(bucketsUrl($team['workspace']->id, "/{$bucket->id}/credentials"));
+
+    if ($blocked) {
+        $deploy->assertConflict()->assertJsonPath('code', 'BUCKET_KEY_ROTATING')->assertJsonPath('bucket.id', $bucket->id);
+        $credentials->assertConflict()->assertJsonPath('code', 'BUCKET_KEY_ROTATING');
+
+        expect(Deployment::query()->where('project_id', $project->id)->count())->toBe(0)
+            ->and($credentials->getContent())->not->toContain((string) $bucket->secret_access_key)
+            ->and(AuditEvent::query()->where('action', 'bucket.credentials_viewed')->exists())->toBeFalse();
+    } else {
+        $deploy->assertCreated();
+        $credentials->assertOk();
+    }
+})->with([
+    'first send pending, not claimed' => ['first send pending', false],
+    'first send claimed' => ['first send claimed', true],
+    'first send running' => ['first send running', true],
+    'resend pending' => ['resend pending', true],
+    'ended unknown' => ['ended unknown', true],
+    'failed for sure' => ['failed for sure', false],
+]);
+
+test('probe A: a push inside the window is skipped with bucket_key_rotating, and a rotation redeploy reports it', function (): void {
+    $node = keyRotationNode();
+    $team = bucketTeam();
+    $bucket = bucketIn($team['workspace'], $node);
+    $project = keyRotationServedProject($team['workspace'], $node);
+    attachBucket($bucket, $project);
+    keyWindowRotation($bucket, 'resend pending');
+
+    $outcome = app(AttachedProjectDeployer::class)->deploy(
+        $project,
+        $team['owner'],
+        new CreateDeploymentData(branch: 'main'),
+    );
+
+    expect($outcome->toArray()['skipped_reason'])->toBe('bucket_key_rotating')
+        ->and(CreatePushDeploymentsAction::SKIP_BUCKET_KEY_ROTATING)->toBe('bucket_key_rotating');
+});
+
+test('an unknown rotation is settled by buckets:reconcile, which puts the stored secret back on the node', function (): void {
+    $node = keyRotationNode();
+    $team = bucketTeam();
+    $bucket = bucketIn($team['workspace'], $node);
+    $project = Project::factory()->inWorkspace($team['workspace'])->create(['branch' => 'main']);
+    attachBucket($bucket, $project);
+    $this->travel(-1)->minutes();
+    keyWindowRotation($bucket, 'ended unknown');
+    $this->travelBack();
+
+    $this->artisan('buckets:reconcile', ['--bucket' => $bucket->id])->assertSuccessful();
+    $create = bucketCommand($bucket, AgentCommandType::CreateBucket);
+    $create->update(['status' => AgentCommandStatus::Running, 'claimed_at' => now()]);
+
+    $this->actingAs($team['owner'], 'web')
+        ->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'main'])
+        ->assertConflict();
+
+    $this->withHeaders(storageNodeHeaders($node))
+        ->postJson("/api/agent/v1/commands/{$create->id}/complete", ['result' => null])
+        ->assertNoContent();
+
+    $this->postJson("/api/v1/app/projects/{$project->id}/deployments", ['branch' => 'main'])->assertCreated();
+    showBucket($bucket)->assertJsonPath('data.key_rotation.status', 'unknown');
+});
+
+test('probe B: after a lease expiry, an unavailable node is retried with backoff, and a later refusal ends unknown, never failed', function (): void {
+    $node = keyRotationNode();
+    $team = bucketTeam();
+    $bucket = bucketIn($team['workspace'], $node);
+    $old = (string) $bucket->secret_access_key;
+
+    $this->actingAs($team['owner'], 'web');
+    rotateBucket($bucket)->assertAccepted();
+    $first = bucketCommand($bucket, AgentCommandType::RotateBucketKey);
+    $first->update(['status' => AgentCommandStatus::Running, 'claimed_at' => now(), 'lease_expires_at' => now()->subMinute()]);
+    $this->artisan('agent:expire-commands')->assertSuccessful();
+
+    $second = bucketCommand($bucket, AgentCommandType::RotateBucketKey);
+    expect(CredentialRotation::attempt($second))->toBe(2)
+        ->and($second->available_at->getTimestamp())->toBeGreaterThanOrEqual(now()->addSeconds(CredentialRotation::RESEND_BASE_DELAY_SECONDS)->getTimestamp() - 1);
+
+    // Not offered before its delay.
+    $this->withHeaders(storageNodeHeaders($node))->getJson('/api/agent/v1/commands')->assertJsonCount(0, 'data');
+
+    $second->update(['status' => AgentCommandStatus::Running, 'claimed_at' => now()]);
+    $this->withHeaders(storageNodeHeaders($node))
+        ->postJson("/api/agent/v1/commands/{$second->id}/fail", ['error_code' => 'bucket_admin_unavailable', 'error_message' => 'rustfs restarting'])
+        ->assertNoContent();
+
+    $third = bucketCommand($bucket, AgentCommandType::RotateBucketKey);
+    expect(CredentialRotation::attempt($third))->toBe(3)
+        ->and($third->available_at->getTimestamp())->toBeGreaterThan($second->available_at->getTimestamp());
+
+    $third->update(['status' => AgentCommandStatus::Running, 'claimed_at' => now()]);
+    $this->withHeaders(storageNodeHeaders($node))
+        ->postJson("/api/agent/v1/commands/{$third->id}/fail", ['error_code' => 'bucket_not_found', 'error_message' => 'no user'])
+        ->assertNoContent();
+
+    expect(AgentCommand::query()->where('bucket_id', $bucket->id)->where('type', AgentCommandType::RotateBucketKey)->count())->toBe(3)
+        ->and($bucket->fresh()?->secret_access_key)->toBe($old)
+        ->and(AuditEvent::query()->where('action', 'bucket.key_rotation_failed')->sole()->metadata)->toMatchArray(['outcome_unknown' => true, 'attempt' => 3]);
+
+    showBucket($bucket)
+        ->assertJsonPath('data.key_rotation.status', 'unknown')
+        ->assertJsonPath('data.key_rotation.failed_at', null);
+});
+
+test('a project that cannot be redeployed after a key rotation is told it still runs with the old key', function (): void {
+    $node = keyRotationNode();
+    $team = bucketTeam(['max_active_deployments' => 5]);
+    $bucket = bucketIn($team['workspace'], $node);
+    $busy = keyRotationServedProject($team['workspace'], $node, ['name' => 'Sibuk']);
+    Deployment::factory()->for($busy)->create(['status' => DeploymentStatus::Queued, 'sequence' => 2]);
+    attachBucket($bucket, $busy);
+
+    $this->actingAs($team['member'], 'web');
+    rotateBucket($bucket, ['redeploy_attached' => true])->assertAccepted();
+    completeKeyRotation($bucket, $node);
+
+    showBucket($bucket)->assertJsonPath('data.key_rotation.redeploys.0.skipped_reason', 'active_deployment_limit');
+
+    $notice = $team['owner']->notifications()->where('data->title', 'Proyek perlu di-deploy ulang')->sole();
+
+    expect($notice->data['category'])->toBe('project_issue')
+        ->and($notice->data['message'])->toContain('Sibuk')->toContain('active_deployment_limit')
+        ->and($team['member']->notifications()->where('data->title', 'Proyek perlu di-deploy ulang')->count())->toBe(1)
+        ->and($team['viewer']->notifications()->count())->toBe(0);
 });

@@ -6,6 +6,7 @@ use App\Actions\Bucket\CreateBucketAction;
 use App\Actions\Bucket\UpdateBucketAction;
 use App\Data\Bucket\CreateBucketData;
 use App\Enums\WorkspaceRole;
+use App\Exceptions\Bucket\BucketCapacityUnavailableException;
 use App\Exceptions\Bucket\BucketStorageLimitExceededException;
 use App\Models\LimitProfile;
 use App\Models\ManagedBucket;
@@ -53,4 +54,24 @@ test('a quota increase waits for a create in the same workspace, and then sees i
         ->toThrow(BucketStorageLimitExceededException::class);
 
     expect(ManagedBucket::reservedMbIn($team->id))->toBe(70);
+});
+
+test('two workspaces cannot both take the last MB of one storage node: placement locks the node row', function (): void {
+    storageNode(capacityMb: 100);
+    $first = User::factory()->create();
+    $second = User::factory()->create();
+    $profile = LimitProfile::factory()->create(['max_buckets' => 5, 'max_bucket_storage_mb' => 1000]);
+    $one = teamWorkspace($first, [], ['limit_profile_id' => $profile->id]);
+    $two = teamWorkspace($second, [], ['limit_profile_id' => $profile->id]);
+    $action = app(CreateBucketAction::class);
+
+    whileTransactionHoldsLocks(
+        holdLocks: fn () => $action->handle($first, $one, new CreateBucketData('Satu', null, 60)),
+        contend: fn () => $action->handle($second, $two, new CreateBucketData('Dua', null, 60)),
+    );
+
+    expect(fn () => $action->handle($second, $two, new CreateBucketData('Dua', null, 60)))
+        ->toThrow(BucketCapacityUnavailableException::class);
+
+    expect((int) ManagedBucket::query()->sum('reserved_quota_mb'))->toBe(60);
 });
