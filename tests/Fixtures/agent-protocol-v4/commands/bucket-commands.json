@@ -1,0 +1,73 @@
+{
+  "data": [
+    {
+      "id": "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5",
+      "type": "CreateBucket",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "bucket": "b-8k2m4q7x9z1c3v5b6n0d",
+        "access_key_id": "SK7Q2M9X4K1C8V5B3N0D",
+        "secret_access_key": "exampleonlyXq9vR2mT7kL4wN8cZ1bH5jF3pD6sA",
+        "quota_mb": 256
+      }
+    },
+    {
+      "id": "2d3e4f5a-6b7c-4d8e-9fa0-b1c2d3e4f5a6",
+      "type": "RotateBucketKey",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "bucket": "b-8k2m4q7x9z1c3v5b6n0d",
+        "access_key_id": "SK7Q2M9X4K1C8V5B3N0D",
+        "secret_access_key": "exampleonlyPw7sD3fG9hJ2kL5zX8cV1bN4mQ6tR"
+      }
+    },
+    {
+      "id": "3e4f5a6b-7c8d-4e9f-a0b1-c2d3e4f5a6b7",
+      "type": "SetBucketQuota",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "bucket": "b-8k2m4q7x9z1c3v5b6n0d",
+        "quota_mb": 512
+      }
+    },
+    {
+      "id": "4f5a6b7c-8d9e-4fa0-b1c2-d3e4f5a6b7c8",
+      "type": "LockBucket",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "bucket": "b-8k2m4q7x9z1c3v5b6n0d",
+        "access_key_id": "SK7Q2M9X4K1C8V5B3N0D"
+      }
+    },
+    {
+      "id": "5a6b7c8d-9eaf-40b1-c2d3-e4f5a6b7c8d9",
+      "type": "UnlockBucket",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "bucket": "b-8k2m4q7x9z1c3v5b6n0d",
+        "access_key_id": "SK7Q2M9X4K1C8V5B3N0D"
+      }
+    },
+    {
+      "id": "6b7c8d9e-afb0-41c2-d3e4-f5a6b7c8d9ea",
+      "type": "DeleteBucket",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "bucket": "b-8k2m4q7x9z1c3v5b6n0d",
+        "access_key_id": "SK7Q2M9X4K1C8V5B3N0D"
+      }
+    }
+  ]
+}

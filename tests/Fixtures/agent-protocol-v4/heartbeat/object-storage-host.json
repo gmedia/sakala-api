@@ -1,0 +1,28 @@
+{
+  "status": "ready",
+  "hostname": "runtime-01",
+  "runtime_network": "sakala-runtime",
+  "capabilities": ["docker-runtime", "project-inspection", "managed-s3"],
+  "metadata": {
+    "version": "0.16.2",
+    "protocol_version": 4,
+    "runtime_driver": "docker",
+    "runtime": {
+      "region": "id-jog-1"
+    },
+    "object_storage": {
+      "endpoint": "https://s3.sakala.app",
+      "region": "us-east-1",
+      "capacity_mb": 5120,
+      "available": true
+    },
+    "buckets": [
+      { "name": "b-8k2m4q7x9z1c3v5b6n0d", "size_bytes": 1048576 },
+      { "name": "b-q1w2e3r4t5y6u7i8o9p0", "size_bytes": 0 }
+    ],
+    "detail_counts": {
+      "buckets": 2
+    }
+  },
+  "sent_at": "2026-11-23T03:20:00Z"
+}

@@ -59,6 +59,7 @@ test('a team with a database cannot be deleted until the database is on its way 
             'code' => 'WORKSPACE_NOT_EMPTY',
             'projects' => 0,
             'databases' => 1,
+            'buckets' => 0,
         ]);
 
     $this->deleteJson("{$url}/databases/{$database->id}")->assertAccepted();
