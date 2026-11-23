@@ -28,6 +28,7 @@ final class WorkspaceInvitationNotification extends Notification implements Shou
         public readonly string $role,
         public readonly int $ttlHours,
         public readonly DateTimeInterface $expiresAt,
+        public readonly string $email,
     ) {}
 
     /** @return list<string> */
@@ -44,15 +45,28 @@ final class WorkspaceInvitationNotification extends Notification implements Shou
         $role = WorkspaceRole::tryFrom($this->role) ?? WorkspaceRole::Member;
         $until = SakalaMailMessage::wib($this->expiresAt);
 
-        return (new SakalaMailMessage)
+        $message = (new SakalaMailMessage)
             ->subject("{$this->inviterName} mengundangmu ke {$this->workspaceName} di Sakala")
             ->preheader("Terima atau tolak undangan ini sebelum {$until}.")
             ->headline("Undangan ke workspace {$this->workspaceName}")
             ->line('Buka undangan lewat tombol di bawah untuk menerima atau menolaknya.')
             ->line("{$this->inviterName} mengundangmu bergabung ke workspace {$this->workspaceName} di Sakala sebagai {$role->label()}, yang bisa {$this->abilities($role)}.")
-            ->action('Lihat undangan', $url)
-            ->line("Undangan ini berlaku {$this->validity()}, sampai {$until}, dan hanya bisa dipakai sekali. Kalau belum punya akun Sakala, daftar dulu, lalu buka tautan ini lagi.")
-            ->line('Tautan ini khusus untukmu. Jangan teruskan ke orang lain, karena siapa pun yang membukanya dengan akun Sakala bisa menerima undangan ini.')
+            ->action('Lihat undangan', $url);
+
+        // An owner invitation is accepted only by the invited verified address
+        // (RespondToWorkspaceInvitationAction), so a forwarded link is useless
+        // and the reader must sign up with this address, not any address.
+        if ($role === WorkspaceRole::Owner) {
+            $message
+                ->line("Undangan ini berlaku {$this->validity()}, sampai {$until}, dan hanya bisa dipakai sekali.")
+                ->line("Karena kamu diundang sebagai pemilik, undangan ini hanya bisa diterima dari akun Sakala yang memakai email {$this->email} dan sudah diverifikasi. Kalau belum punya akun itu, daftar dengan email {$this->email}, verifikasi emailnya, lalu buka tautan ini lagi.");
+        } else {
+            $message
+                ->line("Undangan ini berlaku {$this->validity()}, sampai {$until}, dan hanya bisa dipakai sekali. Kalau belum punya akun Sakala, daftar dulu, lalu buka tautan ini lagi.")
+                ->line('Tautan ini khusus untukmu. Jangan teruskan ke orang lain, karena siapa pun yang membukanya dengan akun Sakala bisa menerima undangan ini.');
+        }
+
+        return $message
             ->line("Kalau kamu tidak mengenal {$this->inviterName}, abaikan email ini.")
             ->reason("Kamu menerima email ini karena {$this->inviterName} memasukkan alamat ini sebagai undangan workspace di Sakala.");
     }

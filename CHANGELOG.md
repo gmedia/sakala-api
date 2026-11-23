@@ -6,6 +6,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Fixed
 
+- The owner invitation email no longer says that anyone who opens the link with a Sakala account can accept it, or that the reader can simply sign up first. An owner invitation is accepted only by an account with the invited address verified, so the email now names that address and says to sign up and verify with it; member and viewer invitations keep the warning about forwarding the link. `mail:preview` gains `workspace-invitation-owner`.
+- The abuse and privacy contact addresses in the suspension, account deletion, and email change emails are `mailto:` links in the HTML part (some clients do not link a bare address) and stay plain in the text part. Mail copy names an address through the new `SakalaMailMessage::lineWithAddress()`, rendered by the `mail::mailto` component.
 - A rejection recorded as a `rejected_limits` signal keeps its `limit_name` for the two workspace limits that were being dropped: `max_active_containers` (now `ActiveContainerLimitExceededException::LIMIT_NAME`) and `max_active_deployments_per_workspace`. Both are part of the `RecordUsageSignalAction` allowlist, so a deployment refused by the workspace container limit or by the per-workspace active deployment limit is told apart in the admin signals instead of being stored without a `limit_name`. The unit test reads every limit name the deployment path records from `CreateDeploymentAction::LIMIT_EXCEPTION_MAP` and the exception constants, so a new limit cannot lag behind the allowlist again.
 
 ## [0.10.0] - 2026-11-20
