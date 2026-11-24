@@ -40,6 +40,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property DeploymentBuildFallbackReason|null $build_fallback_reason Why the agent built a deployment planned as reuse. Null otherwise.
  * @property int|null $container_port
  * @property int $replicas Containers this deployment was asked to run, fixed at creation like `container_port`.
+ * @property int $worker_containers Worker containers it runs next to its replicas (ADR-022), fixed at creation: the sum of the replicas of the `processes` in its payload.
+ * @property array<string, array<string, mixed>>|null $crashed_processes Worker processes the node reports as crashing, keyed by name, with the heartbeat's crash detail and `since`. Null when none.
  * @property int|null $replicas_desired Containers the node runs for it, from heartbeats. Null until reported.
  * @property int|null $replicas_ready Of those, how many pass the router's health check, from heartbeats. Null until reported.
  * @property string|null $config_fingerprint DeploymentConfigFingerprint::forProject() of the project when this deployment was created. Null for deployments created before it existed.
@@ -105,6 +107,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'build_fallback_reason',
     'container_port',
     'replicas',
+    'worker_containers',
+    'crashed_processes',
     'replicas_desired',
     'replicas_ready',
     'config_fingerprint',
@@ -149,6 +153,7 @@ class Deployment extends Model
     protected $attributes = [
         'finalization_deferred' => false,
         'replicas' => Project::DEFAULT_REPLICAS,
+        'worker_containers' => 0,
         'build_mode' => DeploymentBuildMode::Built->value,
     ];
 
@@ -259,6 +264,7 @@ class Deployment extends Model
             'build_fallback_reason' => DeploymentBuildFallbackReason::class,
             'container_port' => 'integer',
             'replicas' => 'integer',
+            'worker_containers' => 'integer',
             'replicas_desired' => 'integer',
             'replicas_ready' => 'integer',
             'requested_resources' => 'array',
@@ -273,6 +279,7 @@ class Deployment extends Model
             'cancel_requested_at' => 'immutable_datetime',
             'awaiting_inspection_until' => 'immutable_datetime',
             'crash_notified_at' => 'immutable_datetime',
+            'crashed_processes' => 'array',
         ];
     }
 }

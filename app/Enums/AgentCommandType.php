@@ -34,6 +34,7 @@ enum AgentCommandType: string
     case SetBucketQuota = 'SetBucketQuota';
     case LockBucket = 'LockBucket';
     case UnlockBucket = 'UnlockBucket';
+    case RunJob = 'RunJob';
 
     /**
      * Capability of a node that hosts the shared PostgreSQL instance of its
@@ -47,6 +48,13 @@ enum AgentCommandType: string
      * protocol tenants speak, not the engine.
      */
     public const MANAGED_S3_CAPABILITY = 'managed-s3';
+
+    /**
+     * Capability of a node that runs RunJob (ADR-022). An older agent fails
+     * to read a poll response that holds an unknown command type, so RunJob
+     * is only ever pinned to a node that advertises it.
+     */
+    public const SCHEDULED_JOBS_CAPABILITY = 'scheduled-jobs';
 
     /**
      * Return the set of node capabilities required to handle this command type.
@@ -79,6 +87,7 @@ enum AgentCommandType: string
             self::SetBucketQuota,
             self::LockBucket,
             self::UnlockBucket => [self::MANAGED_S3_CAPABILITY],
+            self::RunJob => [self::SCHEDULED_JOBS_CAPABILITY],
             self::DrainNode,
             self::ResumeNode => [],
         };
@@ -99,7 +108,8 @@ enum AgentCommandType: string
             self::RestartProject,
             self::WakeProject,
             self::RefreshRoute,
-            self::ReconcileWorkload => true,
+            self::ReconcileWorkload,
+            self::RunJob => true,
 
             self::StopProject,
             self::SleepProject,
@@ -191,6 +201,15 @@ enum AgentCommandType: string
     }
 
     /**
+     * Commands whose payload carries the project's variables, encrypted at
+     * rest and decrypted only for the node the command is pinned to.
+     */
+    public function carriesEnvironment(): bool
+    {
+        return $this === self::DeployProject || $this === self::RunJob;
+    }
+
+    /**
      * Commands for one managed resource (a database or a bucket), pinned to
      * the node that hosts it and never reassigned.
      */
@@ -256,7 +275,8 @@ enum AgentCommandType: string
             self::RotateBucketKey,
             self::SetBucketQuota,
             self::LockBucket,
-            self::UnlockBucket => true,
+            self::UnlockBucket,
+            self::RunJob => true,
             default => false,
         };
     }
@@ -269,13 +289,15 @@ enum AgentCommandType: string
      * SleepProject at most the optional `page` a suspension sets (SleepPage).
      * Database commands carry the database and role names, and a password
      * where one is set; bucket commands the bucket name and access key ID,
-     * and a secret access key where one is set.
+     * and a secret access key where one is set. RunJob carries its command
+     * and the live deployment's image identity, variables, and resources.
      */
     public function carriesPayload(): bool
     {
         return match ($this) {
             self::InspectProject,
             self::DeployProject,
+            self::RunJob,
             self::StopProject,
             self::SleepProject,
             self::ReconcileWorkload,

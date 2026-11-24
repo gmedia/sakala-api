@@ -16,7 +16,7 @@ class StoreLimitProfileRequest extends FormRequest
 {
     use RequiresAdminReason;
 
-    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region', 'max_databases', 'max_database_storage_mb', 'max_buckets', 'max_bucket_storage_mb'];
+    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region', 'max_databases', 'max_database_storage_mb', 'max_buckets', 'max_bucket_storage_mb', 'max_worker_containers', 'max_schedules', 'min_schedule_interval_minutes', 'max_concurrent_job_runs'];
 
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
@@ -70,6 +70,26 @@ class StoreLimitProfileRequest extends FormRequest
              * shrinks an existing bucket.
              */
             'max_bucket_storage_mb' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_BUCKET_STORAGE_MB_CEILING],
+            /**
+             * Worker containers the workspace may run at once (ADR-022). They also count against
+             * `max_active_containers`. `null` (the default) follows `SAKALA_WORKER_DEFAULT_MAX_CONTAINERS`; `0` allows none.
+             */
+            'max_worker_containers' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_WORKER_CONTAINERS_CEILING],
+            /**
+             * Enabled schedules the workspace may hold. `null` (the default) follows `SAKALA_SCHEDULE_DEFAULT_MAX_COUNT`;
+             * `0` allows none.
+             */
+            'max_schedules' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_SCHEDULES_CEILING],
+            /**
+             * Shortest gap between two slots of a schedule, in minutes. `null` (the default) follows
+             * `SAKALA_SCHEDULE_DEFAULT_MIN_INTERVAL_MINUTES`.
+             */
+            'min_schedule_interval_minutes' => ['sometimes', 'nullable', 'integer', 'between:'.LimitProfile::MIN_SCHEDULE_INTERVAL_FLOOR.','.LimitProfile::MIN_SCHEDULE_INTERVAL_CEILING],
+            /**
+             * Scheduled runs the workspace runs at once; a due run beyond that waits. `null` (the default) follows
+             * `SAKALA_SCHEDULE_DEFAULT_MAX_CONCURRENT_RUNS`; `0` runs none.
+             */
+            'max_concurrent_job_runs' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_CONCURRENT_JOB_RUNS_CEILING],
         ];
     }
 

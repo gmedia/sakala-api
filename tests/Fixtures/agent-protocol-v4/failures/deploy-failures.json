@@ -1,0 +1,66 @@
+[
+  {
+    "error_code": "runtime_app_not_listening",
+    "error_message": "nothing answered on port 3000 after waiting 120 seconds; the app must listen on 0.0.0.0:$PORT, and Sakala sets PORT to 3000"
+  },
+  {
+    "error_code": "runtime_app_unhealthy",
+    "error_message": "the app on port 3000 answered only with server errors for 120 seconds; the last status was HTTP 500"
+  },
+  {
+    "error_code": "runtime_app_crashed",
+    "error_message": "the app exited during start with exit code 3"
+  },
+  {
+    "error_code": "runtime_app_crashed",
+    "error_message": "the app exited during start with an exit code Docker no longer reports"
+  },
+  {
+    "error_code": "runtime_app_exec_denied",
+    "error_message": "the app could not start because Linux refused to run one of its programs (exit code 126, operation not permitted); the program asks for a Linux capability outside the small set Sakala containers keep, such as NET_RAW, so remove its file capabilities with setcap -r or use an image that does not need them"
+  },
+  {
+    "error_code": "runtime_app_out_of_memory",
+    "error_message": "the app ran out of memory during start; its memory limit is 256 MB"
+  },
+  {
+    "error_code": "runtime_port_conflict",
+    "error_message": "environment PORT=8080 must match container_port 3000; remove PORT or set it to 3000"
+  },
+  {
+    "error_code": "runtime_port_conflict",
+    "error_message": "environment PORT is not a valid port number and must match container_port 3000; remove PORT or set it to 3000"
+  },
+  {
+    "error_code": "release_command_failed",
+    "error_message": "the release command exited with exit code 3, so this deployment was not started"
+  },
+  {
+    "error_code": "release_command_failed",
+    "error_message": "the release command ran out of memory (limit 256 MB) and exited with exit code 137, so this deployment was not started"
+  },
+  {
+    "error_code": "release_command_timeout",
+    "error_message": "the release command did not finish within 600 seconds and was stopped, so this deployment was not started"
+  },
+  {
+    "error_code": "runtime_app_host_blocked",
+    "error_message": "Vite's preview server refuses requests for portfolio.sakala.app, so every visitor would get HTTP 403; add it to preview.allowedHosts in vite.config (for example preview: { allowedHosts: ['portfolio.sakala.app'] }), or clear the start command so Sakala serves the build output as a static site"
+  },
+  {
+    "error_code": "runtime_app_host_blocked",
+    "error_message": "the start command runs Vite's development server, which refuses requests for portfolio.sakala.app, so every visitor would get HTTP 403; clear the start command so Sakala serves the build output as a static site, or add the host to server.allowedHosts in vite.config"
+  },
+  {
+    "error_code": "runtime_app_host_blocked",
+    "error_message": "Django refuses requests for portfolio.sakala.app (DisallowedHost), so every visitor would get HTTP 400; add it to ALLOWED_HOSTS in settings.py, and turn DEBUG off for production"
+  },
+  {
+    "error_code": "worker_start_failed",
+    "error_message": "worker queue exited during start with exit code 1, so this deployment was not started; the previous version keeps running"
+  },
+  {
+    "error_code": "worker_start_failed",
+    "error_message": "worker queue ran out of memory (limit 192 MB) during start, so this deployment was not started; the previous version keeps running"
+  }
+]

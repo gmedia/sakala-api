@@ -109,6 +109,14 @@ class AgentNode extends Model
     public const IMAGE_ROLLBACK_CAPABILITY = 'image-rollback';
 
     /**
+     * Capability of a node that runs `DeployProject.processes`, worker
+     * containers next to the web process (ADR-022). An older agent ignores
+     * the field and runs the web process only, so the field is only sent to,
+     * and a deployment with workers only placed on, a node that advertises it.
+     */
+    public const WORKER_PROCESSES_CAPABILITY = 'worker-processes';
+
+    /**
      * Key under the heartbeat's `metadata.workloads` where an agent with
      * REPLICAS_CAPABILITY reports the most replicas it runs per project
      * (`SAKALA_MAX_REPLICAS_PER_PROJECT`), or null when its driver cannot run
@@ -382,13 +390,15 @@ class AgentNode extends Model
 
     /**
      * Whether a deployment may be sent to this node: one with `$replicas`
-     * containers (supportsReplicas()) and, when `$releaseCommand`, a release
-     * command to run first (RELEASE_COMMAND_CAPABILITY).
+     * containers (supportsReplicas()), when `$releaseCommand`, a release
+     * command to run first (RELEASE_COMMAND_CAPABILITY), and when
+     * `$workerProcesses`, worker definitions (WORKER_PROCESSES_CAPABILITY).
      */
-    public function canRunDeployment(int $replicas, bool $releaseCommand): bool
+    public function canRunDeployment(int $replicas, bool $releaseCommand, bool $workerProcesses = false): bool
     {
         return $this->supportsReplicas($replicas)
-            && (! $releaseCommand || $this->hasCapability(self::RELEASE_COMMAND_CAPABILITY));
+            && (! $releaseCommand || $this->hasCapability(self::RELEASE_COMMAND_CAPABILITY))
+            && (! $workerProcesses || $this->hasCapability(self::WORKER_PROCESSES_CAPABILITY));
     }
 
     /** Whether the node's last heartbeat advertised `$capability`. */

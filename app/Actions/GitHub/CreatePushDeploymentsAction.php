@@ -27,7 +27,9 @@ use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
+use App\Exceptions\Runtime\ProjectWorkerProcessesUnsupportedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
+use App\Exceptions\Runtime\WorkerContainerLimitExceededException;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
@@ -69,6 +71,12 @@ final class CreatePushDeploymentsAction
 
     /** Audit reason of a push skipped because no node runs the project's release command. */
     private const SKIP_RELEASE_COMMAND_UNSUPPORTED = 'release_command_unsupported';
+
+    /** Audit reason of a push skipped by the workspace's worker container limit (ADR-022). */
+    private const SKIP_WORKER_CONTAINER_LIMIT = 'worker_container_limit';
+
+    /** Audit reason of a push skipped because no node runs the project's worker processes. */
+    private const SKIP_WORKER_PROCESSES_UNSUPPORTED = 'worker_processes_unsupported';
 
     /** Audit reason of a push skipped because the attached database's node has not reported its endpoint. */
     public const SKIP_DATABASE_ENDPOINT_UNAVAILABLE = 'database_endpoint_unavailable';
@@ -335,6 +343,10 @@ final class CreatePushDeploymentsAction
                 : 'Bucket proyek ini gagal dibuat, jadi push terbaru tidak di-deploy. Lepas bucket itu dari proyek, buat yang baru, lalu deploy manual.');
         } catch (ProjectReleaseCommandUnsupportedException) {
             $this->skip($project, $actor, self::SKIP_RELEASE_COMMAND_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung perintah rilis, jadi push terbaru tidak di-deploy. Kosongkan perintah rilis di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
+        } catch (WorkerContainerLimitExceededException $e) {
+            $this->skip($project, $actor, self::SKIP_WORKER_CONTAINER_LIMIT, $commit, "Workspace ini sudah menjalankan worker sebanyak batasnya ({$e->limit}), jadi push terbaru tidak di-deploy. Kurangi replika worker atau tunggu proyek lain yang punya worker tidur, lalu deploy manual.");
+        } catch (ProjectWorkerProcessesUnsupportedException) {
+            $this->skip($project, $actor, self::SKIP_WORKER_PROCESSES_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung worker, jadi push terbaru tidak di-deploy. Hapus worker di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
         }
     }
 

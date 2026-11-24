@@ -7,6 +7,7 @@ namespace App\Http\Requests\Api\V1\Agent;
 use App\Data\Agent\DeploymentLogReportItemData;
 use App\Data\Agent\ReportDeploymentLogData;
 use App\Enums\LogStream;
+use App\Models\ProjectProcess;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
@@ -70,6 +71,9 @@ final class ReportDeploymentLogRequest extends FormRequest
                 'not_regex:/[\r\n]/',
             ],
             'logs.*.recorded_at' => ['required', 'date'],
+            // Additive within protocol revision 4 (ADR-022): a worker's name,
+            // or `job` for RunJob output. Absent for build, release, and web.
+            'logs.*.process' => ['sometimes', 'nullable', 'string', 'max:'.ProjectProcess::MAX_NAME_LENGTH, 'regex:'.ProjectProcess::NAME_PATTERN],
         ];
     }
 
@@ -100,6 +104,7 @@ final class ReportDeploymentLogRequest extends FormRequest
                     stream: LogStream::from((string) $log['stream']),
                     message: (string) $log['message'],
                     recordedAt: CarbonImmutable::parse((string) $log['recorded_at']),
+                    process: is_string($log['process'] ?? null) ? $log['process'] : null,
                 );
             })
             ->values()

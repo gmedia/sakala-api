@@ -45,6 +45,8 @@ final class DeploymentLogCreated implements ShouldBroadcast
             // client can dedupe a broadcast against what it already fetched.
             'log_sequence' => $this->deploymentLog->sequence,
             'stream' => $this->deploymentLog->stream->value,
+            // The worker process or `job`; null for build, release, and web.
+            'process' => $this->deploymentLog->process,
             'message' => $this->deploymentLog->message,
             'recorded_at' => $this->deploymentLog->recorded_at->toISOString(),
         ];

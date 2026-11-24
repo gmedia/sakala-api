@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property LogStream $stream
+ * @property string|null $process The worker name or `job` the line came from (ADR-022); null for build, release, and web lines.
  * @property Carbon $recorded_at
  */
 #[Fillable([
@@ -21,6 +22,7 @@ use Illuminate\Support\Carbon;
     'agent_command_id',
     'sequence',
     'stream',
+    'process',
     'message',
     'recorded_at',
     'idempotency_key',

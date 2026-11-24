@@ -19,7 +19,9 @@ use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
+use App\Exceptions\Runtime\ProjectWorkerProcessesUnsupportedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
+use App\Exceptions\Runtime\WorkerContainerLimitExceededException;
 use App\Models\Project;
 use App\Models\User;
 use Throwable;
@@ -76,6 +78,10 @@ final class AttachedProjectDeployer
             return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::BucketNotReady);
         } catch (ProjectReleaseCommandUnsupportedException) {
             return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::ReleaseCommandUnsupported);
+        } catch (WorkerContainerLimitExceededException) {
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::WorkerContainerLimit);
+        } catch (ProjectWorkerProcessesUnsupportedException) {
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::WorkerProcessesUnsupported);
         } catch (Throwable $exception) {
             // Anything else, such as GitHub not answering, is reported and
             // must not stop the other projects.

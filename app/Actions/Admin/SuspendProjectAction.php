@@ -18,9 +18,11 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\ProjectControlRequest;
+use App\Models\ProjectSchedule;
 use App\Models\User;
 use App\Notifications\Project\ProjectSuspendedNotification;
 use App\Services\Notification\UserNotifier;
+use App\Services\Schedule\ScheduleRunCanceller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -29,6 +31,7 @@ final class SuspendProjectAction
 {
     public function __construct(
         private readonly CreateSleepProjectCommandAction $createSleepProjectCommandAction,
+        private readonly ScheduleRunCanceller $scheduleRuns,
         private readonly RecordUsageSignalAction $recordAction,
         private readonly UserNotifier $notifier,
     ) {}
@@ -158,6 +161,10 @@ final class SuspendProjectAction
             $lockedProject->update([
                 'status' => ProjectStatus::Suspended,
             ]);
+
+            // A suspension sleeps the project, and a sleep leaves running jobs
+            // alone (ADR-022), so its open schedule runs are stopped here.
+            $lockedProject->schedules()->get()->each(fn (ProjectSchedule $schedule) => $this->scheduleRuns->cancelOpenRuns($schedule));
 
             $responseContext = [
                 'project_status' => $lockedProject->status->value,

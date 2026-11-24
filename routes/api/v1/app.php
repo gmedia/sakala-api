@@ -17,14 +17,19 @@ use App\Http\Controllers\Api\V1\Project\DomainPreviewController;
 use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use App\Http\Controllers\Api\V1\Project\ProjectMetricsController;
+use App\Http\Controllers\Api\V1\Project\ProjectProcessController;
 use App\Http\Controllers\Api\V1\Project\SkippedPushController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
 use App\Http\Controllers\Api\V1\Runtime\RegionController;
+use App\Http\Controllers\Api\V1\Schedule\ProjectScheduleController;
+use App\Http\Controllers\Api\V1\Schedule\ScheduleRunController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceInvitationController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceMemberController;
 use App\Http\Middleware\EnsureEmailDeliveryAvailable;
 use App\Http\Middleware\EnsureLegalAcceptance;
+use App\Http\Middleware\EnsureRuntimeFeatureEnabled;
+use App\Support\Runtime\RuntimeFeatures;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -93,6 +98,49 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
             [EnvironmentVariableController::class, 'value']
         )->name('api.v1.app.projects.environment-variables.value');
     });
+
+    // Worker processes of a project (ADR-022); 404 while SAKALA_WORKERS_ENABLED is off.
+    Route::scopeBindings()
+        ->middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::WORKERS)
+        ->whereUuid(['process'])
+        ->group(function (): void {
+            Route::get('projects/{project}/processes', [ProjectProcessController::class, 'index'])
+                ->name('api.v1.app.projects.processes.index');
+            Route::post('projects/{project}/processes', [ProjectProcessController::class, 'store'])
+                ->name('api.v1.app.projects.processes.store');
+            Route::patch('projects/{project}/processes/{process}', [ProjectProcessController::class, 'update'])
+                ->name('api.v1.app.projects.processes.update');
+            Route::delete('projects/{project}/processes/{process}', [ProjectProcessController::class, 'destroy'])
+                ->name('api.v1.app.projects.processes.destroy');
+        });
+
+    // Schedules of a project and their runs (ADR-022); 404 while
+    // SAKALA_SCHEDULES_ENABLED is off. Run now starts work like a deployment,
+    // so it needs the current legal terms.
+    Route::scopeBindings()
+        ->middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::SCHEDULES)
+        ->whereUuid(['schedule', 'run'])
+        ->group(function (): void {
+            Route::get('projects/{project}/schedules', [ProjectScheduleController::class, 'index'])
+                ->name('api.v1.app.projects.schedules.index');
+            Route::post('projects/{project}/schedules', [ProjectScheduleController::class, 'store'])
+                ->name('api.v1.app.projects.schedules.store');
+            Route::get('projects/{project}/schedules/{schedule}', [ProjectScheduleController::class, 'show'])
+                ->name('api.v1.app.projects.schedules.show');
+            Route::patch('projects/{project}/schedules/{schedule}', [ProjectScheduleController::class, 'update'])
+                ->name('api.v1.app.projects.schedules.update');
+            Route::delete('projects/{project}/schedules/{schedule}', [ProjectScheduleController::class, 'destroy'])
+                ->name('api.v1.app.projects.schedules.destroy');
+            Route::get('projects/{project}/schedules/{schedule}/runs', [ScheduleRunController::class, 'index'])
+                ->name('api.v1.app.projects.schedules.runs.index');
+            Route::post('projects/{project}/schedules/{schedule}/runs', [ScheduleRunController::class, 'store'])
+                ->middleware(EnsureLegalAcceptance::class)
+                ->name('api.v1.app.projects.schedules.runs.store');
+            Route::post('projects/{project}/schedules/{schedule}/runs/{run}/cancel', [ScheduleRunController::class, 'cancel'])
+                ->name('api.v1.app.projects.schedules.runs.cancel');
+            Route::get('projects/{project}/schedules/{schedule}/runs/{run}/logs', [ScheduleRunController::class, 'logs'])
+                ->name('api.v1.app.projects.schedules.runs.logs');
+        });
 
     // GitHub routes
     Route::prefix('github')->group(function (): void {

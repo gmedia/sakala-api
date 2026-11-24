@@ -50,6 +50,12 @@ enum AttachedRedeploySkipReason: string
 
     case ReleaseCommandUnsupported = 'release_command_unsupported';
 
+    /** The deployment would run more worker containers than the workspace's `max_worker_containers` (ADR-022). */
+    case WorkerContainerLimit = 'worker_container_limit';
+
+    /** The project has worker processes and no node that could run it advertises `worker-processes`. */
+    case WorkerProcessesUnsupported = 'worker_processes_unsupported';
+
     /** Only for `deploy_when_ready`: the database's creation failed or expired, so there is nothing to connect to. */
     case DatabaseProvisioningFailed = 'database_provisioning_failed';
 

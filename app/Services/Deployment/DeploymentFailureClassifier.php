@@ -155,6 +155,14 @@ final class DeploymentFailureClassifier
                 'Buka log deployment bagian rilis untuk melihat langkah yang lambat. Pastikan perintah rilis selesai sendiri, tidak menunggu input, dan tidak menjalankan server. Perbaiki, lalu deploy ulang.',
             ),
 
+            // ADR-022: a worker exited or restarted before the route switched.
+            'worker_start_failed' => $this->userFixable(
+                $errorCode,
+                Category::Start,
+                'Salah satu worker berhenti saat dijalankan, jadi versi baru tidak dijalankan. Nama worker dan kode keluarnya tertulis di detail kegagalan. Versi sebelumnya, kalau ada, tetap melayani bersama worker-nya.',
+                'Buka log deployment dan pilih proses worker itu untuk melihat error-nya. Pastikan perintah worker tetap berjalan, tidak selesai sendiri, dan memorinya cukup. Perbaiki perintah worker di pengaturan proyek atau di repository, lalu deploy ulang.',
+            ),
+
             'runtime_app_crashed' => $this->userFixable(
                 $errorCode,
                 Category::Start,

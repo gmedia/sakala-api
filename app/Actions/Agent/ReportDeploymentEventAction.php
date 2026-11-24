@@ -26,6 +26,7 @@ use App\Services\Agent\AgentCommandProgressService;
 use App\Services\Agent\AgentCommandReportRecorder;
 use App\Services\Agent\AgentReportBoundsService;
 use App\Services\Agent\AgentReportIdempotencyService;
+use App\Services\Schedule\ScheduleRunOutcomeService;
 use App\Services\Security\ProjectSecretValues;
 use App\Services\Security\SecretRedactionService;
 use Illuminate\Support\Facades\DB;
@@ -60,6 +61,7 @@ final class ReportDeploymentEventAction
         private readonly AgentCommandProgressService $progress,
         private readonly AgentCommandReportRecorder $commandReports,
         private readonly TransitionDeploymentAction $transitionDeployment,
+        private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
     ) {}
 
     public function handle(
@@ -79,6 +81,21 @@ final class ReportDeploymentEventAction
                 // Node-level and inspection commands report against the
                 // command itself; there is no deployment timeline to append to.
                 return $this->commandReports->recordEvents($command, $data);
+            }
+
+            if ($command->type === AgentCommandType::RunJob) {
+                // A job is not a phase of the live deployment it runs from:
+                // its events stay on the command, and `job.finished` gives
+                // the run its exit code (ADR-022).
+                $acknowledgement = $this->commandReports->recordEvents($command, $data);
+
+                foreach ($data->items as $item) {
+                    if ($item->type === ScheduleRunOutcomeService::JOB_FINISHED_EVENT) {
+                        $this->scheduleRunOutcome->jobFinished($command, $item->metadata);
+                    }
+                }
+
+                return $acknowledgement;
             }
 
             /** @var Deployment $deployment */

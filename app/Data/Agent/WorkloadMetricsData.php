@@ -21,13 +21,22 @@ final readonly class WorkloadMetricsData
     ) {}
 
     /**
-     * @param  list<array{project_id: string, deployment_id: string, replica: int|string, sampled_at: string, cpu_percent: float|int|string, memory_bytes: int|string, memory_limit_bytes: int|string|null, restart_count: int|string}>  $details
+     * Worker containers' samples (`process` set, ADR-022) are left out: the
+     * project metrics describe the web process, and a worker's replica 0
+     * would otherwise merge into the web replica 0 row. The node's metadata
+     * keeps them for operators.
+     *
+     * @param  list<array{project_id: string, deployment_id: string, replica: int|string, sampled_at: string, cpu_percent: float|int|string, memory_bytes: int|string, memory_limit_bytes: int|string|null, restart_count: int|string, process?: string|null}>  $details
      */
     public static function fromReport(array $details): self
     {
         $samples = [];
 
         foreach ($details as $detail) {
+            if (($detail['process'] ?? null) !== null) {
+                continue;
+            }
+
             $samples[] = [
                 'project_id' => mb_strtolower($detail['project_id']),
                 'deployment_id' => mb_strtolower($detail['deployment_id']),

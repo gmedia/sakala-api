@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Runtime;
 
 use App\Data\Runtime\PilotQuotaLimitsData;
+use App\Services\Schedule\SchedulePolicy;
+use App\Support\Runtime\RuntimeFeatures;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -101,6 +103,21 @@ final class PilotLimitsResource extends JsonResource
                 'current_bucket_storage_mb' => $this->resource->current_bucket_storage_mb,
                 /** Usage of the workspace's buckets from the storage nodes' last reports, in bytes; a bucket never measured counts 0. */
                 'current_bucket_usage_bytes' => $this->resource->current_bucket_usage_bytes,
+                /**
+                 * Worker containers the workspace may run at once, from its limit profile or the global setting
+                 * (ADR-022). They also count towards `max_active_containers`. `0` allows none.
+                 */
+                'max_worker_containers' => $limits->max_worker_containers,
+                /** Worker containers of the workspace's projects that serve or are being deployed. */
+                'current_worker_containers_count' => $this->resource->current_worker_containers_count,
+                /** Enabled schedules the workspace may hold, from its limit profile or the global setting; `0` allows none. */
+                'max_schedules' => $limits->max_schedules,
+                /** Enabled schedules that count towards `max_schedules`. */
+                'current_schedules_count' => $this->resource->current_schedules_count,
+                /** Shortest gap between two slots of a schedule, in minutes, from its limit profile or the global setting. */
+                'min_schedule_interval_minutes' => $limits->min_schedule_interval_minutes,
+                /** Scheduled runs the workspace runs at once; a due run beyond that waits. `0` runs none. */
+                'max_concurrent_job_runs' => $limits->max_concurrent_job_runs,
             ],
             'runtime_defaults' => [
                 /** @var int */
@@ -158,6 +175,28 @@ final class PilotLimitsResource extends JsonResource
                  * @var int
                  */
                 'default_quota_mb' => $this->bucketDefaultQuotaMb,
+            ],
+            /**
+             * Worker processes on this installation (ADR-022). `enabled` follows `SAKALA_WORKERS_ENABLED`; while it
+             * is false the process endpoints answer 404 and deployments carry no workers.
+             */
+            'workers' => [
+                'enabled' => RuntimeFeatures::workersEnabled(),
+            ],
+            /**
+             * Scheduled jobs on this installation (ADR-022). `enabled` follows `SAKALA_SCHEDULES_ENABLED`; while it
+             * is false the schedule endpoints answer 404 and nothing is dispatched. `default_timezone` is the
+             * timezone of a schedule created without one, `max_timeout_seconds` the longest run timeout, and
+             * `start_deadline_minutes` how late a slot may still start.
+             *
+             * @var array{enabled: bool, default_timezone: string, default_timeout_seconds: int, max_timeout_seconds: int, start_deadline_minutes: int}
+             */
+            'schedules' => [
+                'enabled' => RuntimeFeatures::schedulesEnabled(),
+                'default_timezone' => SchedulePolicy::DEFAULT_TIMEZONE,
+                'default_timeout_seconds' => SchedulePolicy::DEFAULT_TIMEOUT_SECONDS,
+                'max_timeout_seconds' => SchedulePolicy::MAX_TIMEOUT_SECONDS,
+                'start_deadline_minutes' => app(SchedulePolicy::class)->startDeadlineMinutes(),
             ],
         ];
     }

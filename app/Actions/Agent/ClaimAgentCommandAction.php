@@ -15,6 +15,9 @@ use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Agent\AgentCommandEligibilityService;
 use App\Services\Agent\ProjectCommandEligibilityService;
+use App\Services\Schedule\SchedulePolicy;
+use App\Services\Schedule\ScheduleRunLauncher;
+use App\Services\Schedule\ScheduleRunOutcomeService;
 use Illuminate\Support\Facades\DB;
 
 final class ClaimAgentCommandAction
@@ -22,6 +25,7 @@ final class ClaimAgentCommandAction
     public function __construct(
         private readonly AgentCommandEligibilityService $eligibility,
         private readonly ProjectCommandEligibilityService $projectEligibility,
+        private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
     ) {}
 
     /**
@@ -103,6 +107,10 @@ final class ClaimAgentCommandAction
                 ]);
             }
 
+            if ($command->type === AgentCommandType::RunJob) {
+                $this->scheduleRunOutcome->claimed($command);
+            }
+
             return $command->fresh();
         });
 
@@ -164,10 +172,23 @@ final class ClaimAgentCommandAction
     /**
      * The lease is the agent's execution deadline for this command plus a
      * grace window. Past it, the control plane treats the command as
-     * abandoned and recovers it (see ExpireAgentCommandsAction).
+     * abandoned and recovers it (see ExpireAgentCommandsAction). A RunJob's
+     * deadline on the agent is its `timeout_seconds` plus the time to stop,
+     * remove, and report its container, never SAKALA_COMMAND_TIMEOUT_SECONDS,
+     * so a long job is never expired while it runs.
      */
     private function leaseSeconds(AgentCommand $command): int
     {
+        if ($command->type === AgentCommandType::RunJob) {
+            $jobTimeout = $command->payload['timeout_seconds'] ?? null;
+
+            if (! is_int($jobTimeout) || $jobTimeout <= 0) {
+                $jobTimeout = SchedulePolicy::DEFAULT_TIMEOUT_SECONDS;
+            }
+
+            return $jobTimeout + ScheduleRunLauncher::AGENT_JOB_STOP_GRACE_SECONDS + (int) config('sakala.agent.lease_grace_seconds', 60);
+        }
+
         $timeout = $command->payload['timeouts']['command_timeout_seconds'] ?? null;
 
         if (! is_int($timeout) || $timeout <= 0) {

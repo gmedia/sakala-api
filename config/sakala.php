@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Actions\Edge\EvaluateEdgeHealthAction;
 use App\Services\Bucket\BucketQuotaPolicy;
 use App\Services\Runtime\PilotRuntimeLimitService;
+use App\Services\Schedule\SchedulePolicy;
 use App\Support\Domains\ProjectDomainGenerator;
 
 $emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
@@ -200,6 +201,40 @@ return [
         // Quota of a new bucket created without `quota_mb`, in MB, capped at
         // what the workspace has left.
         'default_quota_mb' => env('SAKALA_BUCKET_DEFAULT_QUOTA_MB', BucketQuotaPolicy::DEFAULT_QUOTA_MB),
+    ],
+
+    // Worker processes (ADR-022): containers of a deployment's image that run
+    // another command next to `web`, such as a queue worker. Off by default,
+    // so an installation changes nothing until an operator turns it on: the
+    // endpoints answer 404, DeployProject never carries `processes`, and no
+    // worker container is counted.
+    'workers' => [
+        'enabled' => (bool) env('SAKALA_WORKERS_ENABLED', false),
+        // Worker containers a workspace may run at once, for a workspace whose
+        // limit profile leaves the field empty and one without a profile. They
+        // also count against max_active_containers. Empty means the default;
+        // 0 allows none.
+        'default_max_containers' => env('SAKALA_WORKER_DEFAULT_MAX_CONTAINERS', PilotRuntimeLimitService::DEFAULT_MAX_WORKER_CONTAINERS),
+    ],
+
+    // Scheduled jobs (ADR-022): the API records each due slot and runs it as a
+    // RunJob container from the live image. Off by default for the same
+    // reason as workers: schedules:dispatch does nothing and the endpoints
+    // answer 404.
+    'schedules' => [
+        'enabled' => (bool) env('SAKALA_SCHEDULES_ENABLED', false),
+        // Defaults for a workspace whose limit profile leaves the field empty
+        // and one without a profile. Empty values fall back to the defaults.
+        'default_max_count' => env('SAKALA_SCHEDULE_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_SCHEDULES),
+        'default_min_interval_minutes' => env('SAKALA_SCHEDULE_DEFAULT_MIN_INTERVAL_MINUTES', PilotRuntimeLimitService::DEFAULT_MIN_SCHEDULE_INTERVAL_MINUTES),
+        'default_max_concurrent_runs' => env('SAKALA_SCHEDULE_DEFAULT_MAX_CONCURRENT_RUNS', PilotRuntimeLimitService::DEFAULT_MAX_CONCURRENT_JOB_RUNS),
+        // A slot that has not started this many minutes after its time (or
+        // within its interval, if shorter) is recorded as missed.
+        'start_deadline_minutes' => max(1, (int) env('SAKALA_SCHEDULE_START_DEADLINE_MINUTES', SchedulePolicy::DEFAULT_START_DEADLINE_MINUTES)),
+        // Finished runs kept per schedule; older ones are deleted.
+        'runs_kept' => max(1, (int) env('SAKALA_SCHEDULE_RUNS_KEPT', SchedulePolicy::DEFAULT_RUNS_KEPT)),
+        // Failed, timed out, or lost runs in a row before a schedule is paused.
+        'pause_after_failures' => max(1, (int) env('SAKALA_SCHEDULE_PAUSE_AFTER_FAILURES', SchedulePolicy::DEFAULT_PAUSE_AFTER_FAILURES)),
     ],
 
     'workspaces' => [

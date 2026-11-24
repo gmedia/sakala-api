@@ -20,6 +20,7 @@ final class HeartbeatAgentAction
         private readonly RecordWorkloadMetricsAction $recordWorkloadMetrics,
         private readonly RecordDatabaseSizesAction $recordDatabaseSizes,
         private readonly RecordBucketSizesAction $recordBucketSizes,
+        private readonly RecordWorkerCrashesAction $recordWorkerCrashes,
     ) {}
 
     public function handle(
@@ -44,6 +45,7 @@ final class HeartbeatAgentAction
 
             if ($data->crashedWorkloads !== null) {
                 $this->reconcileCrashedWorkloads->handleWithinTransaction($agent, $data->crashedWorkloads);
+                $this->recordWorkerCrashes->handleWithinTransaction($agent, $data->crashedWorkloads);
             }
 
             if ($data->workloadTraffic !== null) {

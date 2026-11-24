@@ -13,5 +13,7 @@ final readonly class DeploymentLogReportItemData
         public LogStream $stream,
         public string $message,
         public CarbonImmutable $recordedAt,
+        /** The worker name or `job` the line came from (ADR-022); null for build, release, and web lines. */
+        public ?string $process = null,
     ) {}
 }

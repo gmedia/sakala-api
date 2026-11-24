@@ -9,6 +9,7 @@ use App\Enums\ProjectAlert;
 use App\Notifications\Messages\SakalaMailMessage;
 use App\Services\Auth\ConsoleAuthenticationRedirect;
 use App\Services\Notification\NotificationUnsubscribeLinks;
+use App\Services\Schedule\SchedulePolicy;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Notifications\Notification;
@@ -52,6 +53,9 @@ final class ProjectAlertMailNotification extends Notification implements ShouldQ
             ProjectAlert::DeploymentSucceeded => $this->deploymentSucceeded(),
             ProjectAlert::AppCrashed => $this->appCrashed(),
             ProjectAlert::AutoDeploySkipped => $this->autoDeploySkipped(),
+            ProjectAlert::WorkerCrashed => $this->workerCrashed(),
+            ProjectAlert::ScheduleFailing => $this->scheduleFailing(),
+            ProjectAlert::SchedulePaused => $this->schedulePaused(),
         };
 
         return $message
@@ -141,6 +145,55 @@ final class ProjectAlertMailNotification extends Notification implements ShouldQ
         }
 
         $this->heldBackLine($message, "Ada {$this->heldBack} push lagi yang juga tidak di-deploy sejak email terakhir.");
+
+        return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function workerCrashed(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $worker = $this->data->summary ?? 'worker';
+        $message = (new SakalaMailMessage)
+            ->subject("Worker {$worker} proyek {$name} di Sakala berhenti sendiri")
+            ->preheader('Aplikasi web tetap melayani pengunjung, tetapi pekerjaan latar worker ini tertunda.')
+            ->headline("Worker {$worker} proyek {$name} berhenti sendiri")
+            ->line('Aplikasi web tetap melayani pengunjung. Worker ini dimulai ulang terus oleh Sakala, jadi pekerjaan latarnya, misalnya antrean, tertunda sampai penyebabnya diperbaiki.')
+            ->line('Buka log deployment dan pilih proses worker ini untuk melihat pesan terakhir sebelum berhenti. Penyebab yang sering muncul: perintah worker yang keliru, environment variable yang belum diisi, atau memori yang habis.');
+
+        $this->heldBackLine($message, "Worker di proyek ini berhenti {$this->heldBack} kali lagi sejak email terakhir.");
+
+        return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function scheduleFailing(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $schedule = $this->data->summary ?? 'jadwal';
+        $message = (new SakalaMailMessage)
+            ->subject("Jadwal {$schedule} proyek {$name} di Sakala gagal")
+            ->preheader('Sakala memberi tahu lagi saat jadwal ini berhasil.')
+            ->headline("Jadwal {$schedule} proyek {$name} gagal")
+            ->line('Run terakhir jadwal ini gagal, melewati batas waktu, atau hilang karena server berhenti. Buka riwayat jadwal untuk melihat kode keluar dan log-nya.')
+            ->line('Sakala tidak mengirim email untuk setiap kegagalan berikutnya. Kamu diberi tahu lagi saat jadwal ini berhasil, atau saat jadwal dijeda karena gagal terus.');
+
+        $this->heldBackLine($message, "Ada {$this->heldBack} jadwal lain di proyek ini yang juga mulai gagal sejak email terakhir.");
+
+        return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function schedulePaused(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $schedule = $this->data->summary ?? 'jadwal';
+        $failures = app(SchedulePolicy::class)->pauseAfterFailures();
+        $message = (new SakalaMailMessage)
+            ->subject("Jadwal {$schedule} proyek {$name} di Sakala dijeda")
+            ->preheader("Jadwal ini gagal {$failures} kali berturut-turut.")
+            ->headline("Jadwal {$schedule} proyek {$name} dijeda")
+            ->line("Jadwal ini gagal {$failures} kali berturut-turut, jadi Sakala menjedanya supaya tidak terus memakai kapasitas. Tidak ada run baru sampai jadwal ini diaktifkan lagi.")
+            ->line('Buka riwayat jadwal untuk melihat kode keluar dan log-nya, perbaiki perintahnya atau aplikasinya, lalu aktifkan lagi jadwal ini.');
+
+        $this->heldBackLine($message, "Ada {$this->heldBack} jadwal lain di proyek ini yang juga dijeda sejak email terakhir.");
 
         return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
     }

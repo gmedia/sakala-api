@@ -36,6 +36,7 @@ test('agent command types match the shared Rust protocol', function () {
         'SetBucketQuota',
         'LockBucket',
         'UnlockBucket',
+        'RunJob',
     ]);
 });
 

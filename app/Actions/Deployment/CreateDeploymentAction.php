@@ -23,6 +23,7 @@ use App\Exceptions\Runtime\DeploymentNotRollbackTargetException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
+use App\Exceptions\Runtime\WorkerContainerLimitExceededException;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\AgentCommand;
 use App\Models\Deployment;
@@ -240,10 +241,12 @@ final class CreateDeploymentAction
 
                 $settings = $recorded ?? DeploymentSettingsData::fromProject($lockedProject);
 
-                // Enforce the workspace's limits under the workspace and project lock
+                // Enforce the workspace's limits under the workspace and project
+                // lock; worker containers count like replicas (ADR-022).
                 $this->runtimeLimitService->checkActiveDeploymentLimit(
                     $user,
                     $lockedProject,
+                    $settings->workerContainers(),
                 );
 
                 // Resolve effective runtime limits
@@ -268,15 +271,17 @@ final class CreateDeploymentAction
                 // command, and report success. Without one the command waits,
                 // unless no node could ever take it.
                 $releaseCommand = $settings->hasReleaseCommand();
+                $workerProcesses = $settings->hasWorkerProcesses();
 
                 $node = $this->scheduler->selectNodeFor(
                     AgentCommandType::DeployProject,
                     $lockedProject,
                     $replicas,
                     $releaseCommand,
+                    $workerProcesses,
                 );
 
-                $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas, $releaseCommand);
+                $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas, $releaseCommand, $workerProcesses);
 
                 // Loaded once: the build fingerprint and the payload must see
                 // the same variables. Recorded settings keep their recorded
@@ -346,6 +351,8 @@ final class CreateDeploymentAction
                         : null,
                     // Fixed at creation too: a later change applies from the next deployment.
                     'replicas' => $replicas,
+                    // And the worker containers next to them (ADR-022).
+                    'worker_containers' => $settings->workerContainers(),
                     // What `redeploy_required` compares with the project later,
                     // taken from the same locked row as the payload below.
                     'config_fingerprint' => $lockedProject->deploymentConfigFingerprint(),
@@ -403,6 +410,10 @@ final class CreateDeploymentAction
                     // image. The agent derives the image name and checks its
                     // labels itself.
                     ...($buildPlan->reuses() ? ['reuse_image_from_deployment_id' => $buildPlan->imageSourceDeploymentId] : []),
+                    // Optional addition to protocol revision 4 (ADR-022), only
+                    // with worker definitions, and only to a node with the
+                    // `worker-processes` capability (selected above).
+                    ...$settings->processesPayload(),
                 ];
 
                 AgentCommand::create([
@@ -442,6 +453,15 @@ final class CreateDeploymentAction
                 count: 1,
                 scope: $e->scope,
                 tags: ['limit_name' => $limitName],
+            );
+
+            throw $e;
+        } catch (WorkerContainerLimitExceededException $e) {
+            $this->recordAction->handle(
+                type: UsageSignalType::RejectedLimits,
+                count: 1,
+                scope: self::WORKSPACE_SCOPE,
+                tags: ['limit_name' => WorkerContainerLimitExceededException::LIMIT_NAME],
             );
 
             throw $e;
