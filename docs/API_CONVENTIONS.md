@@ -62,14 +62,19 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | --- | --- | --- | --- |
 | `PROJECT_LIMIT_EXCEEDED` | `422` | Kuota project workspace habis. | `limit`, `current` |
 | `ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED` | `422` | Batas deployment yang sedang berjalan tercapai. | `scope` (`project`, `user` untuk workspace pribadi, atau `workspace` untuk tim), `limit`, `current` |
-| `ACTIVE_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy akan melewati batas container berjalan workspace: project yang belum melayani butuh slot untuk semua replikanya, dan project yang melayani hanya untuk replika tambahannya. Redeploy dengan replika sama atau lebih sedikit tidak pernah kena. | `limit`, `current` (container yang berjalan di workspace, termasuk milik project ini), `requested` (replika deployment ini) |
+| `ACTIVE_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy akan melewati batas container berjalan workspace: project yang belum melayani butuh slot untuk semua replika dan container worker-nya, dan project yang melayani hanya untuk tambahannya. Redeploy dengan container sama atau lebih sedikit tidak pernah kena. | `limit`, `current` (container yang berjalan di workspace, termasuk milik project ini), `requested` (replika dan container worker deployment ini), `workers` (container worker di antaranya) |
+| `WORKER_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy akan membuat container worker yang berjalan di workspace melewati `max_worker_containers`. Lihat [Proses Worker](#proses-worker). | `limit`, `current` (container worker project lain), `requested` (container worker project ini) |
 | `BUILD_RATE_LIMIT_EXCEEDED` | `422` | Workspace sudah membuat deployment yang mem-build sebanyak batas build per jamnya dalam 60 menit terakhir. Setiap deployment yang mem-build dihitung, apa pun statusnya; deployment yang memakai ulang image tidak dihitung dan tidak pernah ditolak dengan kode ini. Lihat [Batas Workspace](#batas-workspace). | `limit`, `current` (deployment workspace yang mem-build dalam 60 menit terakhir, termasuk milik project yang dihapus; bisa lebih dari `limit` bila admin menurunkan batasnya), `retry_after_seconds` (detik sampai ada slot kosong, minimal `1`) |
 | `RESOURCE_LIMIT_EXCEEDED` | `422` | Resource yang diminta di luar batas pilot. | `resource`, `requested`, `maximum` |
 | `PROJECT_SUSPENDED` | `409` | Deploy, rollback, restart, inspeksi ulang, atau membangunkan lewat Console project yang ditangguhkan admin. | - |
 | `PROJECT_NOT_SLEEPING` | `409` | Membangunkan lewat Console project yang `runtime_status`-nya bukan `sleeping`. | `runtime_status` |
-| `PROJECT_WAKE_LIMIT_EXCEEDED` | `409` | Membangunkan project, dengan semua replika deployment yang tidur, akan melewati batas container berjalan workspace. Endpoint publik tidak menyertakan angkanya. | `limit`, `current` (container project lain), `requested` (replika yang dinyalakan); hanya lewat Console |
+| `PROJECT_WAKE_LIMIT_EXCEEDED` | `409` | Membangunkan project, dengan semua replika dan container worker deployment yang tidur, akan melewati batas container berjalan workspace, atau container worker-nya akan melewati `max_worker_containers`. Endpoint publik tidak menyertakan angkanya. | `limit`, `current` (container project lain), `requested` (container yang dinyalakan); hanya lewat Console |
 | `PROJECT_REPLICAS_UNSUPPORTED` | `409` | Deploy project dengan lebih dari 1 replika yang tidak bisa dijalankan node mana pun: node-nya belum punya capability `replicas`, atau batas replika per project node itu lebih kecil. Lihat [Replika](#replika). | `replicas`, `node_maximum` (batas terbesar yang dilaporkan node, atau `null` bila tidak ada node yang bisa menjalankan replika) |
 | `PROJECT_RELEASE_COMMAND_UNSUPPORTED` | `409` | Deploy project dengan `release_command` yang tidak bisa dijalankan node mana pun: node tempat project berjalan, atau untuk project baru semua node aktif, belum punya capability `release-command`. Kosongkan `release_command` atau tunggu operator memperbarui agent. Lihat [Perintah Rilis](#perintah-rilis). | - |
+| `PROJECT_WORKER_PROCESSES_UNSUPPORTED` | `409` | Deploy project yang punya definisi worker, sementara tidak ada node yang bisa menjalankannya: node tempat project berjalan, atau untuk project baru semua node aktif, belum punya capability `worker-processes`. Hapus worker atau tunggu operator memperbarui agent. Lihat [Proses Worker](#proses-worker). | - |
+| `SCHEDULE_LIMIT_EXCEEDED` | `422` | Membuat atau mengaktifkan jadwal saat workspace sudah punya jadwal aktif sebanyak `max_schedules`. Jadwal nonaktif selalu bisa disimpan. Lihat [Jadwal](#jadwal). | `limit`, `current` |
+| `SCHEDULE_RUN_REFUSED` | `409` | Run now saat sebuah slot akan dilewati: run jadwal itu masih terbuka, proyek ditangguhkan, belum ada deployment live, atau node-nya belum punya capability `scheduled-jobs`. Tidak ada yang dicatat. | `reason`: `overlap`, `project_suspended`, `no_live_deployment`, `node_unsupported` |
+| `SCHEDULE_RUN_NOT_OPEN` | `409` | Stop run pada run yang sudah selesai. | - |
 | `PROJECT_REGION_UNAVAILABLE` | `409` | Deploy project yang harus berjalan di region (miliknya sendiri atau default profil workspace) yang tidak punya node yang diizinkan menerima pekerjaan sama sekali. Node region itu yang hanya offline ditunggu. Lihat [Region dan Penempatan](#region-dan-penempatan). | `region` |
 | `DEPLOYMENT_ALREADY_FINISHED` | `409` | Membatalkan deployment yang sudah `succeeded` atau `failed`. | `status` |
 | `DEPLOYMENT_NOT_ROLLBACK_TARGET` | `409` | Rollback ke deployment yang tidak bisa dijadikan tujuan. Lihat [Rollback dan jeda auto-deploy](#rollback-dan-jeda-auto-deploy). | `reason`: `not_succeeded` (deployment itu tidak `succeeded`), `already_active` (deployment itu yang sedang melayani), `no_commit` (tidak mencatat commit), `branch_changed` (branch-nya bukan branch project sekarang), `settings_unavailable` (pengaturan yang dipakainya tidak tercatat) |
@@ -379,10 +384,13 @@ Bila GitHub menolak token itu sendiri, API mengulang permintaan yang sama sekali
 | `per_page` | 1 sampai 200 | 6 | Baris per halaman. |
 | `order` | `asc`, `desc` | `asc` | `desc` mulai dari baris terbaru, dan `next_cursor` berjalan ke baris yang lebih lama. Baca isi halaman terbalik untuk menampilkannya berurutan. |
 | `cursor` | string | - | Dari `meta.next_cursor`. Pakai bersama `order` yang sama dengan halaman sebelumnya. |
+| `process` | nama worker, `job`, atau `web` | - | Hanya baris satu proses (ADR-022). `web` berarti baris milik deployment sendiri yang tidak membawa proses: build, perintah rilis, dan web. Tanpa parameter ini semua baris dikirim, seperti sebelumnya. Nilai yang bukan nama proses dijawab `422`. |
 
 Klien yang tidak mengirim `order` tetap menerima urutan lama. Endpoint ini memakai limiter `api` (`SAKALA_API_RATE_LIMIT`, default 240 request per menit per user), jadi `order=desc&per_page=200` menjangkau baris terakhir log gagal dalam satu request. Bila kena limit, response `429` membawa `Retry-After`, dan header itu terbaca lintas origin lewat `exposed_headers` di `config/cors.php`. Endpoint event tetap paling banyak 10 per halaman tanpa `order`.
 
 Broadcast `deployment.log.created` membawa `sequence` untuk urutan semua event realtime deployment, dan `log_sequence` yang sama dengan `sequence` di endpoint ini. Pakai `log_sequence` untuk membuang baris yang sudah diambil.
+
+Setiap baris, di endpoint maupun broadcast, membawa `process`: nama worker untuk output container worker, `job` untuk output run jadwal (yang disimpan di log deployment live), dan `null` untuk baris deployment sendiri.
 
 ## Membatalkan Deployment
 
@@ -490,6 +498,25 @@ Setiap replika dihitung sebagai satu container berjalan untuk batas workspace (l
 Deployment dengan `release_command` hanya dikirim ke node yang mengiklankan capability `release-command`, karena agent lama akan mengabaikan field itu dan menjalankan versi baru tanpa migrasinya. Bila tidak ada node yang bisa menjalankannya, yaitu node tempat project berjalan, atau untuk project baru semua node aktif, deploy langsung ditolak `409 PROJECT_RELEASE_COMMAND_UNSUPPORTED`; kosongkan `release_command` untuk deploy sekarang, atau tunggu operator memperbarui agent. Bila node yang sanggup hanya sedang offline, deployment menunggu di antrean (`queue_state` `waiting_for_node`). Project yang juga meminta lebih dari 1 replika butuh satu node yang sanggup keduanya; bila tidak ada node yang sanggup menjalankan replikanya, jawabannya `PROJECT_REPLICAS_UNSUPPORTED`.
 
 Perintah rilis yang keluar dengan kode selain 0 menggagalkan deployment dengan `failure.code` `release_command_failed`, dan yang melewati batas waktu dengan `release_command_timeout`. Keduanya berkategori `release` dan `user_fixable: true`; `failure.detail` memuat pesan agent yang sudah diredaksi, termasuk kode keluar perintahnya. Versi baru tidak menerima traffic, dan versi sebelumnya, kalau ada, tetap melayani. Log perintah rilis ada di log deployment.
+
+### Proses Worker
+
+Proses worker (ADR-022) adalah container tambahan dari image dan variabel deployment yang sama dengan `web`, yang menjalankan perintah lain tanpa route, misalnya `php artisan queue:work`. Fitur ini hanya aktif bila `SAKALA_WORKERS_ENABLED=true`; selama mati, endpoint di bawah dijawab `404`, deployment tidak membawa worker, dan definisi yang tersimpan tidak berpengaruh apa pun, termasuk ke `redeploy_required`. `GET app/pilot-limits` memberi tahu Console lewat `workers.enabled`.
+
+| Method | Path | Keterangan |
+| --- | --- | --- |
+| `GET` | `/api/v1/app/projects/{project}/processes` | Definisi worker, urut nama. Semua anggota workspace. Setiap item membawa `crash` bila node melaporkan worker itu crash pada deployment yang melayani, atau `null`. |
+| `POST` | `/api/v1/app/projects/{project}/processes` | Tambah definisi, `201`. Owner dan member; viewer `403`. |
+| `PATCH` | `/api/v1/app/projects/{project}/processes/{process}` | Ubah sebagian field. |
+| `DELETE` | `/api/v1/app/projects/{project}/processes/{process}` | Hapus, `204`. |
+
+Field: `name` (huruf kecil, angka, dan `-`, diawali huruf, paling panjang 30, unik di proyek; `web`, `release`, dan `job` dicadangkan), `command` (satu baris 1 sampai 1000 karakter, dijalankan `sh -c` di dalam container), `replicas` (0 sampai `max_replicas` workspace, default 1; `0` menyimpan definisi tanpa menjalankan apa pun), `memory_mb` dan `cpu_millis` (per container, sampai batas per container workspace; `null` mengikuti deployment). Satu proyek paling banyak punya 5 definisi, dan jumlah `replicas` semua worker proyek tidak boleh melebihi `max_worker_containers` workspace; keduanya dijawab `422`. Jawaban `POST` dan `PATCH` membawa `redeploy_required`.
+
+Perubahan berlaku mulai deployment berikutnya, seperti replika: payload `DeployProject` membawa `processes`, dan deployment yang hanya mengubah worker memakai ulang image live tanpa build. Rollback menjalankan worker yang direkam deployment tujuan, jadi worker yang ditambahkan setelahnya tidak ikut. Deployment dengan worker hanya dikirim ke node yang mengiklankan `worker-processes`; bila tidak ada, deploy ditolak `409 PROJECT_WORKER_PROCESSES_UNSUPPORTED`, dan bila node itu hanya offline, deployment menunggu. Worker yang keluar sebelum route pindah menggagalkan deployment dengan `failure.code` `worker_start_failed`, kategori `start`, `user_fixable: true`; versi sebelumnya tetap melayani bersama worker-nya.
+
+Setiap container worker dihitung sebagai satu container berjalan untuk `max_active_containers`, saat deploy dan saat wake, dan juga untuk `max_worker_containers` (lihat [Batas Workspace](#batas-workspace)). Proyek tidur sebagai satu kesatuan: idle sleep menghentikan web dan worker bersama, worker yang sibuk tidak membuat proyek tetap bangun, dan wake menyalakan keduanya. Workspace yang butuh worker selalu berjalan memakai profil dengan `idle_sleep_minutes` `0`.
+
+Worker yang crash tidak pernah mengubah `runtime_status` proyek dan tidak menyentuh route. Ia tampil sebagai `crash` (`exit_code`, `oom_killed`, `finished_at`, `restart_count`, `running`, `since`) pada definisinya, dan owner serta member diberi tahu sekali saat worker mulai crash (`project_issue`, juga email). Worker yang keluar dengan kode 0, misalnya `queue:work --max-time`, bukan crash. Log worker memakai `process` nama worker dan budget byte sendiri.
 
 ### Region dan Penempatan
 
@@ -900,6 +927,12 @@ Batas dihitung per workspace, tidak pernah per anggota, dan datang dari profil b
 | Total ukuran database | `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB` (512 MB) | sama dengan pribadi |
 | Bucket terkelola | `SAKALA_BUCKET_DEFAULT_MAX_COUNT` (0) | sama dengan pribadi |
 | Total kuota bucket | `SAKALA_BUCKET_DEFAULT_MAX_STORAGE_MB` (0 MB) | sama dengan pribadi |
+| Container worker berjalan | `SAKALA_WORKER_DEFAULT_MAX_CONTAINERS` (1) | sama dengan pribadi |
+| Jadwal aktif | `SAKALA_SCHEDULE_DEFAULT_MAX_COUNT` (2) | sama dengan pribadi |
+| Interval jadwal minimum | `SAKALA_SCHEDULE_DEFAULT_MIN_INTERVAL_MINUTES` (15 menit) | sama dengan pribadi |
+| Run jadwal bersamaan | `SAKALA_SCHEDULE_DEFAULT_MAX_CONCURRENT_RUNS` (1) | sama dengan pribadi |
+
+Empat batas ADR-022 di akhir tabel adalah opsi A yang diputuskan maintainer pada 24 November 2026 dan hanya berlaku selama fiturnya dinyalakan. Container worker juga dihitung sebagai container berjalan, jadi worker tidak pernah menambah kapasitas di luar `max_active_containers`; batasnya diperiksa saat deploy (worker container proyek lain yang melayani atau sedang di-deploy, ditambah milik deployment ini) dan saat wake. Run jadwal tidak dihitung sebagai container. Field profil `max_worker_containers` (0 sampai 100), `max_schedules` (0 sampai 1000), `min_schedule_interval_minutes` (1 sampai 1440), dan `max_concurrent_job_runs` (0 sampai 100) bernilai `null` untuk mengikuti default global; perubahannya diaudit seperti field profil lain.
 
 Dengan default ini tidak ada yang berubah bagi user yang sudah ada, kecuali build per jam yang sekarang ditegakkan (lihat di bawah). Default tim sengaja kecil dan tidak mengikuti nilai pribadi, supaya membuat tim tidak menggandakan kuota; tim yang butuh lebih mendapat profil batas dari admin. Nilai env yang kosong memakai default di tabel. Container berjalan adalah jumlah replika project yang melayani (`active_deployment_id` terisi dan tidak `sleeping`) atau sedang di-deploy; project yang sedang di-deploy dihitung dengan replika terbanyak antara deployment aktif dan deployment yang berjalan. Batasnya berlaku saat men-deploy project yang belum melayani atau sedang tidur, saat redeploy dengan replika lebih banyak, dan saat membangunkan project (lihat [Replika](#replika)). `max_replicas` profil (1 sampai 10, atau `null`) mengatur replika terbanyak per project; `null` dan workspace tanpa profil berarti 1, jadi replika mati sampai admin mengizinkannya. `idle_sleep_minutes` profil (0 sampai 10080, atau `null`) mengatur jendela sepi: `null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` berarti project workspace itu tidak pernah ditidurkan, dan nilai lain menidurkannya setelah sekian menit, juga saat nilai global `0`. Default memory dan CPU tidak pernah melebihi batas profil. Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
 
@@ -907,7 +940,7 @@ Build per jam membatasi berapa deployment yang mem-build image yang boleh dibuat
 
 Membuat project mengunci baris user lalu baris workspace, dan membuat deployment mengunci baris workspace lalu baris project, sehingga dua request di workspace yang sama dihitung bergantian. Admin yang bertindak tidak dibatasi, sama seperti sebelumnya, termasuk oleh batas build per jam; deploy admin tetap ikut dihitung untuk deploy anggota berikutnya.
 
-`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (jumlah replika, tanpa project yang `sleeping`), `quotas.max_replicas`, `quotas.max_builds_per_hour` (batas build per jam efektif, `null` berarti tanpa batas), `quotas.max_databases`, `quotas.current_databases_count`, `quotas.max_database_storage_mb`, `quotas.current_database_storage_bytes` (lihat [Database](#database)), `quotas.max_buckets`, `quotas.current_buckets_count`, `quotas.max_bucket_storage_mb`, `quotas.current_bucket_storage_mb`, `quotas.current_bucket_usage_bytes` (lihat [Bucket](#bucket)), `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur), `databases.available` (lihat [Ketersediaan](#ketersediaan)), dan `buckets` (lihat [Ketersediaan bucket](#ketersediaan-bucket)); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
+`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (jumlah replika, tanpa project yang `sleeping`), `quotas.max_replicas`, `quotas.max_builds_per_hour` (batas build per jam efektif, `null` berarti tanpa batas), `quotas.max_databases`, `quotas.current_databases_count`, `quotas.max_database_storage_mb`, `quotas.current_database_storage_bytes` (lihat [Database](#database)), `quotas.max_buckets`, `quotas.current_buckets_count`, `quotas.max_bucket_storage_mb`, `quotas.current_bucket_storage_mb`, `quotas.current_bucket_usage_bytes` (lihat [Bucket](#bucket)), `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur), `databases.available` (lihat [Ketersediaan](#ketersediaan)), `buckets` (lihat [Ketersediaan bucket](#ketersediaan-bucket)), `quotas.max_worker_containers`, `quotas.current_worker_containers_count`, `quotas.max_schedules`, `quotas.current_schedules_count`, `quotas.min_schedule_interval_minutes`, `quotas.max_concurrent_job_runs`, `workers.enabled`, dan `schedules` (`enabled`, `default_timezone`, `default_timeout_seconds`, `max_timeout_seconds`, `start_deadline_minutes`); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
 
 ### Akses GitHub untuk Project Tim
 
@@ -1285,6 +1318,47 @@ Penguncian karena penyalahgunaan hanya lewat artisan di versi ini: `php artisan 
 
 Subject `App\Models\ManagedBucket`. Metadata boleh berisi ID, `s3_bucket`, `access_key_id`, `command_id`, `quota_mb`, `node_id`, `region`, dan kode, tidak pernah secret atau map `variables`: `bucket.created` (dengan `project_id` bila dibuat untuk proyek), `bucket.provisioned`, `bucket.provisioning_failed`, `bucket.reconciled`, `bucket.renamed`, `bucket.quota_change_requested` (`from_mb`, `to_mb`), `bucket.quota_changed`, `bucket.quota_change_failed`, `bucket.delete_requested`, `bucket.deleted`, `bucket.delete_failed`, `bucket.attached`, `bucket.detached` (`reason`: `user` atau `project_deleted`), `bucket.credentials_viewed`, `bucket.key_rotation_requested` (`redeploy_attached`), `bucket.key_rotated`, `bucket.key_rotation_failed` (`outcome_unknown`, `attempt`), `bucket.key_rotation_resent` (`resent_command_id`, `attempt`), `bucket.key_rotation_redeploys_queued` (`redeploys`), `bucket.lock_requested` (`reason`), `bucket.locked`, `bucket.lock_failed`, `bucket.unlock_requested`, `bucket.unlocked`, `bucket.unlock_failed`, `bucket.storage_warning`. Aktor mengikuti aturan database: hasil node memakai node sebagai aktor, kedaluwarsa memakai `system`/`agent:expire-commands`, dan sweep memakai `system`/`buckets:check-usage`.
 
+## Jadwal
+
+Jadwal (ADR-022) menjalankan perintah proyek pada waktu tertentu di container sekali jalan dari image deployment live, lewat command agent `RunJob`. API adalah satu-satunya penjadwal. Fitur ini hanya aktif bila `SAKALA_SCHEDULES_ENABLED=true`; selama mati, endpoint di bawah dijawab `404` dan `schedules:dispatch` tidak melakukan apa pun. `GET app/pilot-limits` memberi tahu Console lewat `schedules.enabled`.
+
+### Endpoint jadwal
+
+| Method | Path | Keterangan |
+| --- | --- | --- |
+| `GET` | `/api/v1/app/projects/{project}/schedules` | Jadwal proyek, urut dibuat, masing-masing dengan `latest_run`. Semua anggota. |
+| `POST` | `/api/v1/app/projects/{project}/schedules` | Buat jadwal, `201`. Owner dan member; viewer `403`. |
+| `GET` | `/api/v1/app/projects/{project}/schedules/{schedule}` | Satu jadwal. |
+| `PATCH` | `/api/v1/app/projects/{project}/schedules/{schedule}` | Ubah sebagian field. |
+| `DELETE` | `/api/v1/app/projects/{project}/schedules/{schedule}` | Hapus jadwal dan riwayatnya, `204`; run yang terbuka dihentikan dulu. |
+| `GET` | `/api/v1/app/projects/{project}/schedules/{schedule}/runs` | Riwayat run, terbaru dulu, cursor pagination (`per_page` 1 sampai 50, default 20). |
+| `POST` | `/api/v1/app/projects/{project}/schedules/{schedule}/runs` | Run now, `201`. Owner dan member, dan butuh persetujuan dokumen terbaru. Pada proyek yang ditangguhkan dijawab `409 SCHEDULE_RUN_REFUSED` dengan `reason` `project_suspended`. |
+| `POST` | `/api/v1/app/projects/{project}/schedules/{schedule}/runs/{run}/cancel` | Stop run: `200` bila run langsung `cancelled`, `202` bila node masih harus menghentikannya. Tetap boleh pada proyek yang ditangguhkan. |
+| `GET` | `/api/v1/app/projects/{project}/schedules/{schedule}/runs/{run}/logs` | Output run, urut lama ke baru, cursor pagination. Barisnya membawa `process: "job"` dan ikut retensi log deployment. |
+
+Field jadwal: `name` (paling panjang 100), `command` (satu baris 1 sampai 1000 karakter), `cron_expression` (lima bagian standar: menit, jam, tanggal, bulan, hari; makro seperti `@daily` ditolak), `timezone` (nama zona waktu, default `Asia/Jakarta`), `timeout_seconds` (1 sampai 600, default 300), dan `enabled` (default `true`). Waktu di respons dalam UTC ISO 8601; `timezone` hanya menentukan cara membaca ekspresi dan cara Console menampilkannya. Ekspresi ditolak `422` pada `cron_expression` bila dua dari 1000 slot berikutnya lebih rapat dari `min_schedule_interval_minutes` workspace. Membuat atau mengaktifkan jadwal saat workspace sudah punya jadwal aktif sebanyak `max_schedules` dijawab `422 SCHEDULE_LIMIT_EXCEEDED`. Mengubah ekspresi atau zona waktu, atau mengaktifkan jadwal, menghitung slot berikutnya dari sekarang, jadi slot yang sudah lewat tidak pernah dijalankan. Mengaktifkan jadwal yang dijeda menghapus jedanya dan hitungan gagalnya.
+
+Respons jadwal juga membawa `next_run_at` (`null` selama nonaktif), `health` (`healthy` atau `failing`), `consecutive_failures`, `paused_at`, dan `pause_reason` (`consecutive_failures` atau `null`).
+
+### Run
+
+`schedules:dispatch` berjalan setiap menit di satu server. Setiap slot jatuh tempo jadwal aktif dicatat sebagai satu run, unik per jadwal dan slot, lalu diputuskan dengan urutan berikut:
+
+1. Slot yang sudah lewat dari tenggat mulainya (10 menit setelah slot, atau slot berikutnya bila lebih cepat) dicatat `missed` dengan `reason` `dispatcher_late` dan tidak pernah dijalankan terlambat. Bila penjadwal terhenti beberapa slot, slot pertama yang terlewat dan slot terakhir dicatat, bukan setiap slot di antaranya.
+2. Proyek dihapus atau ditangguhkan, run jadwal yang sama masih terbuka, tidak ada deployment live, atau node-nya belum mengiklankan `scheduled-jobs`: `skipped` dengan `reason` `project_deleted`, `project_suspended`, `overlap`, `no_live_deployment`, atau `node_unsupported`.
+3. Workspace sudah menjalankan run sebanyak `max_concurrent_job_runs`: `waiting` dengan `reason` `concurrency_limit`. Dicoba lagi setiap menit, dan menjadi `missed` dengan alasan yang sama bila tenggatnya lewat.
+4. Selain itu `queued` dengan command `RunJob` yang dipin ke node deployment live.
+
+Run tidak pernah membangunkan proyek: proyek yang tidur tetap tidur dan run-nya berjalan dari image yang disimpan node. Status run selanjutnya: `running` saat node mengambilnya, lalu `succeeded`, `failed`, `timed_out`, `cancelled`, `lost` (node berhenti melapor selama run), atau `missed` dengan `reason` `not_started` (node tidak mengambilnya sebelum tenggat). `exit_code` diambil dari event `job.finished` agent dan disimpan sebagai field; `error_summary` menjelaskan kegagalan dalam bahasa Indonesia, dan `reason_message` menjelaskan `reason`. Tidak ada yang dicoba ulang otomatis, jadi job harus aman dilewati dan aman dijalankan lagi.
+
+Run now mengikuti aturan yang sama, tanpa slot (`scheduled_for` `null`, `trigger` `manual`), juga untuk jadwal yang nonaktif. Alasan yang akan membuat slot dilewati menolak permintaan dengan `409 SCHEDULE_RUN_REFUSED` dan tidak mencatat apa pun; workspace yang penuh membuat run `waiting`.
+
+Setiap jadwal menyimpan 100 run terbaru (`SAKALA_SCHEDULE_RUNS_KEPT`). Run `failed`, `timed_out`, dan `lost` dihitung sebagai kegagalan beruntun. Owner dan member diberi tahu saat jadwal mulai gagal (in-app dan email `project_issue`) dan saat pulih (in-app), tidak pada setiap kegagalan. Setelah 10 kegagalan berturut-turut (`SAKALA_SCHEDULE_PAUSE_AFTER_FAILURES`) jadwal dinonaktifkan dengan `paused_at`, dicatat di audit, dan diberitahukan. Menghapus proyek menghentikan run yang terbuka dan menghapus jadwalnya.
+
+### Audit jadwal dan worker
+
+`project.process_created`, `project.process_updated`, `project.process_deleted`, `project.schedule_created`, `project.schedule_updated`, `project.schedule_deleted`, `project.schedule_run_requested` (Run now), `project.schedule_run_cancel_requested` (Stop run), dan `project.schedule_paused` (oleh `schedules:dispatch`) dengan proyek sebagai subject. Metadata berisi ID, nama, dan field yang berubah, tidak pernah variabel proyek.
+
 ## Notifikasi
 
 Notifikasi in-app memakai database notification Laravel; sebagian juga dikirim lewat email (lihat [Email notifikasi](#email-notifikasi)). Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati, database yang diminta untuk deploy proyek gagal dibuat), `account_security` (kata sandi dan email), dan `workspace` (tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`, default `true`.
@@ -1353,6 +1427,8 @@ Siapa yang dikirimi email:
 - deployment gagal atau berhasil: orang yang meminta deployment selama ia masih owner atau member workspace, dan semua owner workspace;
 - aplikasi berhenti sendiri: orang yang meminta deployment yang sedang berjalan, dengan syarat yang sama, dan semua owner;
 - push dilewati: akun yang dipakai push untuk deploy (pembuat proyek selama masih bisa deploy, atau owner tertua), dan semua owner.
+- worker berhenti sendiri (`worker_crashed`, ADR-022): orang yang meminta deployment yang sedang berjalan, dengan syarat yang sama, dan semua owner;
+- jadwal mulai gagal (`schedule_failing`) atau dijeda setelah gagal berturut-turut (`schedule_paused`): semua owner. Ketiganya berkategori `project_issue`, dan pulihnya worker atau jadwal hanya diberitahukan di lonceng.
 
 Viewer tidak pernah dikirimi email. Di workspace pribadi semuanya berarti pemiliknya. Penerima dengan email kategori itu mati, atau alamat yang belum terverifikasi, dilewati. Tidak ada email sama sekali bila `sakala.email_delivery_enabled` mati. Penerima lonceng tidak berubah: kabar deployment ke peminta (atau semua owner dan member bila ia sudah tidak bisa mengelola proyek), crash dan push dilewati ke semua owner dan member.
 

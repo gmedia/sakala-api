@@ -1088,6 +1088,45 @@ Urutan lock hasil: command, lalu bucket, lalu proyek yang terpasang. Hasil yang 
 | `bucket_name_invalid`, `bucket_key_invalid`, `bucket_quota_invalid` | Bug di API. |
 | `invalid_runtime_command`, `unsupported_runtime_command` | Payload tidak terbaca, atau node tanpa peran object storage; bug penempatan. |
 
+### Proses worker dan RunJob (ADR-022)
+
+Tambahan di dalam protocol revision 4 untuk worker dan jadwal, cocok dengan sakala-agent main `1f41585` (PR #140, rilis berikutnya v0.18.0): `docs/AGENT_API.md` bagian "Proses worker" dan "Job (RunJob)", serta `docs/COMPATIBILITY.md` bagian "Revision 4 additions for worker processes and scheduled jobs". Keduanya hanya berlaku bila `SAKALA_WORKERS_ENABLED` dan `SAKALA_SCHEDULES_ENABLED` dinyalakan; dengan keduanya mati (default) API tidak pernah mengirim `processes` atau `RunJob`.
+
+**`DeployProject.processes`.** Bila proyek punya definisi worker, payload membawa `processes`, daftar `{ name, command, replicas, resources: { memory_mb, cpu_millis, pids_limit } }` yang diurutkan menurut nama. `memory_mb` dan `cpu_millis` `null` berarti ikut `resources` deployment; `pids_limit` selalu `null`. Definisi dengan `replicas: 0` tetap dikirim. Proyek tanpa definisi tidak mengirim key ini sama sekali. Deployment yang membawa `processes` hanya dipin ke node yang mengiklankan `worker-processes`, baik saat dibuat maupun oleh `agent:assign-commands` (dibaca dari payload lewat `AgentCommand::requestsWorkerProcesses()`). Bila tidak ada node yang mungkin menjalankannya, deploy ditolak `409 PROJECT_WORKER_PROCESSES_UNSUPPORTED`. Rollback memakai `processes` rekaman payload target, dan redeploy yang hanya mengubah worker memakai ulang image live karena worker tidak masuk fingerprint build. `deployments.worker_containers` (jumlah `replicas` worker) dihitung terhadap `max_active_containers` dan `max_worker_containers` saat deploy dan wake.
+
+**`RunJob`.** Command type terakhir di enum. Dibuat oleh `schedules:dispatch` dan "Run now", dipin saat dibuat ke node deployment live (`isPinnedAtCreation`), hanya bila node itu mengiklankan `scheduled-jobs`, dan diblokir untuk proyek yang ditangguhkan. `project_id` dan `deployment_id` (deployment live) selalu terisi. Payload:
+
+| Field | Sumber |
+| --- | --- |
+| `command`, `timeout_seconds` | Jadwal saat run dibuat (`timeout_seconds` 1 sampai 600, default 300). |
+| `commit_sha`, `container_port` | Deployment live. |
+| `reuse_image_from_deployment_id` | Hanya bila deployment live memakai ulang image (`Deployment::imageBuilderId()` bukan dirinya sendiri). |
+| `environment`, `resources`, `log_bounds` | Disalin dari payload `DeployProject` deployment live; `environment` tetap terenkripsi di database dan hanya didekripsi untuk node yang dipin, sama seperti `DeployProject`. |
+
+`idempotency_key` adalah `schedule-run:{schedule_id}:{slot UTC ISO 8601}` untuk slot, dan `schedule-run:{schedule_id}:manual:{run_id}` untuk "Run now". `expires_at` adalah tenggat mulai run (10 menit setelah slot, atau slot berikutnya bila lebih cepat). Lease setelah klaim adalah `timeout_seconds` + 30 detik (waktu agent menghentikan, menghapus, dan melaporkan container) + `SAKALA_AGENT_LEASE_GRACE_SECONDS`, bukan `command_timeout_seconds`, jadi job panjang tidak pernah kedaluwarsa saat masih berjalan.
+
+Efek di API, pada run jadwal (`schedule_runs`):
+
+| Laporan | Run |
+| --- | --- |
+| `claim` | `queued` → `running`, `started_at`. |
+| Event `job.finished` | `exit_code` (`null` setelah timeout), `duration_ms`, `oom_killed`, `timed_out` disimpan sebagai kolom. Event `RunJob` disimpan di laporan command (`agent_command_reports`), tidak di timeline deployment live. |
+| Log | Disimpan di log deployment live dengan `process: "job"` dan `agent_command_id` command itu; tersedia lewat `GET .../runs/{run}/logs`. |
+| `complete` `{ exit_code, duration_ms, oom_killed }` | `succeeded`. |
+| `fail` `job_timeout` | `timed_out`. |
+| `fail` `runtime_cancelled` | `cancelled` (Stop run, `StopProject`, atau agent berhenti); bukan kegagalan. |
+| `fail` kode lain (`job_failed`, `job_image_missing`, `runtime_capacity_exceeded`, `invalid_runtime_command`, `runtime_port_conflict`, ...) | `failed`, dengan `error_code` dan `error_message` yang sudah diredaksi. |
+| `expires_at` lewat sebelum klaim | `missed`, `reason: not_started`. |
+| Lease habis | `lost`. |
+
+`failed`, `timed_out`, dan `lost` dihitung sebagai kegagalan beruntun jadwal. Stop run memakai `cancel_requested` yang sudah ada.
+
+**Log `process`.** Item log boleh membawa `process` (nama worker atau `job`, pola `^[a-z][a-z0-9-]*$`, paling panjang 30); nilai lain menolak batch dengan `422`. Baris tanpa `process` tetap seperti sebelumnya. Budget `max_total_bytes` dihitung terpisah per `process` (`agent_commands.process_log_bytes`), di samping `reported_log_bytes` untuk baris deployment sendiri, sehingga `422` budget satu worker tidak menghentikan baris lain. Hash idempotensi baris tanpa `process` tidak berubah.
+
+**Heartbeat `process`.** `crashed_details[]` dan `metrics[]` boleh membawa `process` (pola yang sama); `crashed_details[]` juga boleh membawa `restart_count` dan `running`. Item dengan `process` adalah worker: tidak pernah mengubah `runtime_status` proyek, dicatat di `deployments.crashed_processes` (per nama, dengan `since`), ditampilkan sebagai `crash` di `GET .../processes`, dan diberitahukan sekali per worker yang mulai crash (in-app dan email `project_issue`). Worker yang hilang dari daftar lengkap dianggap pulih; daftar terpotong tidak memulihkan apa pun. Sampel `metrics[]` dengan `process` tidak masuk metrik proyek, karena replika 0 worker akan tercampur dengan replika 0 web; sampel itu tetap tersimpan di `metadata` node. `unhealthy_details[].process` diterima tanpa diproses.
+
+**Kegagalan deploy `worker_start_failed`.** Kategori `start`, bisa diperbaiki pengguna; petunjuknya membaca log proses worker itu.
+
 ## Enum
 
 Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
@@ -1098,8 +1137,8 @@ Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
   `ReconcileWorkload`, `CleanupRuntime`, `DrainNode`, `ResumeNode`,
   `CreateDatabase`, `DropDatabase`, `RotateDatabasePassword`, `LockDatabase`,
   `UnlockDatabase`, `InstallDatabaseExtension`, `CreateBucket`, `DeleteBucket`,
-  `RotateBucketKey`, `SetBucketQuota`, `LockBucket`, `UnlockBucket` (urutan ini
-  juga urutan enum `CommandType` di agent).
+  `RotateBucketKey`, `SetBucketQuota`, `LockBucket`, `UnlockBucket`, `RunJob`
+  (urutan ini juga urutan enum `CommandType` di agent).
 - `AgentCommandStatus`: `Pending`, `Claimed`, `Running`, `Succeeded`, `Failed`,
   `Cancelled`, `Expired`.
 - `AgentNodeStatus` (dilaporkan): `ready`, `busy`, `degraded`, `draining`,
@@ -1126,7 +1165,7 @@ dilihat console (`failure.category`):
 | `checkout` | tidak | `repository_credential_expired`, `repository_checkout_failed`, `runtime_repository_failed`, `repository_access_check_failed` (control plane), `inspection_failed` (control plane: inspeksi yang ditunggu deployment gagal dengan kode yang tidak dikenali) |
 | `build` | ya | `runtime_build_failed`, `runtime_root_directory_invalid` |
 | `release` | ya | `release_command_failed` (perintah rilis keluar dengan kode selain 0), `release_command_timeout` (perintah rilis melewati batas waktu); versi sebelumnya tetap melayani |
-| `start` | ya | `runtime_app_crashed`, `runtime_app_exec_denied`, `runtime_app_host_blocked` (framework menolak domain project: `allowedHosts` Vite atau `ALLOWED_HOSTS` Django; versi sebelumnya tetap melayani), `runtime_port_conflict` |
+| `start` | ya | `runtime_app_crashed`, `runtime_app_exec_denied`, `runtime_app_host_blocked` (framework menolak domain project: `allowedHosts` Vite atau `ALLOWED_HOSTS` Django; versi sebelumnya tetap melayani), `runtime_port_conflict`, `worker_start_failed` (worker keluar sebelum route pindah; versi sebelumnya tetap melayani bersama worker-nya) |
 | `start` | tidak | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed` |
 | `health` | ya | `runtime_app_not_listening`, `runtime_app_unhealthy`, `runtime_health_check_failed` |
 | `route` | tidak | `runtime_routing_failed` |
@@ -1163,6 +1202,13 @@ tanpa Agent atau Docker sungguhan. Lihat README di folder tersebut.
 (PR #138) sebelum ada tag rilis; periksa ulang terhadap tag rilis agent. Test
 memastikan setiap kode di `bucket-failures.json` dikenal API dan ditangani sesuai
 bagian 13 kontrak (kirim ulang, `unknown`, atau `failed`).
+`commands/deploy-project-processes.json`, `commands/run-job.json`,
+`failures/job-failures.json`, `failures/deploy-failures.json`, dan
+`heartbeat/worker-processes.json` disalin dari sakala-agent main `1f41585` (PR #140)
+sebelum ada tag rilis (v0.18.0); periksa ulang terhadap tag rilis. Test
+membandingkan `processes` payload deploy dengan contoh agent byte per byte,
+memastikan payload `RunJob` memakai key contoh agent, memetakan setiap body di
+`job-failures.json` ke status run, dan mereplay heartbeat worker.
 
 ## Belum tersedia pada API
 
