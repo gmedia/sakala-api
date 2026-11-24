@@ -384,7 +384,7 @@ Bila GitHub menolak token itu sendiri, API mengulang permintaan yang sama sekali
 | `per_page` | 1 sampai 200 | 6 | Baris per halaman. |
 | `order` | `asc`, `desc` | `asc` | `desc` mulai dari baris terbaru, dan `next_cursor` berjalan ke baris yang lebih lama. Baca isi halaman terbalik untuk menampilkannya berurutan. |
 | `cursor` | string | - | Dari `meta.next_cursor`. Pakai bersama `order` yang sama dengan halaman sebelumnya. |
-| `process` | nama worker, `job`, atau `web` | - | Hanya baris satu proses (ADR-022). `web` berarti baris milik deployment sendiri yang tidak membawa proses: build, perintah rilis, dan web. Tanpa parameter ini semua baris dikirim, seperti sebelumnya. Nilai yang bukan nama proses dijawab `422`. |
+| `process` | nama worker, `job`, atau `web` | - | Hanya baris satu proses (ADR-022). `web` berarti baris milik deployment sendiri yang tidak membawa proses: build, perintah rilis, dan web. Tanpa parameter ini semua baris dikirim, seperti sebelumnya. Nilai yang tidak sesuai pola nama proses dijawab `422`; nama yang sesuai pola tetapi tidak dipakai proyek ini menghasilkan daftar kosong. |
 
 Klien yang tidak mengirim `order` tetap menerima urutan lama. Endpoint ini memakai limiter `api` (`SAKALA_API_RATE_LIMIT`, default 240 request per menit per user), jadi `order=desc&per_page=200` menjangkau baris terakhir log gagal dalam satu request. Bila kena limit, response `429` membawa `Retry-After`, dan header itu terbaca lintas origin lewat `exposed_headers` di `config/cors.php`. Endpoint event tetap paling banyak 10 per halaman tanpa `order`.
 
