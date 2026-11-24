@@ -68,6 +68,17 @@ final class LimitProfileResource extends JsonResource
              */
             'max_bucket_storage_mb' => $profile->max_bucket_storage_mb,
             /**
+             * Worker containers the workspace may run at once. `null` follows the global
+             * `SAKALA_WORKER_DEFAULT_MAX_CONTAINERS`; `0` allows none.
+             */
+            'max_worker_containers' => $profile->max_worker_containers,
+            /** Enabled schedules the workspace may hold. `null` follows the global `SAKALA_SCHEDULE_DEFAULT_MAX_COUNT`; `0` allows none. */
+            'max_schedules' => $profile->max_schedules,
+            /** Shortest gap between two slots of a schedule, in minutes. `null` follows the global `SAKALA_SCHEDULE_DEFAULT_MIN_INTERVAL_MINUTES`. */
+            'min_schedule_interval_minutes' => $profile->min_schedule_interval_minutes,
+            /** Scheduled runs the workspace runs at once. `null` follows the global `SAKALA_SCHEDULE_DEFAULT_MAX_CONCURRENT_RUNS`; `0` runs none. */
+            'max_concurrent_job_runs' => $profile->max_concurrent_job_runs,
+            /**
              * Workspaces running under this profile. A profile is deleted only at zero.
              *
              * @var int|null

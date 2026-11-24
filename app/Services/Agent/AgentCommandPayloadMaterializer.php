@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Agent;
 
-use App\Enums\AgentCommandType;
 use App\Exceptions\Agent\CommandConflictException;
 use App\Models\AgentCommand;
 use App\Models\AgentNode;
@@ -34,9 +33,9 @@ final class AgentCommandPayloadMaterializer
 
         $payload = $command->payload ?? [];
 
-        if ($command->type === AgentCommandType::DeployProject) {
+        if ($command->type->carriesEnvironment()) {
             if ($command->agent_node_id !== $viewer->id) {
-                // Poll and claim already scope DeployProject to its target;
+                // Poll and claim already scope DeployProject and RunJob to their target;
                 // this guard keeps secrets from ever leaving for another node.
                 throw new CommandConflictException($command);
             }

@@ -21,6 +21,11 @@ final class DeploymentLogResource extends JsonResource
         return [
             'sequence' => $this->sequence,
             'stream' => $this->stream,
+            /**
+             * The worker process or `job` the line came from (ADR-022); `null` for the deployment's own lines: build,
+             * release command, and web.
+             */
+            'process' => $this->process,
             'message' => $this->message,
             // The column is NOT NULL; Carbon only declares toISOString() as nullable.
             /** @var string */

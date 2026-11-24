@@ -102,6 +102,8 @@ final class ReportDeploymentLogAction
             $sequences = [];
             $newReports = [];
             $newBytes = 0;
+            /** @var array<string, int> $newProcessBytes */
+            $newProcessBytes = [];
 
             foreach ($prepared as $report) {
                 /** @var DeploymentLogReportItemData $item */
@@ -127,7 +129,14 @@ final class ReportDeploymentLogAction
                 }
 
                 $newReports[] = [$item, $storedPayload, $key, $payloadHash];
-                $newBytes += strlen($item->message);
+
+                // Each worker's lines (and a job's) have their own budget
+                // (ADR-022); the deployment's own lines keep the command's.
+                if ($item->process === null) {
+                    $newBytes += strlen($item->message);
+                } else {
+                    $newProcessBytes[$item->process] = ($newProcessBytes[$item->process] ?? 0) + strlen($item->message);
+                }
             }
 
             if ($newReports === []) {
@@ -145,6 +154,16 @@ final class ReportDeploymentLogAction
                 ]);
             }
 
+            $processBytes = $command->process_log_bytes ?? [];
+
+            foreach ($newProcessBytes as $process => $bytes) {
+                if (($processBytes[$process] ?? 0) + $bytes > $bounds->max_total_bytes) {
+                    throw ValidationException::withMessages([
+                        'logs' => ["The cumulative log budget of process {$process} for this command has been exceeded."],
+                    ]);
+                }
+            }
+
             $this->progress->markRunning($command);
 
             $nextSequence = (int) $deployment->logs()->max('sequence') + 1;
@@ -158,6 +177,7 @@ final class ReportDeploymentLogAction
                     'agent_command_id' => $command->id,
                     'sequence' => $nextSequence,
                     'stream' => $item->stream,
+                    'process' => $item->process,
                     'message' => $payload['message'],
                     'recorded_at' => $item->recordedAt,
                     'idempotency_key' => $key,
@@ -174,7 +194,17 @@ final class ReportDeploymentLogAction
                 $nextSequence++;
             }
 
-            $command->increment('reported_log_bytes', $newBytes);
+            if ($newBytes > 0) {
+                $command->increment('reported_log_bytes', $newBytes);
+            }
+
+            if ($newProcessBytes !== []) {
+                foreach ($newProcessBytes as $process => $bytes) {
+                    $processBytes[$process] = ($processBytes[$process] ?? 0) + $bytes;
+                }
+
+                $command->update(['process_log_bytes' => $processBytes]);
+            }
 
             return $this->acknowledgement($data->items, $duplicateCount, $sequences);
         });
@@ -187,6 +217,8 @@ final class ReportDeploymentLogAction
             'stream' => $item->stream->value,
             'message' => $item->message,
             'recorded_at' => $item->recordedAt->toISOString(),
+            // Only when sent, so the hash of a line without it is unchanged.
+            ...($item->process === null ? [] : ['process' => $item->process]),
         ];
     }
 

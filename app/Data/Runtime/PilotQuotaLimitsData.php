@@ -30,6 +30,10 @@ final readonly class PilotQuotaLimitsData
         public int $current_bucket_storage_mb = 0,
         /** Usage the storage nodes last reported for the workspace's buckets, in bytes. */
         public int $current_bucket_usage_bytes = 0,
+        /** Worker containers of the projects that serve or are being deployed (ADR-022). */
+        public int $current_worker_containers_count = 0,
+        /** Enabled schedules that count towards `limits->max_schedules`. */
+        public int $current_schedules_count = 0,
     ) {}
 
     /**

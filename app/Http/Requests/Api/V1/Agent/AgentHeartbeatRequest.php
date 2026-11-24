@@ -16,6 +16,7 @@ use App\Models\AgentNode;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
+use App\Models\ProjectProcess;
 use App\Rules\EdgeAddress;
 use App\Rules\NetworkHost;
 use App\Rules\ObjectStorageEndpoint;
@@ -153,6 +154,12 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.workloads.crashed_details.*.exit_code' => ['present', 'nullable', 'integer'],
             'metadata.workloads.crashed_details.*.oom_killed' => ['required', 'boolean:strict'],
             'metadata.workloads.crashed_details.*.finished_at' => ['present', 'nullable', 'date'],
+            // Additive within protocol revision 4 (ADR-022): only on worker
+            // containers. Absent means the web process. A crashing worker
+            // never marks the web process crashed.
+            'metadata.workloads.crashed_details.*.process' => ['sometimes', 'nullable', 'string', 'max:'.ProjectProcess::MAX_NAME_LENGTH, 'regex:'.ProjectProcess::NAME_PATTERN],
+            'metadata.workloads.crashed_details.*.restart_count' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'metadata.workloads.crashed_details.*.running' => ['sometimes', 'nullable', 'boolean:strict'],
             // Optional, from nodes with the `idle-sleep` capability. The agent
             // caps it at its own max active containers, not at 50; the bound
             // here only keeps one heartbeat cheap. Like crashed_details, a
@@ -193,6 +200,9 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.workloads.'.self::METRICS_KEY.'.*.memory_bytes' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_MEMORY_BYTES],
             'metadata.workloads.'.self::METRICS_KEY.'.*.memory_limit_bytes' => ['present', 'nullable', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_MEMORY_BYTES],
             'metadata.workloads.'.self::METRICS_KEY.'.*.restart_count' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_RESTART_COUNT],
+            // Additive within protocol revision 4 (ADR-022): only on worker
+            // containers, whose samples are not project metrics.
+            'metadata.workloads.'.self::METRICS_KEY.'.*.process' => ['sometimes', 'nullable', 'string', 'max:'.ProjectProcess::MAX_NAME_LENGTH, 'regex:'.ProjectProcess::NAME_PATTERN],
 
             // Optional and additive within protocol revision 4: where the node
             // is (SAKALA_AGENT_REGION) and where Sakala Edge reaches its
@@ -341,7 +351,7 @@ final class AgentHeartbeatRequest extends FormRequest
 
     private function workloadMetrics(): ?WorkloadMetricsData
     {
-        /** @var list<array{project_id: string, deployment_id: string, replica: int, sampled_at: string, cpu_percent: float|int, memory_bytes: int, memory_limit_bytes: int|null, restart_count: int}>|null $details */
+        /** @var list<array{project_id: string, deployment_id: string, replica: int, sampled_at: string, cpu_percent: float|int, memory_bytes: int, memory_limit_bytes: int|null, restart_count: int, process?: string|null}>|null $details */
         $details = $this->validated('metadata.workloads.'.self::METRICS_KEY);
 
         return $details === null ? null : WorkloadMetricsData::fromReport($details);
@@ -365,7 +375,7 @@ final class AgentHeartbeatRequest extends FormRequest
 
     private function crashedWorkloads(): ?CrashedWorkloadsData
     {
-        /** @var list<array{project_id: string, deployment_id: string}>|null $details */
+        /** @var list<array{project_id: string, deployment_id: string, exit_code: int|null, oom_killed: bool, finished_at: string|null, process?: string|null, restart_count?: int|null, running?: bool|null}>|null $details */
         $details = $this->validated('metadata.workloads.crashed_details');
 
         if ($details === null) {

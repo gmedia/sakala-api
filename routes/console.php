@@ -6,6 +6,7 @@ use App\Console\Commands\AssignAgentCommandsCommand;
 use App\Console\Commands\CheckBucketUsageCommand;
 use App\Console\Commands\CheckEdgeHealthCommand;
 use App\Console\Commands\CollectUsageSignalsCommand;
+use App\Console\Commands\DispatchSchedulesCommand;
 use App\Console\Commands\EnforceDatabaseStorageQuotaCommand;
 use App\Console\Commands\ExpireAgentCommandsCommand;
 use App\Console\Commands\MarkOfflineAgentNodesCommand;
@@ -34,6 +35,13 @@ Schedule::command(ExpireAgentCommandsCommand::class)
 // Fails held deployments at their deadline, and settles any whose
 // SettleInspectionHoldsJob was lost.
 Schedule::command(SettleInspectionHoldsCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// Project schedules (ADR-022): records each due slot and starts its run.
+// Does nothing while SAKALA_SCHEDULES_ENABLED is off.
+Schedule::command(DispatchSchedulesCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();

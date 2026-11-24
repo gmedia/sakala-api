@@ -8,6 +8,8 @@ use App\Models\EnvironmentVariable;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\Project;
+use App\Models\ProjectProcess;
+use App\Support\Runtime\RuntimeFeatures;
 
 /**
  * The one definition of what is deploy-relevant: what the next deployment
@@ -20,7 +22,8 @@ use App\Models\Project;
  * gets, so a newly detected port counts while none is configured), the build,
  * start, and release commands, the root directory, the project's `replicas`
  * setting, the environment variables' keys and values, and the attached
- * managed database's and bucket's credentials. Not: the name, thumbnail, auto-deploy,
+ * managed database's and bucket's credentials, and the worker process
+ * definitions (ADR-022). Not: the name, thumbnail, auto-deploy,
  * region, or `is_secret`. Resources are requested per deployment, not stored
  * on the project. The database node's address and the bucket endpoint and
  * region are not either: it comes from a
@@ -73,7 +76,34 @@ final class DeploymentConfigFingerprint
             ...($project->database_fingerprint !== null ? ['database', $project->database_fingerprint] : []),
             // And for an attached bucket.
             ...($project->bucket_fingerprint !== null ? ['bucket', $project->bucket_fingerprint] : []),
+            // And for worker definitions, while the next deployment would
+            // carry them (ADR-022).
+            ...($project->processes_fingerprint !== null && RuntimeFeatures::workersEnabled() ? ['processes', $project->processes_fingerprint] : []),
         ]);
+    }
+
+    /**
+     * What the worker definitions hand a deployment, sorted by name: name,
+     * command, replicas, and resources. Null without any, so deleting the
+     * last one gives back the fingerprint of before.
+     *
+     * @param  iterable<ProjectProcess>  $processes
+     */
+    public static function forProcesses(iterable $processes): ?string
+    {
+        $items = [];
+
+        foreach ($processes as $process) {
+            $items[$process->name] = [$process->name, $process->command, $process->replicas, $process->memory_mb, $process->cpu_millis];
+        }
+
+        if ($items === []) {
+            return null;
+        }
+
+        ksort($items, SORT_STRING);
+
+        return self::sign(array_values($items));
     }
 
     /**

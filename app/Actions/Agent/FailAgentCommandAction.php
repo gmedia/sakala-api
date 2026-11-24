@@ -22,6 +22,7 @@ use App\Services\Bucket\BucketCommandOutcomeService;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
+use App\Services\Schedule\ScheduleRunOutcomeService;
 use App\Services\Security\ProjectSecretValues;
 use App\Services\Security\SecretRedactionService;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +44,7 @@ final class FailAgentCommandAction
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
         private readonly BucketCommandOutcomeService $bucketOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
+        private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
     ) {}
 
     /**
@@ -148,6 +150,10 @@ final class FailAgentCommandAction
 
             if ($command->type->isBucket()) {
                 $this->bucketOutcome->failed($agent, $command, $errorCode);
+            }
+
+            if ($command->type === AgentCommandType::RunJob) {
+                $this->scheduleRunOutcome->failed($command, $errorCode, $errorMessage);
             }
 
             if ($command->type === AgentCommandType::ResumeNode) {

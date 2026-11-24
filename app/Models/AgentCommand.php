@@ -28,7 +28,8 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  * @property array<string, mixed>|null $response_context
  * @property array<string, mixed>|null $result
  * @property int $attempts
- * @property int $reported_log_bytes
+ * @property int $reported_log_bytes Bytes of log lines without a `process`: the deployment's own lines.
+ * @property array<string, int>|null $process_log_bytes Bytes of log lines per `process` (ADR-022), each against its own `max_total_bytes`.
  * @property CarbonImmutable $available_at
  * @property CarbonImmutable|null $claimed_at
  * @property CarbonImmutable|null $started_at
@@ -55,6 +56,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
     'idempotency_key',
     'attempts',
     'reported_log_bytes',
+    'process_log_bytes',
     'error_code',
     'error_message',
     'available_at',
@@ -102,6 +104,18 @@ class AgentCommand extends Model
         $command = $this->payload['release_command'] ?? null;
 
         return is_string($command) && $command !== '';
+    }
+
+    /**
+     * Whether a DeployProject carries worker definitions (`processes`, ADR-022)
+     * and so must stay on a node with AgentNode::WORKER_PROCESSES_CAPABILITY.
+     * Read from the payload, like requestsReleaseCommand().
+     */
+    public function requestsWorkerProcesses(): bool
+    {
+        $processes = $this->payload['processes'] ?? null;
+
+        return is_array($processes) && $processes !== [];
     }
 
     /**
@@ -251,6 +265,7 @@ class AgentCommand extends Model
             'result' => 'array',
             'attempts' => 'integer',
             'reported_log_bytes' => 'integer',
+            'process_log_bytes' => 'array',
             'available_at' => 'immutable_datetime',
             'claimed_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',

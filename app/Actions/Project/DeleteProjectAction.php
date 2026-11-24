@@ -15,8 +15,10 @@ use App\Models\BucketAttachment;
 use App\Models\DatabaseAttachment;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Models\ProjectSchedule;
 use App\Models\User;
 use App\Services\Runtime\ProjectWorkloadService;
+use App\Services\Schedule\ScheduleRunCanceller;
 use App\Support\Bucket\BucketAudit;
 use App\Support\Database\DatabaseAudit;
 use Illuminate\Support\Facades\DB;
@@ -41,7 +43,21 @@ final class DeleteProjectAction
         private readonly CreateStopProjectCommandAction $createStopCommand,
         private readonly CancelDeploymentAction $cancelDeployment,
         private readonly ProjectWorkloadService $workloads,
+        private readonly ScheduleRunCanceller $scheduleRuns,
     ) {}
+
+    /**
+     * Schedules go with the project (ADR-022): open runs are stopped, then
+     * the schedules and their history are deleted, so the dispatcher never
+     * sees them again. The StopProject also cancels a job the node runs.
+     */
+    private function deleteSchedules(Project $project): void
+    {
+        $project->schedules()->get()->each(function (ProjectSchedule $schedule): void {
+            $this->scheduleRuns->cancelOpenRuns($schedule);
+            $schedule->delete();
+        });
+    }
 
     public function handle(Project $project, ?User $user = null): void
     {
@@ -52,6 +68,7 @@ final class DeleteProjectAction
             $stopCommandId = $this->stopServingWorkload($locked);
             $this->detachDatabases($locked, $user);
             $this->detachBuckets($locked, $user);
+            $this->deleteSchedules($locked);
 
             $locked->delete();
 

@@ -18,6 +18,7 @@ use App\Services\Bucket\BucketCommandOutcomeService;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
+use App\Services\Schedule\ScheduleRunOutcomeService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -44,6 +45,7 @@ final class ExpireAgentCommandsAction
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
         private readonly BucketCommandOutcomeService $bucketOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
+        private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
     ) {}
 
     /**
@@ -118,6 +120,12 @@ final class ExpireAgentCommandsAction
 
             if ($command->type->isBucket()) {
                 $this->bucketOutcome->failed(self::ACTOR_ID, $command, $code);
+            }
+
+            if ($command->type === AgentCommandType::RunJob) {
+                // Never claimed by the start deadline: missed. Claimed and
+                // then silent past its lease: lost.
+                $this->scheduleRunOutcome->expired($command, leaseExpired: $code === self::CODE_LEASE_EXPIRED);
             }
 
             if ($command->type === AgentCommandType::RestartProject) {

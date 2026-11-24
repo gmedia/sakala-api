@@ -17,6 +17,7 @@ use App\Exceptions\Database\DatabaseRegionUnavailableException;
 use App\Exceptions\Runtime\ProjectRegionUnavailableException;
 use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectReplicasUnsupportedException;
+use App\Exceptions\Runtime\ProjectWorkerProcessesUnsupportedException;
 use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\ManagedBucket;
@@ -55,16 +56,17 @@ final class AgentNodeSchedulerService
         ?Project $project = null,
         int $replicas = Project::DEFAULT_REPLICAS,
         bool $releaseCommand = false,
+        bool $workerProcesses = false,
     ): ?AgentNode {
-        return $this->placementFor($type, $project, $replicas, $releaseCommand)->primaryNode();
+        return $this->placementFor($type, $project, $replicas, $releaseCommand, $workerProcesses)->primaryNode();
     }
 
     /**
      * Where a command of the given type for the project runs, in this order:
      *
      * 1. Only eligible nodes (eligibleNodes()) that run every replica and,
-     *    for a deployment with a release command, run that too
-     *    (AgentNode::canRunDeployment()).
+     *    for a deployment with a release command or worker processes, run
+     *    those too (AgentNode::canRunDeployment()).
      * 2. A project already served by a node stays there, whatever its region
      *    and capacity, or waits for it (see below).
      * 3. Otherwise only nodes of the project's region
@@ -81,9 +83,10 @@ final class AgentNodeSchedulerService
         ?Project $project = null,
         int $replicas = Project::DEFAULT_REPLICAS,
         bool $releaseCommand = false,
+        bool $workerProcesses = false,
     ): ReplicaPlacementData {
         $candidates = $this->eligibleNodes($type)
-            ->filter(static fn (AgentNode $node): bool => $node->canRunDeployment($replicas, $releaseCommand))
+            ->filter(static fn (AgentNode $node): bool => $node->canRunDeployment($replicas, $releaseCommand, $workerProcesses))
             ->values();
 
         if ($project !== null) {
@@ -115,15 +118,16 @@ final class AgentNodeSchedulerService
      * forever. Nothing to check when a node was selected. Otherwise the node
      * the project is pinned to, whatever its state, or else every node of the
      * project's region that is allowed work, must exist and run all
-     * `$replicas` and, when `$releaseCommand`, the release command. A pinned
-     * or known node that only needs to come back online is fine; the
-     * deployment waits for it.
+     * `$replicas` and, when `$releaseCommand` or `$workerProcesses`, the
+     * release command or the worker processes. A pinned or known node that
+     * only needs to come back online is fine; the deployment waits for it.
      *
      * @throws ProjectRegionUnavailableException
      * @throws ProjectReplicasUnsupportedException
      * @throws ProjectReleaseCommandUnsupportedException
+     * @throws ProjectWorkerProcessesUnsupportedException
      */
-    public function ensurePlaceable(Project $project, ?AgentNode $selected, int $replicas, bool $releaseCommand = false): void
+    public function ensurePlaceable(Project $project, ?AgentNode $selected, int $replicas, bool $releaseCommand = false, bool $workerProcesses = false): void
     {
         if ($selected !== null) {
             return;
@@ -132,7 +136,7 @@ final class AgentNodeSchedulerService
         $currentNodeId = $this->currentNodeIdOf($project);
         $region = $currentNodeId === null ? $this->limits->regionFor($project) : null;
 
-        if ($region === null && $replicas <= Project::DEFAULT_REPLICAS && ! $releaseCommand) {
+        if ($region === null && $replicas <= Project::DEFAULT_REPLICAS && ! $releaseCommand && ! $workerProcesses) {
             return;
         }
 
@@ -153,7 +157,7 @@ final class AgentNodeSchedulerService
             throw new ProjectRegionUnavailableException($region);
         }
 
-        if ($nodes->contains(static fn (AgentNode $node): bool => $node->canRunDeployment($replicas, $releaseCommand))) {
+        if ($nodes->contains(static fn (AgentNode $node): bool => $node->canRunDeployment($replicas, $releaseCommand, $workerProcesses))) {
             return;
         }
 
@@ -167,7 +171,13 @@ final class AgentNodeSchedulerService
             );
         }
 
-        throw new ProjectReleaseCommandUnsupportedException;
+        // Then the release command, and last the workers.
+        if ($releaseCommand
+            && ! $nodes->contains(static fn (AgentNode $node): bool => $node->canRunDeployment($replicas, true))) {
+            throw new ProjectReleaseCommandUnsupportedException;
+        }
+
+        throw new ProjectWorkerProcessesUnsupportedException;
     }
 
     /**

@@ -20,15 +20,22 @@ final class ProjectWakeLimitExceededException extends RuntimeException
         public readonly int $limit,
         public readonly int $current,
         public readonly bool $exposeUsage = true,
-        /** Containers the wake starts: every replica of the sleeping deployment. */
+        /** Containers the wake starts: every replica and worker container of the sleeping deployment. */
         public readonly int $requested = Project::DEFAULT_REPLICAS,
+        /** Whether the worker container limit (`max_worker_containers`) was reached, not the container limit. */
+        public readonly bool $workers = false,
     ) {
-        parent::__construct($requested > Project::DEFAULT_REPLICAS
-            ? sprintf(
-                'Proyek ini belum bisa dibangunkan karena %d replikanya akan melewati batas container yang berjalan di workspace-nya. Hapus proyek yang tidak dipakai atau tunggu sampai ada proyek yang tidur, lalu coba lagi.',
+        parent::__construct(match (true) {
+            $workers => sprintf(
+                'Proyek ini belum bisa dibangunkan karena %d worker-nya akan melewati batas worker yang berjalan di workspace-nya. Tunggu sampai proyek lain yang punya worker tidur, atau kurangi worker lalu deploy ulang.',
                 $requested,
-            )
-            : 'Proyek ini belum bisa dibangunkan karena workspace-nya sudah menjalankan proyek sebanyak batasnya. Hapus proyek yang tidak dipakai atau tunggu sampai ada proyek yang tidur, lalu coba lagi.');
+            ),
+            $requested > Project::DEFAULT_REPLICAS => sprintf(
+                'Proyek ini belum bisa dibangunkan karena %d container-nya akan melewati batas container yang berjalan di workspace-nya. Hapus proyek yang tidak dipakai atau tunggu sampai ada proyek yang tidur, lalu coba lagi.',
+                $requested,
+            ),
+            default => 'Proyek ini belum bisa dibangunkan karena workspace-nya sudah menjalankan proyek sebanyak batasnya. Hapus proyek yang tidak dipakai atau tunggu sampai ada proyek yang tidur, lalu coba lagi.',
+        });
     }
 
     public function render(Request $request): JsonResponse

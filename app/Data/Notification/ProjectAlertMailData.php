@@ -20,7 +20,7 @@ final readonly class ProjectAlertMailData
         public ?string $deploymentId = null,
         public ?int $deploymentSequence = null,
         public ?DeploymentStatus $failureStage = null,
-        /** The failure summary, or why a push was skipped. */
+        /** The failure summary, why a push was skipped, or the worker or schedule name (ADR-022). */
         public ?string $summary = null,
         public ?string $recoveryHint = null,
         /** Whether an earlier version still serves visitors. */

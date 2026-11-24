@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\V1\Deployment;
 
 use App\Data\Deployment\DeploymentPaginateData;
+use App\Models\ProjectProcess;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class IndexDeploymentLogRequest extends FormRequest
@@ -27,6 +28,11 @@ final class IndexDeploymentLogRequest extends FormRequest
             'cursor' => ['sometimes', 'string'],
             'per_page' => ['sometimes', 'integer', 'between:1,'.self::MAX_PER_PAGE],
             'order' => ['sometimes', 'string', 'in:asc,desc'],
+            /**
+             * Only lines of one process (ADR-022): a worker name, `job` for scheduled runs, or `web` for the
+             * deployment's own lines (build, release command, and web), which carry no process. All lines when absent.
+             */
+            'process' => ['sometimes', 'string', 'max:'.ProjectProcess::MAX_NAME_LENGTH, 'regex:'.ProjectProcess::NAME_PATTERN],
         ];
     }
 
@@ -36,6 +42,7 @@ final class IndexDeploymentLogRequest extends FormRequest
             perPage: $this->integer('per_page', 6),
             cursor: $this->input('cursor'),
             newestFirst: $this->input('order') === 'desc',
+            process: $this->filled('process') ? $this->string('process')->toString() : null,
         );
     }
 }

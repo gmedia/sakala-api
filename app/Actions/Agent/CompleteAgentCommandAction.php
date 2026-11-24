@@ -28,6 +28,7 @@ use App\Services\Bucket\BucketCommandOutcomeService;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Project\ProjectInspectionOutcomeService;
 use App\Services\Runtime\ProjectWorkloadService;
+use App\Services\Schedule\ScheduleRunOutcomeService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -42,6 +43,7 @@ final class CompleteAgentCommandAction
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
         private readonly BucketCommandOutcomeService $bucketOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
+        private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
     ) {}
 
     /**
@@ -130,6 +132,10 @@ final class CompleteAgentCommandAction
 
             if ($command->type->isBucket()) {
                 $this->bucketOutcome->completed($agent, $command);
+            }
+
+            if ($command->type === AgentCommandType::RunJob) {
+                $this->scheduleRunOutcome->completed($command, $result);
             }
 
             if ($command->type->isNodeLevel()) {

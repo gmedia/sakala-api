@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Query\Expression;
 
 /**
  * @property string $id
@@ -51,6 +52,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $environment_fingerprint DeploymentConfigFingerprint::forEnvironment() of the stored variables; null until the first variable change or deployment after it was introduced.
  * @property string|null $database_fingerprint DeploymentConfigFingerprint::forDatabase() of the attached managed database; null without one.
  * @property string|null $bucket_fingerprint DeploymentConfigFingerprint::forBucket() of the attached managed bucket; null without one.
+ * @property string|null $processes_fingerprint DeploymentConfigFingerprint::forProcesses() of the worker definitions; null without any (ADR-022).
  * @property bool $auto_deploy
  * @property CarbonImmutable|null $auto_deploy_paused_at Set while auto-deploy is paused after a rollback (`auto_deploy` is then false); cleared when someone sets `auto_deploy` again.
  * @property string|null $auto_deploy_paused_by_deployment_id The rollback deployment that paused auto-deploy. Null when not paused, or once that deployment is deleted.
@@ -101,7 +103,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'last_deployed_at',
     'last_request_at',
 ])]
-#[Hidden(['environment_fingerprint', 'database_fingerprint', 'bucket_fingerprint'])]
+#[Hidden(['environment_fingerprint', 'database_fingerprint', 'bucket_fingerprint', 'processes_fingerprint'])]
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
@@ -120,10 +122,22 @@ class Project extends Model
      */
     public const DEFAULT_REPLICAS = 1;
 
-    /** Attributes that scopeHoldingContainers() adds. */
-    public const SERVING_REPLICAS_ATTRIBUTE = 'serving_replicas';
+    /**
+     * Attributes that scopeHoldingContainers() adds: the containers (replicas
+     * plus worker containers) of the serving deployment and the most of a
+     * deployment in progress.
+     */
+    public const SERVING_CONTAINERS_ATTRIBUTE = 'serving_containers';
 
-    public const DEPLOYING_REPLICAS_ATTRIBUTE = 'deploying_replicas';
+    public const DEPLOYING_CONTAINERS_ATTRIBUTE = 'deploying_containers';
+
+    /** Attributes that scopeHoldingContainers() adds for worker containers alone. */
+    public const SERVING_WORKERS_ATTRIBUTE = 'serving_worker_containers';
+
+    public const DEPLOYING_WORKERS_ATTRIBUTE = 'deploying_worker_containers';
+
+    /** SQL of one deployment's containers: its web replicas and its worker containers (ADR-022). */
+    private const DEPLOYMENT_CONTAINERS_SQL = 'deployments.replicas + deployments.worker_containers';
 
     /**
      * The column default, so a project answered right after it is created
@@ -206,17 +220,29 @@ class Project extends Model
 
     /**
      * Running containers the project holds for its workspace's limit, from a
-     * query that used scopeHoldingContainers(): the replicas of its serving
-     * deployment, or of a deployment in progress when that one runs more, since
-     * that is what the project runs once it succeeds. A rolling deployment
-     * briefly runs both sets on the node; the workspace limit counts the
-     * steady state.
+     * query that used scopeHoldingContainers(): the replicas and worker
+     * containers of its serving deployment, or of a deployment in progress
+     * when that one runs more, since that is what the project runs once it
+     * succeeds. A rolling deployment briefly runs both sets on the node; the
+     * workspace limit counts the steady state.
      */
     public function heldContainers(): int
     {
-        $serving = $this->isServing() ? (int) $this->getAttribute(self::SERVING_REPLICAS_ATTRIBUTE) : 0;
+        $serving = $this->isServing() ? (int) $this->getAttribute(self::SERVING_CONTAINERS_ATTRIBUTE) : 0;
 
-        return max($serving, (int) $this->getAttribute(self::DEPLOYING_REPLICAS_ATTRIBUTE));
+        return max($serving, (int) $this->getAttribute(self::DEPLOYING_CONTAINERS_ATTRIBUTE));
+    }
+
+    /**
+     * Of heldContainers(), the worker containers (ADR-022), for the
+     * workspace's `max_worker_containers`: those of the serving deployment,
+     * or of a deployment in progress when that one runs more.
+     */
+    public function heldWorkerContainers(): int
+    {
+        $serving = $this->isServing() ? (int) $this->getAttribute(self::SERVING_WORKERS_ATTRIBUTE) : 0;
+
+        return max($serving, (int) $this->getAttribute(self::DEPLOYING_WORKERS_ATTRIBUTE));
     }
 
     /** The active deployment while it serves traffic: not crashed, not asleep. */
@@ -296,6 +322,37 @@ class Project extends Model
     public function refreshBucketFingerprint(): void
     {
         $this->bucket_fingerprint = DeploymentConfigFingerprint::forBucket($this->buckets()->first());
+    }
+
+    /**
+     * Recompute `processes_fingerprint` from the worker definitions, without
+     * saving. Call it under the project row lock, like the environment one.
+     */
+    public function refreshProcessesFingerprint(): void
+    {
+        $this->processes_fingerprint = DeploymentConfigFingerprint::forProcesses($this->processes()->get());
+    }
+
+    /**
+     * Worker process definitions (ADR-022), by name.
+     *
+     * @return HasMany<ProjectProcess, $this>
+     */
+    public function processes(): HasMany
+    {
+        return $this->hasMany(ProjectProcess::class)->orderBy('name');
+    }
+
+    /** @return HasMany<ProjectSchedule, $this> */
+    public function schedules(): HasMany
+    {
+        return $this->hasMany(ProjectSchedule::class);
+    }
+
+    /** @return HasMany<ScheduleRun, $this> */
+    public function scheduleRuns(): HasMany
+    {
+        return $this->hasMany(ScheduleRun::class);
     }
 
     /**
@@ -512,9 +569,9 @@ class Project extends Model
     /**
      * Scope a query to projects that hold running container slots or are being
      * deployed and will, so two deployments racing for the last slot cannot
-     * both pass, with what heldContainers() reads: the replicas of the active
-     * deployment and the most replicas of a deployment in progress. One query
-     * for the whole workspace.
+     * both pass, with what heldContainers() and heldWorkerContainers() read:
+     * the containers of the active deployment and the most of a deployment in
+     * progress. One query for the whole workspace.
      *
      * @param  Builder<Project>  $query
      * @return Builder<Project>
@@ -526,12 +583,17 @@ class Project extends Model
                 ->where(fn (Builder $serving) => $serving->serving())
                 ->orWhereHas('deployments', self::activeDeploymentsOf(...)))
             ->addSelect([
-                self::SERVING_REPLICAS_ATTRIBUTE => Deployment::query()
-                    ->select('replicas')
+                self::SERVING_CONTAINERS_ATTRIBUTE => Deployment::query()
+                    ->selectRaw(self::DEPLOYMENT_CONTAINERS_SQL)
+                    ->whereColumn('deployments.id', 'projects.active_deployment_id')
+                    ->limit(1),
+                self::SERVING_WORKERS_ATTRIBUTE => Deployment::query()
+                    ->select('worker_containers')
                     ->whereColumn('deployments.id', 'projects.active_deployment_id')
                     ->limit(1),
             ])
-            ->withMax(['deployments as '.self::DEPLOYING_REPLICAS_ATTRIBUTE => self::activeDeploymentsOf(...)], 'replicas');
+            ->withMax(['deployments as '.self::DEPLOYING_CONTAINERS_ATTRIBUTE => self::activeDeploymentsOf(...)], new Expression(self::DEPLOYMENT_CONTAINERS_SQL))
+            ->withMax(['deployments as '.self::DEPLOYING_WORKERS_ATTRIBUTE => self::activeDeploymentsOf(...)], 'worker_containers');
     }
 
     /**
