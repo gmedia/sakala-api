@@ -495,7 +495,8 @@ const MAIL_NAMES = [
     'verify-email', 'reset-password', 'existing-account', 'email-change-confirm', 'email-change-requested',
     'email-change-applied', 'workspace-invitation', 'workspace-invitation-owner', 'project-suspended', 'edge-unhealthy', 'edge-recovered',
     'project-deployment-failed', 'project-deployment-failed-repeated', 'project-deployment-succeeded',
-    'project-app-crashed', 'project-auto-deploy-skipped', 'account-deleted', 'legal-document-changed',
+    'project-app-crashed', 'project-auto-deploy-skipped', 'project-worker-crashed', 'project-schedule-failing', 'project-schedule-paused',
+    'account-deleted', 'legal-document-changed',
 ];
 
 dataset('catalog', MAIL_NAMES);

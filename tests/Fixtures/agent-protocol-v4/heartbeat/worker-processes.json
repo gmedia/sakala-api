@@ -1,0 +1,75 @@
+{
+  "status": "ready",
+  "hostname": "runtime-01",
+  "runtime_network": "sakala-runtime",
+  "capabilities": [
+    "docker-runtime",
+    "caddy-file-routing",
+    "replicas",
+    "workload-metrics",
+    "worker-processes",
+    "scheduled-jobs"
+  ],
+  "metadata": {
+    "version": "0.17.0",
+    "protocol_version": 4,
+    "runtime_driver": "docker",
+    "detail_counts": {
+      "unhealthy_details": 1,
+      "crashed_details": 1,
+      "metrics": 2
+    },
+    "workloads": {
+      "active": 2,
+      "starting": 0,
+      "unhealthy": 1,
+      "stopped": 0,
+      "unhealthy_details": [
+        {
+          "container_id": "9f8e7d6c5b4a",
+          "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+          "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+          "status": "Up 3 minutes (unhealthy)",
+          "reason": "Docker health status is unhealthy",
+          "process": "queue"
+        }
+      ],
+      "crashed_details": [
+        {
+          "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+          "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+          "exit_code": 1,
+          "oom_killed": false,
+          "finished_at": "2026-11-24T09:14:58Z",
+          "restart_count": 4,
+          "running": false,
+          "process": "queue"
+        }
+      ],
+      "metrics": [
+        {
+          "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+          "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+          "replica": 0,
+          "sampled_at": "2026-11-24T09:15:02Z",
+          "cpu_percent": 1.8,
+          "memory_bytes": 104857600,
+          "memory_limit_bytes": 268435456,
+          "restart_count": 0
+        },
+        {
+          "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+          "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+          "replica": 0,
+          "sampled_at": "2026-11-24T09:15:02Z",
+          "cpu_percent": 0.4,
+          "memory_bytes": 73400320,
+          "memory_limit_bytes": 201326592,
+          "restart_count": 4,
+          "process": "queue"
+        }
+      ]
+    }
+  },
+  "sent_at": "2026-11-24T09:15:05Z"
+}

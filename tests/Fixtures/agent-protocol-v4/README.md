@@ -32,5 +32,15 @@ rather than enum-level.
   replays every `fail` body and checks the API's handling per contract
   section 13: resend, `unknown`, or `failed`.
 
+- `commands/deploy-project-processes.json`, `commands/run-job.json`,
+  `failures/job-failures.json`, `failures/deploy-failures.json`,
+  `heartbeat/worker-processes.json` — worker processes and scheduled jobs
+  (ADR-022), copied byte for byte from `examples/` of **sakala-agent main
+  `1f41585`** (PR #140), before a tagged release (expected v0.18.0);
+  **re-check them against the release tag**. The heartbeat file is not a full
+  heartbeat (it has no `resources` or `lifecycle_state`); tests merge its
+  `capabilities` and `workloads` into one. `run-job.json` is a poll response
+  (`data` list).
+
 Do not "fix" these files to match the API; when the agent contract changes,
 replace them from the new tag and adjust the API.

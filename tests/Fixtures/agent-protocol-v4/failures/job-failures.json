@@ -1,0 +1,22 @@
+[
+  {
+    "error_code": "job_failed",
+    "error_message": "the job exited with exit code 3"
+  },
+  {
+    "error_code": "job_failed",
+    "error_message": "the job ran out of memory (limit 256 MB) and exited with exit code 137"
+  },
+  {
+    "error_code": "job_timeout",
+    "error_message": "the job did not finish within 300 seconds and was stopped"
+  },
+  {
+    "error_code": "job_image_missing",
+    "error_message": "the image of the live deployment is not available on this node (this node has no image of the live deployment); deploy the project again"
+  },
+  {
+    "error_code": "job_image_missing",
+    "error_message": "the image of the live deployment is not available on this node (the image under the live deployment's name is not the project's); deploy the project again"
+  }
+]
