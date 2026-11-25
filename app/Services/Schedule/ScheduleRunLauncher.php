@@ -179,7 +179,11 @@ final class ScheduleRunLauncher
     /**
      * Create the RunJob command, pinned to the live deployment's node, with
      * what that deployment's DeployProject payload carried: the image
-     * identity, variables (still encrypted), port, resources, and log bounds.
+     * identity, variables (still encrypted), port, resources, log bounds,
+     * and the Valkey store network it joined (ADR-023), so the job reaches the
+     * same store as the live version. The live deployment's node is the
+     * store's node, so the field goes to a node that advertises
+     * `managed-valkey`.
      */
     private function queue(ScheduleRun $run): ScheduleRun
     {
@@ -210,6 +214,7 @@ final class ScheduleRunLauncher
                 'environment' => $deployPayload['environment'] ?? [],
                 'resources' => $deployPayload['resources'] ?? [],
                 'log_bounds' => $deployPayload['log_bounds'] ?? [],
+                ...(is_array($deployPayload['valkey'] ?? null) ? ['valkey' => $deployPayload['valkey']] : []),
             ],
             'request_context' => [
                 'schedule_id' => $run->schedule_id,

@@ -51,6 +51,10 @@ final class WorkspaceQuotaResource extends JsonResource
                 'max_buckets' => $limits->max_buckets,
                 /** Effective MB the bucket quotas may reserve together, from the profile or the global setting. `0` allows no new allocation. */
                 'max_bucket_storage_mb' => $limits->max_bucket_storage_mb,
+                /** Effective managed Valkey stores, from the profile or the global setting. `0` allows none. */
+                'max_valkeys' => $limits->max_valkeys,
+                /** Effective MB of `maxmemory` the Valkey stores may reserve together. `0` allows no new allocation. */
+                'max_valkey_memory_mb' => $limits->max_valkey_memory_mb,
                 /** Effective worker containers at once, from the profile or the global setting. `0` allows none. */
                 'max_worker_containers' => $limits->max_worker_containers,
                 /** Effective enabled schedules, from the profile or the global setting. `0` allows none. */
@@ -81,6 +85,10 @@ final class WorkspaceQuotaResource extends JsonResource
                 'worker_containers' => $this->resource->current_worker_containers_count,
                 /** Enabled schedules that count towards `max_schedules`. */
                 'schedules' => $this->resource->current_schedules_count,
+                /** Managed Valkey stores that count towards `max_valkeys`. */
+                'valkeys' => $this->resource->current_valkeys_count,
+                /** MB of `maxmemory` the workspace's Valkey stores reserve (allocated, not used). */
+                'valkey_memory_mb' => $this->resource->current_valkey_memory_mb,
             ],
         ];
     }

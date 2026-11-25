@@ -8,6 +8,7 @@ use App\Data\Project\GetProjectCollectionData;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\WorkspaceMember;
+use App\Support\Runtime\RuntimeFeatures;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 final class GetProjectCollectionAction
@@ -30,6 +31,10 @@ final class GetProjectCollectionAction
                 'databases' => fn ($query) => $query->select(['databases.id', 'databases.name', 'databases.status']),
                 'buckets' => fn ($query) => $query->select(['buckets.id', 'buckets.name', 'buckets.status']),
             ])
+            // Only while the list shows them (ADR-023).
+            ->when(RuntimeFeatures::valkeyEnabled(), fn ($query) => $query->with([
+                'valkeys' => fn ($valkeys) => $valkeys->select(['valkeys.id', 'valkeys.name', 'valkeys.status']),
+            ]))
             ->whereIn('workspace_id', WorkspaceMember::query()->select('workspace_id')->where('user_id', $user->id))
             ->when($data->workspaceId !== null, fn ($query) => $query->where('workspace_id', $data->workspaceId))
             ->when(

@@ -24,6 +24,9 @@ final class SecretRedactionService
         // alone does not match inside a longer name.
         'aws_secret_access_key',
         'secret_access_key',
+        // A managed Valkey store's password as Laravel names it (ADR-023);
+        // `REDIS_URL` carries it too, and its value is redacted by value.
+        'redis_password',
     ];
 
     /** @var list<string> */

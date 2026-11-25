@@ -9,6 +9,7 @@ use App\Actions\Agent\FailAgentCommandAction;
 use App\Models\ScheduleRun;
 use App\Services\Schedule\ScheduleRunCanceller;
 use App\Services\Schedule\ScheduleRunOutcomeService;
+use App\Support\Valkey\ValkeyCommandFailure;
 
 /**
  * What a run's ending means for a member, in plain Indonesian text without
@@ -41,6 +42,7 @@ final class ScheduleRunFailureMessage
             ScheduleRunOutcomeService::JOB_IMAGE_MISSING => 'Image deployment yang sedang berjalan tidak ada di server. Deploy ulang proyek ini, lalu jalankan jadwalnya lagi.',
             self::CAPACITY_EXCEEDED => 'Server Sakala sedang penuh, jadi run ini tidak dimulai. Ini bukan kesalahan di aplikasimu; run berikutnya dicoba seperti biasa.',
             self::INVALID_COMMAND => 'Server Sakala menolak perintah run ini. Pastikan perintahnya satu baris, lalu coba lagi.',
+            ValkeyCommandFailure::NETWORK_UNAVAILABLE => 'Jaringan Valkey yang dipakai versi yang sedang berjalan tidak ditemukan di server, jadi run ini tidak dimulai. Ini bukan kesalahan di aplikasimu; deploy ulang proyek ini, lalu jalankan jadwalnya lagi. Kalau terulang, hubungi admin Sakala.',
             self::PORT_CONFLICT => 'Environment variable PORT di proyek ini berbeda dengan port yang dipakai Sakala. Hapus atau samakan PORT, deploy ulang, lalu jalankan jadwalnya lagi.',
             FailAgentCommandAction::CODE_CANCELLED, ScheduleRunCanceller::CANCELLED_BEFORE_CLAIM => 'Run ini dihentikan sebelum selesai.',
             ExpireAgentCommandsAction::CODE_LEASE_EXPIRED => 'Server berhenti melapor saat run ini berjalan, jadi hasilnya tidak diketahui. Pastikan perintahnya aman dijalankan ulang, lalu jalankan lagi bila perlu.',

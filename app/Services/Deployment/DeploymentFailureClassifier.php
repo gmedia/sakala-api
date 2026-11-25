@@ -6,6 +6,7 @@ namespace App\Services\Deployment;
 
 use App\Data\Deployment\DeploymentFailureData;
 use App\Enums\DeploymentFailureCategory as Category;
+use App\Support\Valkey\ValkeyCommandFailure;
 
 /**
  * Turns an agent or control-plane error code into text a student can act on.
@@ -216,6 +217,13 @@ final class DeploymentFailureClassifier
                 Category::Health,
                 'Aplikasi merespons pengecekan dari Sakala dengan error server (status 500 ke atas).',
                 'Buka log deployment untuk melihat error-nya. Status di bawah 500 sudah dianggap sehat, jadi yang perlu diperbaiki hanya error server di aplikasimu. Perbaiki, lalu deploy ulang.',
+            ),
+
+            ValkeyCommandFailure::NETWORK_UNAVAILABLE => $this->platform(
+                $errorCode,
+                Category::Start,
+                'Jaringan Valkey yang dipasang ke proyek ini tidak ditemukan di server, jadi versi baru tidak dijalankan. Versi sebelumnya, kalau ada, tetap melayani.',
+                'Ini gangguan di sisi Sakala, bukan kesalahan di aplikasimu. Coba deploy ulang beberapa saat lagi. Kalau gagal lagi, lepas Valkey dari proyek atau hubungi admin Sakala.',
             ),
 
             'runtime_routing_failed' => $this->platform(

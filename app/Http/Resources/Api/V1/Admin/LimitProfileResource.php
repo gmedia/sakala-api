@@ -68,6 +68,16 @@ final class LimitProfileResource extends JsonResource
              */
             'max_bucket_storage_mb' => $profile->max_bucket_storage_mb,
             /**
+             * Managed Valkey stores the workspace may hold. `null` follows the global `SAKALA_VALKEY_DEFAULT_MAX_COUNT`;
+             * `0` allows none.
+             */
+            'max_valkeys' => $profile->max_valkeys,
+            /**
+             * MB of `maxmemory` the workspace's Valkey stores may reserve together. `null` follows the global
+             * `SAKALA_VALKEY_DEFAULT_MAX_MEMORY_MB`; `0` refuses new stores and growth.
+             */
+            'max_valkey_memory_mb' => $profile->max_valkey_memory_mb,
+            /**
              * Worker containers the workspace may run at once. `null` follows the global
              * `SAKALA_WORKER_DEFAULT_MAX_CONTAINERS`; `0` allows none.
              */

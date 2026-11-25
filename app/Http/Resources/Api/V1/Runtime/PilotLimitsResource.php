@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Runtime;
 
 use App\Data\Runtime\PilotQuotaLimitsData;
+use App\Models\ManagedValkey;
 use App\Services\Schedule\SchedulePolicy;
 use App\Support\Runtime\RuntimeFeatures;
 use Illuminate\Http\Request;
@@ -25,6 +26,16 @@ final class PilotLimitsResource extends JsonResource
 
     /** Quota of a bucket created without `quota_mb` (BucketQuotaPolicy::defaultQuotaMb()). */
     public int $bucketDefaultQuotaMb = 0;
+
+    /** Whether the installation offers managed Valkey stores (AgentNodeSchedulerService::valkeysAvailable()). */
+    public bool $valkeysAvailable = false;
+
+    public function withValkeysAvailable(bool $available): static
+    {
+        $this->valkeysAvailable = $available;
+
+        return $this;
+    }
 
     public function withDatabasesAvailable(bool $available): static
     {
@@ -118,6 +129,17 @@ final class PilotLimitsResource extends JsonResource
                 'min_schedule_interval_minutes' => $limits->min_schedule_interval_minutes,
                 /** Scheduled runs the workspace runs at once; a due run beyond that waits. `0` runs none. */
                 'max_concurrent_job_runs' => $limits->max_concurrent_job_runs,
+                /** Managed Valkey stores the workspace may hold, from its limit profile or the global setting (ADR-023); `0` allows none. */
+                'max_valkeys' => $limits->max_valkeys,
+                /** Managed Valkey stores that count towards `max_valkeys`: every live one except those whose creation failed. */
+                'current_valkeys_count' => $this->resource->current_valkeys_count,
+                /**
+                 * MB of `maxmemory` the workspace's Valkey stores may reserve together, from its limit profile or the
+                 * global setting. `0` refuses new stores and growth; existing stores keep their size.
+                 */
+                'max_valkey_memory_mb' => $limits->max_valkey_memory_mb,
+                /** MB the workspace's Valkey stores reserve now: the sum of their sizes, a pending growth included. */
+                'current_valkey_memory_mb' => $this->resource->current_valkey_memory_mb,
             ],
             'runtime_defaults' => [
                 /** @var int */
@@ -197,6 +219,21 @@ final class PilotLimitsResource extends JsonResource
                 'default_timeout_seconds' => SchedulePolicy::DEFAULT_TIMEOUT_SECONDS,
                 'max_timeout_seconds' => SchedulePolicy::MAX_TIMEOUT_SECONDS,
                 'start_deadline_minutes' => app(SchedulePolicy::class)->startDeadlineMinutes(),
+            ],
+            /**
+             * Managed Valkey stores on this installation (ADR-023). `enabled` follows `SAKALA_VALKEY_ENABLED`; while it
+             * is false the Valkey endpoints answer 404 and deployments carry no store. `available` is true while it
+             * is on and at least one online node with the `managed-valkey` capability may receive new stores and did
+             * not report its role down. `sizes_mb` lists the sizes a store may have, `default_size_mb` the one used
+             * without `maxmemory_mb`.
+             *
+             * @var array{enabled: bool, available: bool, sizes_mb: list<int>, default_size_mb: int}
+             */
+            'valkeys' => [
+                'enabled' => RuntimeFeatures::valkeyEnabled(),
+                'available' => $this->valkeysAvailable,
+                'sizes_mb' => ManagedValkey::SIZES_MB,
+                'default_size_mb' => ManagedValkey::DEFAULT_SIZE_MB,
             ],
         ];
     }

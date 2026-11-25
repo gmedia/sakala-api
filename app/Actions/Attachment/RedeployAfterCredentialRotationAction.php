@@ -13,6 +13,7 @@ use App\Enums\NotificationCategory;
 use App\Models\AgentCommand;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\Attachment\AttachedProjectDeployer;
@@ -20,12 +21,13 @@ use App\Services\Notification\UserNotifier;
 use App\Support\Attachment\CredentialRotation;
 use App\Support\Bucket\BucketAudit;
 use App\Support\Database\DatabaseAudit;
+use App\Support\Valkey\ValkeyAudit;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
  * After a credential rotation that asked for it took effect (a database
- * password or a bucket key), redeploys every project attached to that
+ * password, a bucket key, or a Valkey password), redeploys every project attached to that
  * resource that has a live deployment, so its containers get the new
  * credential. Runs from a queued job after the command's transaction, because
  * creating a deployment may ask GitHub. Each project goes through the normal
@@ -84,10 +86,14 @@ final class RedeployAfterCredentialRotationAction
      * @param  list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>  $redeploys
      * @param  Collection<int, Project>  $projects
      */
-    private function tellSkipped(ManagedDatabase|ManagedBucket $resource, array $redeploys, Collection $projects): void
+    private function tellSkipped(ManagedDatabase|ManagedBucket|ManagedValkey $resource, array $redeploys, Collection $projects): void
     {
         $byId = $projects->keyBy('id');
-        $noun = $resource instanceof ManagedBucket ? 'Secret key bucket' : 'Password database';
+        $noun = match (true) {
+            $resource instanceof ManagedBucket => 'Secret key bucket',
+            $resource instanceof ManagedValkey => 'Password Valkey',
+            default => 'Password database',
+        };
 
         foreach ($redeploys as $item) {
             $project = $byId->get($item['project_id']);
@@ -111,12 +117,13 @@ final class RedeployAfterCredentialRotationAction
         }
     }
 
-    /** The database or bucket whose credential the command rotated, if it still exists. */
-    private function resourceOf(AgentCommand $command): ManagedDatabase|ManagedBucket|null
+    /** The database, bucket, or Valkey store whose credential the command rotated, if it still exists. */
+    private function resourceOf(AgentCommand $command): ManagedDatabase|ManagedBucket|ManagedValkey|null
     {
         return match ($command->type) {
             AgentCommandType::RotateDatabasePassword => $command->database_id === null ? null : ManagedDatabase::query()->find($command->database_id),
             AgentCommandType::RotateBucketKey => $command->bucket_id === null ? null : ManagedBucket::query()->find($command->bucket_id),
+            AgentCommandType::RotateValkeyPassword => $command->valkey_id === null ? null : ManagedValkey::query()->find($command->valkey_id),
             default => null,
         };
     }
@@ -150,7 +157,7 @@ final class RedeployAfterCredentialRotationAction
      * @param  list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>  $redeploys
      * @param  Collection<int, Project>  $projects
      */
-    private function record(AgentCommand $command, ManagedDatabase|ManagedBucket|null $resource, array $redeploys, Collection $projects): void
+    private function record(AgentCommand $command, ManagedDatabase|ManagedBucket|ManagedValkey|null $resource, array $redeploys, Collection $projects): void
     {
         DB::transaction(function () use ($command, $resource, $redeploys, $projects): void {
             /** @var AgentCommand $locked */
@@ -174,6 +181,7 @@ final class RedeployAfterCredentialRotationAction
             match (true) {
                 $resource instanceof ManagedDatabase => DatabaseAudit::record($requester, DatabaseAudit::PASSWORD_ROTATION_REDEPLOYS_QUEUED, $resource, $metadata),
                 $resource instanceof ManagedBucket => BucketAudit::record($requester, BucketAudit::KEY_ROTATION_REDEPLOYS_QUEUED, $resource, $metadata),
+                $resource instanceof ManagedValkey => ValkeyAudit::record($requester, ValkeyAudit::PASSWORD_ROTATION_REDEPLOYS_QUEUED, $resource, $metadata),
                 default => null,
             };
 

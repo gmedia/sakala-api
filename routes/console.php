@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Console\Commands\AssignAgentCommandsCommand;
 use App\Console\Commands\CheckBucketUsageCommand;
 use App\Console\Commands\CheckEdgeHealthCommand;
+use App\Console\Commands\CheckValkeyUsageCommand;
 use App\Console\Commands\CollectUsageSignalsCommand;
 use App\Console\Commands\DispatchSchedulesCommand;
 use App\Console\Commands\EnforceDatabaseStorageQuotaCommand;
@@ -71,6 +72,13 @@ Schedule::command(EnforceDatabaseStorageQuotaCommand::class)
 // Storage nodes report bucket usage at most once a minute, so a minute
 // warns about a bucket near its quota soon after the node sees it.
 Schedule::command(CheckBucketUsageCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// Valkey nodes report store memory at most once a minute, so a minute warns
+// about a store near its maxmemory soon after the node sees it (ADR-023).
+Schedule::command(CheckValkeyUsageCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();

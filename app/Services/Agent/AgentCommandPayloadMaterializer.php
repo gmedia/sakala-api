@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Crypt;
  */
 final class AgentCommandPayloadMaterializer
 {
-    /** Key of the encrypted password in CreateDatabase and RotateDatabasePassword payloads. */
+    /** Key of the encrypted password in CreateDatabase, RotateDatabasePassword, CreateValkey, and RotateValkeyPassword payloads. */
     public const PASSWORD_KEY = 'password';
 
     /** Key of the encrypted secret access key in CreateBucket and RotateBucketKey payloads. */
@@ -49,6 +49,18 @@ final class AgentCommandPayloadMaterializer
         if ($command->type->carriesDatabasePassword()) {
             if ($command->agent_node_id !== $viewer->id) {
                 // Database commands are pinned to the database's node; the
+                // password never leaves for another one.
+                throw new CommandConflictException($command);
+            }
+
+            if (is_string($payload[self::PASSWORD_KEY] ?? null)) {
+                $payload[self::PASSWORD_KEY] = Crypt::decryptString($payload[self::PASSWORD_KEY]);
+            }
+        }
+
+        if ($command->type->carriesValkeyPassword()) {
+            if ($command->agent_node_id !== $viewer->id) {
+                // Valkey commands are pinned to the store's node; the
                 // password never leaves for another one.
                 throw new CommandConflictException($command);
             }

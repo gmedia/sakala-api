@@ -35,6 +35,12 @@ enum AgentCommandType: string
     case LockBucket = 'LockBucket';
     case UnlockBucket = 'UnlockBucket';
     case RunJob = 'RunJob';
+    case CreateValkey = 'CreateValkey';
+    case DeleteValkey = 'DeleteValkey';
+    case RotateValkeyPassword = 'RotateValkeyPassword';
+    case LockValkey = 'LockValkey';
+    case UnlockValkey = 'UnlockValkey';
+    case ResizeValkey = 'ResizeValkey';
 
     /**
      * Capability of a node that hosts the shared PostgreSQL instance of its
@@ -55,6 +61,15 @@ enum AgentCommandType: string
      * is only ever pinned to a node that advertises it.
      */
     public const SCHEDULED_JOBS_CAPABILITY = 'scheduled-jobs';
+
+    /**
+     * Capability of a node that runs managed Valkey stores, one container per
+     * store on its own internal network, and the Valkey commands (ADR-023).
+     * An older agent fails to read a poll response with these command types
+     * and ignores the `valkey` field of DeployProject and RunJob, so both only
+     * ever go to a node that advertises it.
+     */
+    public const MANAGED_VALKEY_CAPABILITY = 'managed-valkey';
 
     /**
      * Return the set of node capabilities required to handle this command type.
@@ -88,6 +103,12 @@ enum AgentCommandType: string
             self::LockBucket,
             self::UnlockBucket => [self::MANAGED_S3_CAPABILITY],
             self::RunJob => [self::SCHEDULED_JOBS_CAPABILITY],
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey => [self::MANAGED_VALKEY_CAPABILITY],
             self::DrainNode,
             self::ResumeNode => [],
         };
@@ -128,7 +149,13 @@ enum AgentCommandType: string
             self::RotateBucketKey,
             self::SetBucketQuota,
             self::LockBucket,
-            self::UnlockBucket => false,
+            self::UnlockBucket,
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey => false,
         };
     }
 
@@ -201,6 +228,33 @@ enum AgentCommandType: string
     }
 
     /**
+     * Commands for one managed Valkey store (`agent_commands.valkey_id`). Like
+     * the database and bucket commands, they carry no project or deployment
+     * identity and always go to the node that runs the store.
+     */
+    public function isValkey(): bool
+    {
+        return match ($this) {
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey => true,
+            default => false,
+        };
+    }
+
+    /**
+     * Valkey commands whose payload carries a password, encrypted at rest and
+     * decrypted only for the pinned node.
+     */
+    public function carriesValkeyPassword(): bool
+    {
+        return $this === self::CreateValkey || $this === self::RotateValkeyPassword;
+    }
+
+    /**
      * Commands whose payload carries the project's variables, encrypted at
      * rest and decrypted only for the node the command is pinned to.
      */
@@ -210,12 +264,12 @@ enum AgentCommandType: string
     }
 
     /**
-     * Commands for one managed resource (a database or a bucket), pinned to
-     * the node that hosts it and never reassigned.
+     * Commands for one managed resource (a database, a bucket, or a Valkey
+     * store), pinned to the node that hosts it and never reassigned.
      */
     public function isManagedResource(): bool
     {
-        return $this->isDatabase() || $this->isBucket();
+        return $this->isDatabase() || $this->isBucket() || $this->isValkey();
     }
 
     /**
@@ -276,7 +330,13 @@ enum AgentCommandType: string
             self::SetBucketQuota,
             self::LockBucket,
             self::UnlockBucket,
-            self::RunJob => true,
+            self::RunJob,
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey => true,
             default => false,
         };
     }
@@ -291,6 +351,8 @@ enum AgentCommandType: string
      * where one is set; bucket commands the bucket name and access key ID,
      * and a secret access key where one is set. RunJob carries its command
      * and the live deployment's image identity, variables, and resources.
+     * Valkey commands carry the store ID, and a password or a size where one
+     * is set.
      */
     public function carriesPayload(): bool
     {
@@ -313,7 +375,13 @@ enum AgentCommandType: string
             self::RotateBucketKey,
             self::SetBucketQuota,
             self::LockBucket,
-            self::UnlockBucket => true,
+            self::UnlockBucket,
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey => true,
             default => false,
         };
     }

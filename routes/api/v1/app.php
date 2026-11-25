@@ -23,6 +23,8 @@ use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
 use App\Http\Controllers\Api\V1\Runtime\RegionController;
 use App\Http\Controllers\Api\V1\Schedule\ProjectScheduleController;
 use App\Http\Controllers\Api\V1\Schedule\ScheduleRunController;
+use App\Http\Controllers\Api\V1\Valkey\ValkeyAttachmentController;
+use App\Http\Controllers\Api\V1\Valkey\ValkeyController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceInvitationController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceMemberController;
@@ -277,6 +279,38 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
             ->name('api.v1.app.workspaces.buckets.attachments.store');
         Route::delete('/workspaces/{workspace}/buckets/{bucket}/attachments/{project}', [BucketAttachmentController::class, 'destroy'])
             ->name('api.v1.app.workspaces.buckets.attachments.destroy');
+    });
+
+    // Managed Valkey stores of a workspace (ADR-023); 404 while
+    // SAKALA_VALKEY_ENABLED is off. Creating one starts using a resource, so
+    // it needs the current legal terms like a bucket. The project is not a
+    // child of the store before it is attached, so the attachment controller
+    // checks that both belong to the workspace.
+    Route::middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::VALKEY)->group(function (): void {
+        Route::scopeBindings()->whereUuid(['workspace', 'valkey'])->group(function (): void {
+            Route::get('/workspaces/{workspace}/valkeys', [ValkeyController::class, 'index'])
+                ->name('api.v1.app.workspaces.valkeys.index');
+            Route::post('/workspaces/{workspace}/valkeys', [ValkeyController::class, 'store'])
+                ->middleware(EnsureLegalAcceptance::class)
+                ->name('api.v1.app.workspaces.valkeys.store');
+            Route::get('/workspaces/{workspace}/valkeys/{valkey}', [ValkeyController::class, 'show'])
+                ->name('api.v1.app.workspaces.valkeys.show');
+            Route::patch('/workspaces/{workspace}/valkeys/{valkey}', [ValkeyController::class, 'update'])
+                ->name('api.v1.app.workspaces.valkeys.update');
+            Route::delete('/workspaces/{workspace}/valkeys/{valkey}', [ValkeyController::class, 'destroy'])
+                ->name('api.v1.app.workspaces.valkeys.destroy');
+            Route::get('/workspaces/{workspace}/valkeys/{valkey}/credentials', [ValkeyController::class, 'credentials'])
+                ->name('api.v1.app.workspaces.valkeys.credentials');
+            Route::post('/workspaces/{workspace}/valkeys/{valkey}/rotate-password', [ValkeyController::class, 'rotatePassword'])
+                ->name('api.v1.app.workspaces.valkeys.rotate-password');
+        });
+
+        Route::whereUuid(['workspace', 'valkey', 'project'])->group(function (): void {
+            Route::post('/workspaces/{workspace}/valkeys/{valkey}/attachments/{project}', [ValkeyAttachmentController::class, 'store'])
+                ->name('api.v1.app.workspaces.valkeys.attachments.store');
+            Route::delete('/workspaces/{workspace}/valkeys/{valkey}/attachments/{project}', [ValkeyAttachmentController::class, 'destroy'])
+                ->name('api.v1.app.workspaces.valkeys.attachments.destroy');
+        });
     });
 
     // Invitations addressed to the caller

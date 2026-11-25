@@ -9,6 +9,7 @@ use App\Exceptions\Workspace\WorkspaceIsPersonalException;
 use App\Exceptions\Workspace\WorkspaceNotEmptyException;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
@@ -16,7 +17,7 @@ use App\Support\Workspace\WorkspaceAudit;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Deletes a team that has no projects, managed databases, or managed buckets left. The workspace row is locked, and
+ * Deletes a team that has no projects, managed databases, managed buckets, or managed Valkey stores left. The workspace row is locked, and
  * creating a project takes the same lock, so none can appear in between.
  * Soft-deleted projects keep waiting for the purge without a workspace, and
  * their secrets are erased now, as when an account is deleted. Members and
@@ -43,9 +44,11 @@ final class DeleteTeamWorkspaceAction
             $databases = ManagedDatabase::query()->where('workspace_id', $workspace->id)->holdingWorkspace()->count();
             // The same for a bucket being deleted.
             $buckets = ManagedBucket::query()->where('workspace_id', $workspace->id)->holdingWorkspace()->count();
+            // And for a Valkey store being deleted (ADR-023).
+            $valkeys = ManagedValkey::query()->where('workspace_id', $workspace->id)->holdingWorkspace()->count();
 
-            if ($projects > 0 || $databases > 0 || $buckets > 0) {
-                throw new WorkspaceNotEmptyException($projects, $databases, $buckets);
+            if ($projects > 0 || $databases > 0 || $buckets > 0 || $valkeys > 0) {
+                throw new WorkspaceNotEmptyException($projects, $databases, $buckets, $valkeys);
             }
 
             Project::onlyTrashed()->where('workspace_id', $workspace->id)->get()

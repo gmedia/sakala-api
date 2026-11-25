@@ -6,6 +6,7 @@ namespace App\Actions\Admin;
 
 use App\Actions\Project\CreateWakeProjectCommandAction;
 use App\Actions\Project\SleepIdleProjectsAction;
+use App\Actions\Valkey\ValkeySuspensionLock;
 use App\Data\Admin\ProjectControlData;
 use App\Data\Admin\ProjectControlResultData;
 use App\Enums\AgentCommandType;
@@ -28,6 +29,7 @@ use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Services\Runtime\ProjectWorkloadService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * Lifts a suspension. When the suspension sleep left the container on a node
@@ -49,9 +51,28 @@ final class UnsuspendProjectAction
         private readonly ProjectWorkloadService $workloads,
         private readonly PilotRuntimeLimitService $limits,
         private readonly CreateWakeProjectCommandAction $createWakeCommand,
+        private readonly ValkeySuspensionLock $valkeyLocks,
     ) {}
 
     public function handle(
+        Project $project,
+        User $user,
+        ProjectControlData $data,
+    ): ProjectControlResultData {
+        $result = $this->apply($project, $user, $data);
+
+        // After commit, in its own transaction (ValkeySuspensionLock). The
+        // unsuspension stands whatever happens here; a failure is reported.
+        try {
+            $this->valkeyLocks->unsuspended($result->project);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+
+        return $result;
+    }
+
+    private function apply(
         Project $project,
         User $user,
         ProjectControlData $data,

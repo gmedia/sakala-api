@@ -25,6 +25,7 @@ use App\Services\Project\ProjectInspectionOutcomeService;
 use App\Services\Schedule\ScheduleRunOutcomeService;
 use App\Services\Security\ProjectSecretValues;
 use App\Services\Security\SecretRedactionService;
+use App\Services\Valkey\ValkeyCommandOutcomeService;
 use Illuminate\Support\Facades\DB;
 
 final class FailAgentCommandAction
@@ -43,6 +44,7 @@ final class FailAgentCommandAction
         private readonly ProjectSecretValues $projectSecrets,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
         private readonly BucketCommandOutcomeService $bucketOutcome,
+        private readonly ValkeyCommandOutcomeService $valkeyOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
         private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
     ) {}
@@ -150,6 +152,10 @@ final class FailAgentCommandAction
 
             if ($command->type->isBucket()) {
                 $this->bucketOutcome->failed($agent, $command, $errorCode);
+            }
+
+            if ($command->type->isValkey()) {
+                $this->valkeyOutcome->failed($agent, $command, $errorCode);
             }
 
             if ($command->type === AgentCommandType::RunJob) {

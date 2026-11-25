@@ -31,6 +31,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $max_database_storage_mb Total size of the workspace's managed databases, in MB. Null follows `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB`; 0 allows none.
  * @property int|null $max_buckets Managed buckets the workspace may hold. Null follows `SAKALA_BUCKET_DEFAULT_MAX_COUNT`; 0 allows none.
  * @property int|null $max_bucket_storage_mb Sum of the workspace's bucket quotas, in MB. Null follows `SAKALA_BUCKET_DEFAULT_MAX_STORAGE_MB`; 0 allows no new allocation.
+ * @property int|null $max_valkeys Managed Valkey stores the workspace may hold. Null follows `SAKALA_VALKEY_DEFAULT_MAX_COUNT`; 0 allows none.
+ * @property int|null $max_valkey_memory_mb Sum of the workspace's store sizes (`maxmemory`), in MB. Null follows `SAKALA_VALKEY_DEFAULT_MAX_MEMORY_MB`; 0 allows no new allocation.
  * @property int|null $max_worker_containers Worker containers the workspace may run at once (ADR-022). Null follows `SAKALA_WORKER_DEFAULT_MAX_CONTAINERS`; 0 allows none.
  * @property int|null $max_schedules Enabled schedules the workspace may hold. Null follows `SAKALA_SCHEDULE_DEFAULT_MAX_COUNT`; 0 allows none.
  * @property int|null $min_schedule_interval_minutes Shortest gap between two slots of a schedule. Null follows `SAKALA_SCHEDULE_DEFAULT_MIN_INTERVAL_MINUTES`.
@@ -53,6 +55,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'max_database_storage_mb',
     'max_buckets',
     'max_bucket_storage_mb',
+    'max_valkeys',
+    'max_valkey_memory_mb',
     'max_worker_containers',
     'max_schedules',
     'min_schedule_interval_minutes',
@@ -84,6 +88,12 @@ class LimitProfile extends Model
 
     /** Most bucket storage a profile may allocate per workspace: 1 TiB, in MB. */
     public const MAX_BUCKET_STORAGE_MB_CEILING = 1024 * 1024;
+
+    /** Most managed Valkey stores a profile may allow per workspace. */
+    public const MAX_VALKEYS_CEILING = 20;
+
+    /** Most Valkey memory a profile may allocate per workspace, in MB: 20 stores of the agent's largest size. */
+    public const MAX_VALKEY_MEMORY_MB_CEILING = self::MAX_VALKEYS_CEILING * ManagedValkey::AGENT_MAX_MEMORY_MB;
 
     /** Most worker containers a profile may allow per workspace. */
     public const MAX_WORKER_CONTAINERS_CEILING = 100;
@@ -122,6 +132,8 @@ class LimitProfile extends Model
             'max_database_storage_mb' => 'integer',
             'max_buckets' => 'integer',
             'max_bucket_storage_mb' => 'integer',
+            'max_valkeys' => 'integer',
+            'max_valkey_memory_mb' => 'integer',
             'max_worker_containers' => 'integer',
             'max_schedules' => 'integer',
             'min_schedule_interval_minutes' => 'integer',
