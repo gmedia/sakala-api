@@ -1,0 +1,107 @@
+[
+  {
+    "type": "CreateValkey",
+    "body": {
+      "error_code": "valkey_mode_invalid",
+      "error_message": "CreateValkey mode must be cache or persistent"
+    }
+  },
+  {
+    "type": "ResizeValkey",
+    "body": {
+      "error_code": "valkey_memory_invalid",
+      "error_message": "ResizeValkey maxmemory_mb must be 16 to 512 MiB"
+    }
+  },
+  {
+    "type": "RotateValkeyPassword",
+    "body": {
+      "error_code": "valkey_password_invalid",
+      "error_message": "RotateValkeyPassword password must match ^[A-Za-z0-9]{32,128}$"
+    }
+  },
+  {
+    "type": "LockValkey",
+    "body": {
+      "error_code": "unsupported_runtime_command",
+      "error_message": "LockValkey needs a node with SAKALA_VALKEY_DRIVER=docker"
+    }
+  },
+  {
+    "type": "DeleteValkey",
+    "body": {
+      "error_code": "invalid_runtime_command",
+      "error_message": "DeleteValkey payload is invalid: missing field `valkey_id`"
+    }
+  },
+  {
+    "type": "CreateValkey",
+    "body": {
+      "error_code": "valkey_capacity_exceeded",
+      "error_message": "stores would need 448 MiB (maxmemory_mb plus 64 MiB each), above SAKALA_VALKEY_TOTAL_MEMORY_MB=384"
+    }
+  },
+  {
+    "type": "CreateValkey",
+    "body": {
+      "error_code": "valkey_capacity_exceeded",
+      "error_message": "SAKALA_VALKEY_NETWORK_POOL 10.213.0.0/16 has no free /27 left for another store network"
+    }
+  },
+  {
+    "type": "CreateValkey",
+    "body": {
+      "error_code": "valkey_conflict",
+      "error_message": "store 4f1f21ef-730d-42d5-a46d-d965353cb993 exists as a cache store of 64 MiB; its mode and size do not change on CreateValkey, use ResizeValkey for the size"
+    }
+  },
+  {
+    "type": "RotateValkeyPassword",
+    "body": {
+      "error_code": "valkey_not_found",
+      "error_message": "no Valkey store 4f1f21ef-730d-42d5-a46d-d965353cb993 on this node"
+    }
+  },
+  {
+    "type": "ResizeValkey",
+    "body": {
+      "error_code": "valkey_size_below_usage",
+      "error_message": "the persistent store holds 41 MiB, more than the requested 32 MiB; nothing was changed"
+    }
+  },
+  {
+    "type": "DeleteValkey",
+    "body": {
+      "error_code": "valkey_in_use",
+      "error_message": "1 running container is still on the store's network: sakala-app-ff66ed4a-4f1f21ef-730d-42d5-a46d-d965353cb993; stop or redeploy the projects that used it first"
+    }
+  },
+  {
+    "type": "LockValkey",
+    "body": {
+      "error_code": "valkey_unavailable",
+      "error_message": "the store did not answer ACL LOAD: Error response from daemon: container sakala-valkey-4f1f21ef-730d-42d5-a46d-d965353cb993 is not running"
+    }
+  },
+  {
+    "type": "CreateValkey",
+    "body": {
+      "error_code": "valkey_operation_failed",
+      "error_message": "docker run of the store failed with exit code 125: docker: Error response from daemon: unknown or invalid runtime name: runsc"
+    }
+  },
+  {
+    "type": "DeployProject",
+    "body": {
+      "error_code": "valkey_network_unavailable",
+      "error_message": "the Valkey store network sakala-valkey-4f1f21ef-730d-42d5-a46d-d965353cb993 does not exist on this node"
+    }
+  },
+  {
+    "type": "RunJob",
+    "body": {
+      "error_code": "valkey_network_unavailable",
+      "error_message": "the Valkey store on sakala-valkey-4f1f21ef-730d-42d5-a46d-d965353cb993 is at 10.213.0.34, not at valkey.host 10.213.0.2"
+    }
+  }
+]

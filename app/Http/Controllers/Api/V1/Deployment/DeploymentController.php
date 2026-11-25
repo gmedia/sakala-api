@@ -20,6 +20,9 @@ use App\Exceptions\GitHub\GithubRateLimitedException;
 use App\Exceptions\GitHub\GithubUnavailableException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\DeploymentNotRollbackTargetException;
+use App\Exceptions\Valkey\ValkeyNodeMismatchException;
+use App\Exceptions\Valkey\ValkeyNotReadyException;
+use App\Exceptions\Valkey\ValkeyPasswordRotatingException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentLogRequest;
 use App\Http\Requests\Api\V1\Deployment\IndexDeploymentRequest;
@@ -51,6 +54,9 @@ final class DeploymentController extends Controller
      * @throws BucketEndpointUnavailableException
      * @throws BucketNotReadyException
      * @throws BucketKeyRotatingException
+     * @throws ValkeyNotReadyException
+     * @throws ValkeyPasswordRotatingException
+     * @throws ValkeyNodeMismatchException
      */
 
     // Untuk Testing
@@ -94,6 +100,9 @@ final class DeploymentController extends Controller
      * @throws BucketEndpointUnavailableException
      * @throws BucketNotReadyException
      * @throws BucketKeyRotatingException
+     * @throws ValkeyNotReadyException
+     * @throws ValkeyPasswordRotatingException
+     * @throws ValkeyNodeMismatchException
      */
     #[HeaderParameter(
         'Idempotency-Key',

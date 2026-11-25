@@ -1,0 +1,69 @@
+{
+  "data": [
+    {
+      "id": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "type": "CreateValkey",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "valkey_id": "0b5c3f9e-1d2a-4e8b-9c7d-6a5f4e3d2c1b",
+        "mode": "persistent",
+        "maxmemory_mb": 64,
+        "password": "exampleonlyQ7m2Xk9VtR4pL8wN3cZ6a"
+      }
+    },
+    {
+      "id": "7b2c3d4e-5f6a-4b7c-9d8e-0f1a2b3c4d5e",
+      "type": "RotateValkeyPassword",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "valkey_id": "0b5c3f9e-1d2a-4e8b-9c7d-6a5f4e3d2c1b",
+        "password": "exampleonlyH5jF3pD6sAb1N8vC4xZ9e"
+      }
+    },
+    {
+      "id": "8c3d4e5f-6a7b-4c8d-ae9f-1a2b3c4d5e6f",
+      "type": "ResizeValkey",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "valkey_id": "0b5c3f9e-1d2a-4e8b-9c7d-6a5f4e3d2c1b",
+        "maxmemory_mb": 128
+      }
+    },
+    {
+      "id": "9d4e5f6a-7b8c-4d9e-bfa0-2b3c4d5e6f7a",
+      "type": "LockValkey",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "valkey_id": "0b5c3f9e-1d2a-4e8b-9c7d-6a5f4e3d2c1b"
+      }
+    },
+    {
+      "id": "ae5f6a7b-8c9d-4eaf-80b1-3c4d5e6f7a8b",
+      "type": "UnlockValkey",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "valkey_id": "0b5c3f9e-1d2a-4e8b-9c7d-6a5f4e3d2c1b"
+      }
+    },
+    {
+      "id": "bf6a7b8c-9dae-4fb0-91c2-4d5e6f7a8b9c",
+      "type": "DeleteValkey",
+      "status": "Pending",
+      "project_id": null,
+      "deployment_id": null,
+      "payload": {
+        "valkey_id": "0b5c3f9e-1d2a-4e8b-9c7d-6a5f4e3d2c1b"
+      }
+    }
+  ]
+}

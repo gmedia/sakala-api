@@ -237,6 +237,22 @@ return [
         'pause_after_failures' => max(1, (int) env('SAKALA_SCHEDULE_PAUSE_AFTER_FAILURES', SchedulePolicy::DEFAULT_PAUSE_AFTER_FAILURES)),
     ],
 
+    // Managed Valkey stores (ADR-023). Off by default, so an installation
+    // changes nothing until an operator turns it on: the endpoints answer
+    // 404, DeployProject and RunJob never carry `valkey`, and no REDIS_*
+    // variable is injected. Production stays off until the privacy notice
+    // that covers Valkey is in force.
+    'valkey' => [
+        'enabled' => (bool) env('SAKALA_VALKEY_ENABLED', false),
+        // Stores a workspace may hold, and the `maxmemory` they may reserve
+        // together in MB, for a workspace whose limit profile leaves the field
+        // empty and one without a profile. Both 0: a store is permanent memory
+        // on the node, so workspaces are opened one by one through limit
+        // profiles. Empty values fall back to the defaults.
+        'default_max_count' => env('SAKALA_VALKEY_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_VALKEYS),
+        'default_max_memory_mb' => env('SAKALA_VALKEY_DEFAULT_MAX_MEMORY_MB', PilotRuntimeLimitService::DEFAULT_MAX_VALKEY_MEMORY_MB),
+    ],
+
     'workspaces' => [
         // Teams one user may own; users.max_owned_teams overrides it per user.
         'max_owned_teams_per_user' => (int) env('SAKALA_MAX_OWNED_TEAMS_PER_USER', 2),

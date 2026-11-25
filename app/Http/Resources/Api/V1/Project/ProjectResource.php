@@ -9,12 +9,14 @@ use App\Enums\ProjectRestartState;
 use App\Enums\VariableBuildReason;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
 use App\Models\Project;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Support\Project\AutoDeployPausePresenter;
 use App\Support\Project\ProjectPreviewPresenter;
 use App\Support\Project\ProjectSuspensionPresenter;
 use App\Support\Project\VariableBuildPolicy;
+use App\Support\Runtime\RuntimeFeatures;
 use App\Support\Workspace\WorkspaceSummaryPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -69,6 +71,28 @@ final class ProjectResource extends JsonResource
 
         return array_values($buckets
             ->map(fn (ManagedBucket $bucket): array => (new ProjectBucketResource($bucket))->withProjectKeys($keys)->resolve())
+            ->all());
+    }
+
+    /**
+     * The attached Valkey store with the names of the project's own
+     * variables, like buckets().
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function valkeys(): array
+    {
+        $valkeys = $this->resource->loadMissing('valkeys')->valkeys;
+
+        if ($valkeys->isEmpty()) {
+            return [];
+        }
+
+        /** @var list<string> $keys */
+        $keys = $this->resource->loadMissing('environmentVariables')->environmentVariables->pluck('key')->values()->all();
+
+        return array_values($valkeys
+            ->map(fn (ManagedValkey $valkey): array => (new ProjectValkeyResource($valkey))->withProjectKeys($keys)->resolve())
             ->all());
     }
 
@@ -222,6 +246,14 @@ final class ProjectResource extends JsonResource
              * @var list<array{id: string, name: string, status: string, region: string|null, variables: list<string>, overridden_variables: list<string>}>
              */
             'buckets' => $this->buckets(),
+            /**
+             * The managed Valkey store attached to the project, as a list of at most one (ADR-023). The next
+             * deployment joins its network and receives its variables; see each item's `variables`. Absent while
+             * `SAKALA_VALKEY_ENABLED` is off (`valkeys.enabled` in `GET app/pilot-limits`).
+             *
+             * @var list<array{id: string, name: string, mode: string, status: string, variables: list<string>, overridden_variables: list<string>}>
+             */
+            'valkeys' => $this->when(RuntimeFeatures::valkeyEnabled(), fn (): array => $this->valkeys()),
             /**
              * The workspace that owns the project. Null only for a project that is being purged.
              */

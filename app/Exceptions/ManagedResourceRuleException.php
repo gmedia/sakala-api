@@ -9,7 +9,8 @@ use Illuminate\Http\Request;
 use RuntimeException;
 
 /**
- * A rule of a managed resource (a database, ADR-020, or a bucket, ADR-021)
+ * A rule of a managed resource (a database, ADR-020, a bucket, ADR-021, or
+ * a Valkey store, ADR-023)
  * the console reads by `code`; `message` is for people and may change. Every
  * concrete subclass declares CODE, STATUS, CONTEXT (field => OpenAPI type of
  * the extra fields), and DESCRIPTION, which

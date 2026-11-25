@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Admin;
 
+use App\Actions\Valkey\ValkeySuspensionLock;
 use App\Data\Admin\ProjectControlData;
 use App\Data\Admin\ProjectControlResultData;
 use App\Enums\AgentCommandType;
@@ -34,6 +35,7 @@ final class SuspendProjectAction
         private readonly ScheduleRunCanceller $scheduleRuns,
         private readonly RecordUsageSignalAction $recordAction,
         private readonly UserNotifier $notifier,
+        private readonly ValkeySuspensionLock $valkeyLocks,
     ) {}
 
     private function findExistingRequest(
@@ -98,6 +100,24 @@ final class SuspendProjectAction
     }
 
     public function handle(
+        Project $project,
+        User $user,
+        ProjectControlData $data,
+    ): ProjectControlResultData {
+        $result = $this->apply($project, $user, $data);
+
+        // After commit, in its own transaction (ValkeySuspensionLock). The
+        // suspension stands whatever happens here; a failure is reported.
+        try {
+            $this->valkeyLocks->suspended($result->project);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+
+        return $result;
+    }
+
+    private function apply(
         Project $project,
         User $user,
         ProjectControlData $data,

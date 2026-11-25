@@ -52,6 +52,7 @@ use Illuminate\Database\Query\Expression;
  * @property string|null $environment_fingerprint DeploymentConfigFingerprint::forEnvironment() of the stored variables; null until the first variable change or deployment after it was introduced.
  * @property string|null $database_fingerprint DeploymentConfigFingerprint::forDatabase() of the attached managed database; null without one.
  * @property string|null $bucket_fingerprint DeploymentConfigFingerprint::forBucket() of the attached managed bucket; null without one.
+ * @property string|null $valkey_fingerprint DeploymentConfigFingerprint::forValkey() of the attached managed Valkey store; null without one.
  * @property string|null $processes_fingerprint DeploymentConfigFingerprint::forProcesses() of the worker definitions; null without any (ADR-022).
  * @property bool $auto_deploy
  * @property CarbonImmutable|null $auto_deploy_paused_at Set while auto-deploy is paused after a rollback (`auto_deploy` is then false); cleared when someone sets `auto_deploy` again.
@@ -103,7 +104,7 @@ use Illuminate\Database\Query\Expression;
     'last_deployed_at',
     'last_request_at',
 ])]
-#[Hidden(['environment_fingerprint', 'database_fingerprint', 'bucket_fingerprint', 'processes_fingerprint'])]
+#[Hidden(['environment_fingerprint', 'database_fingerprint', 'bucket_fingerprint', 'valkey_fingerprint', 'processes_fingerprint'])]
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
@@ -325,6 +326,15 @@ class Project extends Model
     }
 
     /**
+     * Recompute `valkey_fingerprint` from the attached Valkey store, without
+     * saving. Call it under the project row lock, like the bucket one.
+     */
+    public function refreshValkeyFingerprint(): void
+    {
+        $this->valkey_fingerprint = DeploymentConfigFingerprint::forValkey($this->valkeys()->first());
+    }
+
+    /**
      * Recompute `processes_fingerprint` from the worker definitions, without
      * saving. Call it under the project row lock, like the environment one.
      */
@@ -364,6 +374,19 @@ class Project extends Model
     public function buckets(): BelongsToMany
     {
         return $this->belongsToMany(ManagedBucket::class, 'bucket_attachments', 'project_id', 'bucket_id')
+            ->withTimestamps();
+    }
+
+    /**
+     * The managed Valkey store attached to the project; at most one (unique
+     * `valkey_attachments.project_id`), because its variables have fixed
+     * names (ADR-023).
+     *
+     * @return BelongsToMany<ManagedValkey, $this>
+     */
+    public function valkeys(): BelongsToMany
+    {
+        return $this->belongsToMany(ManagedValkey::class, 'valkey_attachments', 'project_id', 'valkey_id')
             ->withTimestamps();
     }
 

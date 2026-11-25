@@ -16,6 +16,7 @@ use App\Enums\GithubInstallationStatus;
 use App\Enums\NotificationCategory;
 use App\Enums\ProjectAlert;
 use App\Enums\PushSkipReason;
+use App\Enums\ValkeyStatus;
 use App\Enums\WorkspaceRole;
 use App\Exceptions\Bucket\BucketEndpointUnavailableException;
 use App\Exceptions\Bucket\BucketKeyRotatingException;
@@ -30,6 +31,9 @@ use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\ProjectWorkerProcessesUnsupportedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\WorkerContainerLimitExceededException;
+use App\Exceptions\Valkey\ValkeyNodeMismatchException;
+use App\Exceptions\Valkey\ValkeyNotReadyException;
+use App\Exceptions\Valkey\ValkeyPasswordRotatingException;
 use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
@@ -71,6 +75,15 @@ final class CreatePushDeploymentsAction
 
     /** Audit reason of a push skipped because no node runs the project's release command. */
     private const SKIP_RELEASE_COMMAND_UNSUPPORTED = 'release_command_unsupported';
+
+    /** Audit reason of a push skipped because the attached Valkey store is not ready (ADR-023). */
+    public const SKIP_VALKEY_NOT_READY = 'valkey_not_ready';
+
+    /** Audit reason of a push skipped while the attached Valkey store's password rotation is unconfirmed. */
+    public const SKIP_VALKEY_PASSWORD_ROTATING = 'valkey_password_rotating';
+
+    /** Audit reason of a push skipped because the project runs on another node than its Valkey store. */
+    public const SKIP_VALKEY_NODE_MISMATCH = 'valkey_node_mismatch';
 
     /** Audit reason of a push skipped by the workspace's worker container limit (ADR-022). */
     private const SKIP_WORKER_CONTAINER_LIMIT = 'worker_container_limit';
@@ -341,6 +354,16 @@ final class CreatePushDeploymentsAction
             $this->skip($project, $actor, self::SKIP_BUCKET_NOT_READY, $commit, $e->status === BucketStatus::Provisioning
                 ? 'Bucket proyek ini masih dibuat, jadi push terbaru tidak di-deploy. Deploy manual setelah bucket-nya siap.'
                 : 'Bucket proyek ini gagal dibuat, jadi push terbaru tidak di-deploy. Lepas bucket itu dari proyek, buat yang baru, lalu deploy manual.');
+        } catch (ValkeyNotReadyException $e) {
+            $this->skip($project, $actor, self::SKIP_VALKEY_NOT_READY, $commit, match ($e->status) {
+                ValkeyStatus::Provisioning => 'Valkey proyek ini masih dibuat, jadi push terbaru tidak di-deploy. Deploy manual setelah Valkey-nya siap.',
+                ValkeyStatus::Failed => 'Valkey proyek ini gagal dibuat, jadi push terbaru tidak di-deploy. Lepas Valkey itu dari proyek, buat yang baru, lalu deploy manual.',
+                default => 'Valkey proyek ini sedang dihapus, jadi push terbaru tidak di-deploy. Lepas Valkey itu dari proyek, lalu deploy manual.',
+            });
+        } catch (ValkeyPasswordRotatingException $e) {
+            $this->skip($project, $actor, self::SKIP_VALKEY_PASSWORD_ROTATING, $commit, "Password Valkey {$e->valkey->name} sedang diganti dan belum dipastikan, jadi push terbaru tidak di-deploy. Deploy manual setelah penggantiannya selesai.");
+        } catch (ValkeyNodeMismatchException $e) {
+            $this->skip($project, $actor, self::SKIP_VALKEY_NODE_MISMATCH, $commit, "Proyek ini berjalan di server lain dari Valkey {$e->valkey->name}, jadi push terbaru tidak di-deploy. Lepas Valkey itu dari proyek, lalu deploy manual.");
         } catch (ProjectReleaseCommandUnsupportedException) {
             $this->skip($project, $actor, self::SKIP_RELEASE_COMMAND_UNSUPPORTED, $commit, 'Node yang menjalankan proyek ini belum mendukung perintah rilis, jadi push terbaru tidak di-deploy. Kosongkan perintah rilis di pengaturan proyek, atau tunggu operator memperbarui agent, lalu deploy manual.');
         } catch (WorkerContainerLimitExceededException $e) {

@@ -6,9 +6,11 @@ namespace App\Http\Resources\Api\V1\Project;
 
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
 use App\Models\Project;
 use App\Support\Project\ProjectPreviewPresenter;
 use App\Support\Project\ProjectSuspensionPresenter;
+use App\Support\Runtime\RuntimeFeatures;
 use App\Support\Workspace\WorkspaceSummaryPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -78,6 +80,21 @@ final class GetCollectionProjectResource extends JsonResource
                 ])
                 ->values()
                 ->all(),
+            /**
+             * The managed Valkey store attached to the project, as a list of at most one (ADR-023). Only `id`, `name`,
+             * and `status`. Absent while `SAKALA_VALKEY_ENABLED` is off (`valkeys.enabled` in `GET app/pilot-limits`).
+             *
+             * @var list<array{id: string, name: string, status: string}>
+             */
+            'valkeys' => $this->when(RuntimeFeatures::valkeyEnabled(), fn (): array => $this->resource->valkeys
+                ->sortBy('name')
+                ->map(static fn (ManagedValkey $valkey): array => [
+                    'id' => $valkey->id,
+                    'name' => $valkey->name,
+                    'status' => $valkey->status->value,
+                ])
+                ->values()
+                ->all()),
             /**
              * The workspace that owns the project. Null only for a project that is being purged.
              */

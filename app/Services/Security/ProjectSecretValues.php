@@ -10,14 +10,18 @@ use App\Models\DatabaseAttachment;
 use App\Models\EnvironmentVariable;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
+use App\Models\ValkeyAttachment;
 use App\Services\Bucket\BucketCommandService;
 use App\Services\Database\DatabaseCommandService;
+use App\Services\Valkey\ValkeyCommandService;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Exact values to redact for one project: every secret environment value, the
  * password of its attached managed database, the secret access key of its
- * attached managed bucket, and their common encodings.
+ * attached managed bucket, the password of its attached Valkey store, and
+ * their common encodings.
  * Shorter values are skipped, because replacing a short string would mangle
  * ordinary log text and hide nothing worth hiding. Non-secret values are meant
  * to be readable, so they are left alone.
@@ -29,6 +33,7 @@ final class ProjectSecretValues
     public function __construct(
         private readonly DatabaseCommandService $databaseCommands,
         private readonly BucketCommandService $bucketCommands,
+        private readonly ValkeyCommandService $valkeyCommands,
     ) {}
 
     /**
@@ -69,6 +74,19 @@ final class ProjectSecretValues
             foreach ($secrets as $secret) {
                 if (is_string($secret)) {
                     array_push($values, ...$this->partsOf($secret));
+                }
+            }
+        }
+
+        if ($command->valkey_id !== null) {
+            $passwords = [
+                rescue(static fn (): ?string => ManagedValkey::withTrashed()->find($command->valkey_id)?->password, report: false),
+                rescue(fn (): ?string => $this->valkeyCommands->passwordOf($command), report: false),
+            ];
+
+            foreach ($passwords as $password) {
+                if (is_string($password)) {
+                    array_push($values, ...$this->partsOf($password));
                 }
             }
         }
@@ -129,6 +147,18 @@ final class ProjectSecretValues
 
             if (is_string($secret)) {
                 array_push($values, ...$this->partsOf($secret));
+            }
+        }
+
+        $valkeys = ManagedValkey::query()
+            ->whereIn('id', ValkeyAttachment::query()->select('valkey_id')->where('project_id', $projectId))
+            ->get();
+
+        foreach ($valkeys as $valkey) {
+            $password = rescue(static fn (): ?string => $valkey->password, report: false);
+
+            if (is_string($password)) {
+                array_push($values, ...$this->partsOf($password));
             }
         }
 

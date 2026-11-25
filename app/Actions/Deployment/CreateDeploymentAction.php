@@ -24,6 +24,7 @@ use App\Exceptions\Runtime\ProjectSuspendedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
 use App\Exceptions\Runtime\WorkerContainerLimitExceededException;
+use App\Exceptions\Valkey\ValkeyNodeMismatchException;
 use App\Jobs\Deployment\SimulatedDeploymentJob;
 use App\Models\AgentCommand;
 use App\Models\Deployment;
@@ -38,6 +39,7 @@ use App\Services\Deployment\DeploymentInspectionHold;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\GitHub\GithubRepositoryAccessService;
 use App\Services\Runtime\PilotRuntimeLimitService;
+use App\Services\Valkey\ValkeyConnectionEnvironment;
 use App\Support\Database\TransactionRetry;
 use App\Support\Deployment\DeploymentRollbackEligibility;
 use App\Support\GitHub\CommitMessage;
@@ -106,6 +108,7 @@ final class CreateDeploymentAction
         private readonly GithubRepositoryAccessService $repositoryAccess,
         private readonly DatabaseConnectionEnvironment $databaseEnvironment,
         private readonly BucketConnectionEnvironment $bucketEnvironment,
+        private readonly ValkeyConnectionEnvironment $valkeyEnvironment,
         private readonly PlanDeploymentBuildAction $planBuild,
         private readonly RecordRollbackAction $recordRollback,
         private readonly DeploymentInspectionHold $inspectionHold,
@@ -277,15 +280,27 @@ final class CreateDeploymentAction
                 $releaseCommand = $settings->hasReleaseCommand();
                 $workerProcesses = $settings->hasWorkerProcesses();
 
+                // The attached Valkey store (ADR-023), while the feature is
+                // on: refused while it is not ready or its password is
+                // uncertain. Its network exists only on its own node, so the
+                // deployment must go there, and a project served elsewhere
+                // cannot use it.
+                $valkey = $this->valkeyEnvironment->forProject($lockedProject);
+
+                if ($valkey !== null && ! $this->scheduler->projectMayRunOn($lockedProject, $valkey->nodeId)) {
+                    throw new ValkeyNodeMismatchException($valkey->valkey);
+                }
+
                 $node = $this->scheduler->selectNodeFor(
                     AgentCommandType::DeployProject,
                     $lockedProject,
                     $replicas,
                     $releaseCommand,
                     $workerProcesses,
+                    $valkey?->nodeId,
                 );
 
-                $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas, $releaseCommand, $workerProcesses);
+                $this->scheduler->ensurePlaceable($lockedProject, $node, $replicas, $releaseCommand, $workerProcesses, $valkey?->nodeId);
 
                 // Loaded once: the build fingerprint and the payload must see
                 // the same variables. Recorded settings keep their recorded
@@ -397,6 +412,10 @@ final class CreateDeploymentAction
                             static fn (string $value): string => Crypt::encryptString($value),
                             $bucketEnvironment,
                         ),
+                        ...array_map(
+                            static fn (string $value): string => Crypt::encryptString($value),
+                            $valkey === null ? [] : $valkey->environment,
+                        ),
                     ],
                     'resources' => $effectiveLimits->toResourcesArray(),
                     'timeouts' => $effectiveLimits->timeouts->toArray(),
@@ -418,6 +437,10 @@ final class CreateDeploymentAction
                     // with worker definitions, and only to a node with the
                     // `worker-processes` capability (selected above).
                     ...$settings->processesPayload(),
+                    // Optional addition to protocol revision 4 (ADR-023), only
+                    // with an attached store, and only to the store's node,
+                    // which advertises `managed-valkey` (selected above).
+                    ...($valkey === null ? [] : ['valkey' => $valkey->attachment]),
                 ];
 
                 AgentCommand::create([

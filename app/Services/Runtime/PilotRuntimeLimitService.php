@@ -24,6 +24,7 @@ use App\Models\Deployment;
 use App\Models\LimitProfile;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
 use App\Models\Project;
 use App\Models\ProjectSchedule;
 use App\Models\User;
@@ -56,6 +57,17 @@ class PilotRuntimeLimitService
 
     /** MB the bucket quotas of such a workspace may reserve together; 0 for the same reason. */
     public const DEFAULT_MAX_BUCKET_STORAGE_MB = 0;
+
+    /**
+     * Managed Valkey stores of a workspace that follows the global setting,
+     * when that is unset or empty (ADR-023). 0: a store is memory the node
+     * keeps for good, so workspaces are opened one by one through limit
+     * profiles.
+     */
+    public const DEFAULT_MAX_VALKEYS = 0;
+
+    /** MB of `maxmemory` the stores of such a workspace may reserve together; 0 for the same reason. */
+    public const DEFAULT_MAX_VALKEY_MEMORY_MB = 0;
 
     /**
      * Worker containers of a workspace that follows the global setting, when
@@ -99,6 +111,8 @@ class PilotRuntimeLimitService
                 $this->maxBucketsFor($profile),
                 $this->maxBucketStorageMbFor($profile),
                 $this->scheduleLimitsFor($profile),
+                $this->maxValkeysFor($profile),
+                $this->maxValkeyMemoryMbFor($profile),
             );
         }
 
@@ -121,6 +135,8 @@ class PilotRuntimeLimitService
             max_schedules: $workloads->maxSchedules,
             min_schedule_interval_minutes: $workloads->minScheduleIntervalMinutes,
             max_concurrent_job_runs: $workloads->maxConcurrentJobRuns,
+            max_valkeys: $this->maxValkeysFor(null),
+            max_valkey_memory_mb: $this->maxValkeyMemoryMbFor(null),
         );
 
         if ($workspace->type === WorkspaceType::Personal) {
@@ -146,6 +162,8 @@ class PilotRuntimeLimitService
             max_schedules: $personal->max_schedules,
             min_schedule_interval_minutes: $personal->min_schedule_interval_minutes,
             max_concurrent_job_runs: $personal->max_concurrent_job_runs,
+            max_valkeys: $personal->max_valkeys,
+            max_valkey_memory_mb: $personal->max_valkey_memory_mb,
         );
     }
 
@@ -220,6 +238,32 @@ class PilotRuntimeLimitService
     {
         return max(0, $profile->max_bucket_storage_mb
             ?? self::configuredOr('sakala.buckets.default_max_storage_mb', self::DEFAULT_MAX_BUCKET_STORAGE_MB));
+    }
+
+    /**
+     * Managed Valkey stores a workspace under this profile may hold. A
+     * profile without its own value, and a workspace without a profile,
+     * follow `sakala.valkey.default_max_count`: unset or empty means
+     * DEFAULT_MAX_VALKEYS. 0 allows none. This is the only place that decides.
+     */
+    public function maxValkeysFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_valkeys
+            ?? self::configuredOr('sakala.valkey.default_max_count', self::DEFAULT_MAX_VALKEYS));
+    }
+
+    /**
+     * MB of `maxmemory` the Valkey stores of a workspace under this profile
+     * may reserve together. A profile without its own value, and a workspace
+     * without a profile, follow `sakala.valkey.default_max_memory_mb`: unset
+     * or empty means DEFAULT_MAX_VALKEY_MEMORY_MB. 0 allows no new store and
+     * no growth; existing stores keep their size. This is the only place that
+     * decides.
+     */
+    public function maxValkeyMemoryMbFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_valkey_memory_mb
+            ?? self::configuredOr('sakala.valkey.default_max_memory_mb', self::DEFAULT_MAX_VALKEY_MEMORY_MB));
     }
 
     /**
@@ -599,6 +643,8 @@ class PilotRuntimeLimitService
             current_bucket_usage_bytes: ManagedBucket::usageBytesIn($workspace->id),
             current_worker_containers_count: $this->workerContainersIn($workspace),
             current_schedules_count: ProjectSchedule::enabledCountIn($workspace->id),
+            current_valkeys_count: ManagedValkey::countIn($workspace->id),
+            current_valkey_memory_mb: ManagedValkey::reservedMbIn($workspace->id),
         );
     }
 

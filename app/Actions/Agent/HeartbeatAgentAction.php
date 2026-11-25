@@ -6,6 +6,7 @@ namespace App\Actions\Agent;
 
 use App\Actions\Bucket\RecordBucketSizesAction;
 use App\Actions\Database\RecordDatabaseSizesAction;
+use App\Actions\Valkey\RecordValkeyUsageAction;
 use App\Data\Agent\AgentHeartbeatData;
 use App\Models\AgentNode;
 use App\Support\Database\RowLock;
@@ -22,6 +23,7 @@ final class HeartbeatAgentAction
         private readonly RecordDatabaseSizesAction $recordDatabaseSizes,
         private readonly RecordBucketSizesAction $recordBucketSizes,
         private readonly RecordWorkerCrashesAction $recordWorkerCrashes,
+        private readonly RecordValkeyUsageAction $recordValkeyUsage,
     ) {}
 
     public function handle(
@@ -48,6 +50,12 @@ final class HeartbeatAgentAction
                 'protocol_version' => $data->protocolVersion,
                 'last_seen_at' => now(),
             ]);
+
+            // Store rows before any project: every Valkey path locks the
+            // store before the projects attached to it (ADR-023).
+            if ($data->valkeyUsage !== null) {
+                $this->recordValkeyUsage->handleWithinTransaction($agent, $data->valkeyUsage);
+            }
 
             if ($data->crashedWorkloads !== null) {
                 $this->reconcileCrashedWorkloads->handleWithinTransaction($agent, $data->crashedWorkloads);

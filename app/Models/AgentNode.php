@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Data\Agent\NodeCapacityData;
 use App\Data\Bucket\ObjectStorageData;
 use App\Data\Database\DatabaseEndpointData;
+use App\Data\Valkey\ValkeyHostData;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
@@ -180,6 +181,15 @@ class AgentNode extends Model
     /** `metadata.object_storage.available`: whether the agent's last usage reading worked. */
     public const OBJECT_STORAGE_AVAILABLE_METADATA_KEY = 'available';
 
+    /** `metadata.valkey`: what a node with the `managed-valkey` capability reports about its role (ADR-023). */
+    public const VALKEY_METADATA_KEY = 'valkey';
+
+    /** `metadata.valkey.capacity_mb`: SAKALA_VALKEY_TOTAL_MEMORY_MB, the bound of Σ(maxmemory_mb + 64). */
+    public const VALKEY_CAPACITY_METADATA_KEY = 'capacity_mb';
+
+    /** `metadata.valkey.available`: whether the agent's last reading of its stores worked. */
+    public const VALKEY_AVAILABLE_METADATA_KEY = 'available';
+
     /** Highest TCP port. */
     public const MAX_PORT = 65535;
 
@@ -306,6 +316,28 @@ class AgentNode extends Model
         $storage = $this->metadata[self::OBJECT_STORAGE_METADATA_KEY] ?? null;
 
         return ! is_array($storage) || ($storage[self::OBJECT_STORAGE_AVAILABLE_METADATA_KEY] ?? true) !== false;
+    }
+
+    /**
+     * The node's Valkey role from its last heartbeat; null when it reported
+     * none or a malformed one.
+     */
+    public function valkeyHost(): ?ValkeyHostData
+    {
+        $valkey = $this->metadata[self::VALKEY_METADATA_KEY] ?? null;
+
+        if (! is_array($valkey)) {
+            return null;
+        }
+
+        $capacity = $valkey[self::VALKEY_CAPACITY_METADATA_KEY] ?? null;
+        $available = $valkey[self::VALKEY_AVAILABLE_METADATA_KEY] ?? null;
+
+        if (! is_int($capacity) || $capacity < 1 || ! is_bool($available)) {
+            return null;
+        }
+
+        return new ValkeyHostData($capacity, $available);
     }
 
     /** Free memory and container slots from the last heartbeat. */

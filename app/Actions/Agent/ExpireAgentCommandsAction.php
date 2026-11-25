@@ -19,6 +19,7 @@ use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
 use App\Services\Schedule\ScheduleRunOutcomeService;
+use App\Services\Valkey\ValkeyCommandOutcomeService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -44,6 +45,7 @@ final class ExpireAgentCommandsAction
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
         private readonly BucketCommandOutcomeService $bucketOutcome,
+        private readonly ValkeyCommandOutcomeService $valkeyOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
         private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
     ) {}
@@ -120,6 +122,10 @@ final class ExpireAgentCommandsAction
 
             if ($command->type->isBucket()) {
                 $this->bucketOutcome->failed(self::ACTOR_ID, $command, $code);
+            }
+
+            if ($command->type->isValkey()) {
+                $this->valkeyOutcome->failed(self::ACTOR_ID, $command, $code);
             }
 
             if ($command->type === AgentCommandType::RunJob) {

@@ -18,7 +18,8 @@ final class PilotLimitsController
      * Quotas, usage, and runtime maximums of one workspace: the one named by
      * `workspace_id`, or the caller's personal workspace, plus whether this
      * installation offers managed databases (`databases.available`) and
-     * buckets (`buckets.available`) right now.
+     * buckets (`buckets.available`) and Valkey stores (`valkeys.available`)
+     * right now.
      */
     public function show(
         ShowPilotLimitsRequest $request,
@@ -34,6 +35,7 @@ final class PilotLimitsController
 
         return PilotLimitsResource::make($limitService->getPilotQuotaLimits($workspace))
             ->withDatabasesAvailable($scheduler->databasesAvailable())
-            ->withBuckets($scheduler->bucketsAvailable(), $bucketQuotas->defaultQuotaMb());
+            ->withBuckets($scheduler->bucketsAvailable(), $bucketQuotas->defaultQuotaMb())
+            ->withValkeysAvailable($scheduler->valkeysAvailable());
     }
 }

@@ -9,6 +9,7 @@ use App\Actions\Database\DeleteDatabaseAction;
 use App\Actions\Profile\RemoveAvatarAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\PurgeDeletedProjectsAction;
+use App\Actions\Valkey\DeleteValkeyAction;
 use App\Actions\Workspace\WorkspaceOwnership;
 use App\Enums\WorkspaceRole;
 use App\Enums\WorkspaceType;
@@ -19,6 +20,7 @@ use App\Models\AuditEvent;
 use App\Models\GithubInstallation;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
@@ -37,9 +39,9 @@ use Throwable;
  * their rows wait for the purge window without an owner; their secrets do not
  * wait. Then the personal workspace goes, and so do the account's memberships.
  *
- * Managed databases and buckets of the personal workspace are dropped on
- * their nodes the same way; one whose creation a node is still running
- * answers DATABASE_BUSY or BUCKET_BUSY, and the request can simply be
+ * Managed databases, buckets, and Valkey stores of the personal workspace
+ * are dropped on their nodes the same way; one whose creation a node is
+ * still running answers DATABASE_BUSY, BUCKET_BUSY, or VALKEY_BUSY, and the request can simply be
  * repeated a moment later.
  *
  * Teams outlive the account. Projects it created on a team stay with the team
@@ -63,10 +65,14 @@ final class DeleteAccountAction
     /** Audit `reason` of a personal bucket deleted with its account. */
     public const BUCKET_DELETE_REASON = 'account_deleted';
 
+    /** Audit `reason` of a personal Valkey store deleted with its account. */
+    public const VALKEY_DELETE_REASON = 'account_deleted';
+
     public function __construct(
         private readonly DeleteProjectAction $deleteProject,
         private readonly DeleteDatabaseAction $deleteDatabase,
         private readonly DeleteBucketAction $deleteBucket,
+        private readonly DeleteValkeyAction $deleteValkey,
         private readonly PurgeDeletedProjectsAction $purge,
         private readonly RemoveAvatarAction $removeAvatar,
     ) {}
@@ -106,6 +112,11 @@ final class DeleteAccountAction
                     ->where('workspace_id', $personalId)
                     ->holdingWorkspace()
                     ->each(fn (ManagedBucket $bucket) => $this->deleteBucket->handle($user, $bucket, self::BUCKET_DELETE_REASON));
+
+                ManagedValkey::query()
+                    ->where('workspace_id', $personalId)
+                    ->holdingWorkspace()
+                    ->each(fn (ManagedValkey $valkey) => $this->deleteValkey->handle($user, $valkey, self::VALKEY_DELETE_REASON));
             }
 
             $this->removeAvatar->handle($user);
@@ -138,6 +149,7 @@ final class DeleteAccountAction
                 Project::query()->where('workspace_id', $personalId)->exists()
                 || ManagedDatabase::query()->where('workspace_id', $personalId)->holdingWorkspace()->exists()
                 || ManagedBucket::query()->where('workspace_id', $personalId)->holdingWorkspace()->exists()
+                || ManagedValkey::query()->where('workspace_id', $personalId)->holdingWorkspace()->exists()
             )) {
                 return false;
             }
@@ -232,7 +244,8 @@ final class DeleteAccountAction
 
         $withProjects = $soleOwned->filter(fn (Workspace $team): bool => $team->projects()->exists()
             || $team->databases()->holdingWorkspace()->exists()
-            || $team->buckets()->holdingWorkspace()->exists());
+            || $team->buckets()->holdingWorkspace()->exists()
+            || $team->valkeys()->holdingWorkspace()->exists());
 
         if ($withProjects->isNotEmpty()) {
             throw new LastWorkspaceOwnerException($withProjects->values(), accountDeletion: true);

@@ -11,16 +11,20 @@ use App\Data\Agent\DatabaseSizesData;
 use App\Data\Agent\WorkloadMetricsData;
 use App\Data\Agent\WorkloadReplicasData;
 use App\Data\Agent\WorkloadTrafficData;
+use App\Data\Valkey\ValkeyUsageData;
 use App\Enums\AgentNodeStatus;
+use App\Enums\ValkeyMode;
 use App\Models\AgentNode;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
 use App\Models\Project;
 use App\Models\ProjectProcess;
 use App\Rules\EdgeAddress;
 use App\Rules\NetworkHost;
 use App\Rules\ObjectStorageEndpoint;
 use App\Rules\RegionSlug;
+use App\Support\Runtime\RuntimeFeatures;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -78,6 +82,21 @@ final class AgentHeartbeatRequest extends FormRequest
 
     /** 1 PiB, like a database: far beyond any bucket, and inside a signed 64-bit integer when summed per workspace. */
     public const MAX_REPORTED_BUCKET_BYTES = 1_125_899_906_842_624;
+
+    /** Key of the Valkey store readings under `metadata` (ADR-023). */
+    public const VALKEYS_KEY = 'valkeys';
+
+    /** Stores one heartbeat may list; the agent truncates to this many and reports the full count. */
+    public const MAX_VALKEY_ITEMS = 1000;
+
+    /** 1 PiB, like a database: far beyond any store's memory or counter. */
+    public const MAX_REPORTED_VALKEY_VALUE = 1_125_899_906_842_624;
+
+    /** Longest Docker state the agent reports for a store (`restarting`), with room. */
+    public const MAX_VALKEY_STATUS_LENGTH = 16;
+
+    /** Values of `aof_last_write_status`. */
+    public const VALKEY_AOF_STATUSES = ['ok', 'err'];
 
     /** Highest value the unsigned integer restart column holds on every database. */
     public const MAX_REPORTED_RESTART_COUNT = 2147483647;
@@ -249,6 +268,8 @@ final class AgentHeartbeatRequest extends FormRequest
             'metadata.'.self::BUCKETS_KEY.'.*.name' => ['required', 'string', 'regex:'.ManagedBucket::S3_NAME_PATTERN],
             'metadata.'.self::BUCKETS_KEY.'.*.size_bytes' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_BUCKET_BYTES],
 
+            ...$this->valkeyRules(),
+
             'metadata.disk_pressure' => ['required', 'array'],
             'metadata.disk_pressure.state' => ['required', 'string', 'max:50'],
             'metadata.disk_pressure.minimum_workspace_free_bytes' => ['required', 'integer', 'min:0'],
@@ -306,6 +327,7 @@ final class AgentHeartbeatRequest extends FormRequest
             workloadMetrics: $this->workloadMetrics(),
             databaseSizes: $this->databaseSizes(),
             bucketSizes: $this->bucketSizes(),
+            valkeyUsage: $this->valkeyUsage(),
         );
     }
 
@@ -315,8 +337,9 @@ final class AgentHeartbeatRequest extends FormRequest
      * fields from newer agent releases. The metric samples are the exception:
      * they are stored in project_metric_minutes, and keeping up to
      * MAX_METRIC_ITEMS of them in agent_nodes.metadata would rewrite them on
-     * every heartbeat for no reader. The database sizes go to `databases` and
-     * the bucket usage to `buckets` the same way.
+     * every heartbeat for no reader. The database sizes go to `databases`,
+     * the bucket usage to `buckets`, and the Valkey readings to `valkeys` the
+     * same way.
      *
      * @return array<string, mixed>
      */
@@ -328,7 +351,7 @@ final class AgentHeartbeatRequest extends FormRequest
             unset($metadata['workloads'][self::METRICS_KEY]);
         }
 
-        unset($metadata[self::DATABASES_KEY], $metadata[self::BUCKETS_KEY]);
+        unset($metadata[self::DATABASES_KEY], $metadata[self::BUCKETS_KEY], $metadata[self::VALKEYS_KEY]);
 
         return $metadata;
     }
@@ -339,6 +362,64 @@ final class AgentHeartbeatRequest extends FormRequest
         $items = $this->validated('metadata.'.self::DATABASES_KEY);
 
         return $items === null ? null : DatabaseSizesData::fromReport($items);
+    }
+
+    /**
+     * Optional and additive within protocol revision 4, from nodes with the
+     * `managed-valkey` capability (ADR-023): the role's budget and whether its
+     * last reading worked, and a reading of every store it runs. Strict like
+     * the bucket fields, but only while SAKALA_VALKEY_ENABLED is on: an API
+     * that has not turned Valkey on ignores what a newer agent sends, as the
+     * agent's compatibility notes require.
+     *
+     * @return array<string, mixed>
+     */
+    private function valkeyRules(): array
+    {
+        if (! RuntimeFeatures::valkeyEnabled()) {
+            return [];
+        }
+
+        $role = 'metadata.'.AgentNode::VALKEY_METADATA_KEY;
+        $items = 'metadata.'.self::VALKEYS_KEY;
+
+        return [
+            $role => ['sometimes', 'array'],
+            $role.'.'.AgentNode::VALKEY_CAPACITY_METADATA_KEY => ['required_with:'.$role, 'integer', 'min:1'],
+            // False while the agent cannot read its stores; the node then
+            // reports `degraded` and gets no new store first.
+            $role.'.'.AgentNode::VALKEY_AVAILABLE_METADATA_KEY => ['required_with:'.$role, 'boolean:strict'],
+            // Only on a heartbeat right after a fresh reading (at most once a
+            // minute): absence means no new reading, never an empty node.
+            $items => ['sometimes', 'array', 'max:'.self::MAX_VALKEY_ITEMS],
+            $items.'.*' => ['required', 'array'],
+            $items.'.*.valkey_id' => ['required', 'uuid'],
+            $items.'.*.mode' => ['required', 'string', Rule::enum(ValkeyMode::class)],
+            $items.'.*.maxmemory_mb' => ['required', 'integer', 'between:'.ManagedValkey::AGENT_MIN_MEMORY_MB.','.ManagedValkey::AGENT_MAX_MEMORY_MB],
+            $items.'.*.locked' => ['required', 'boolean:strict'],
+            $items.'.*.status' => ['required', 'string', 'max:'.self::MAX_VALKEY_STATUS_LENGTH],
+            $items.'.*.restart_count' => ['required', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_RESTART_COUNT],
+            $items.'.*.used_memory' => ['present', 'nullable', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_VALKEY_VALUE],
+            $items.'.*.maxmemory' => ['present', 'nullable', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_VALKEY_VALUE],
+            $items.'.*.evicted_keys' => ['present', 'nullable', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_VALKEY_VALUE],
+            $items.'.*.errorstat_oom' => ['present', 'nullable', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_VALKEY_VALUE],
+            $items.'.*.connected_clients' => ['present', 'nullable', 'integer', 'min:0', 'max:'.self::MAX_REPORTED_RESTART_COUNT],
+            $items.'.*.aof_last_write_status' => ['present', 'nullable', 'string', Rule::in(self::VALKEY_AOF_STATUSES)],
+            'metadata.detail_counts.'.self::VALKEYS_KEY => ['sometimes', 'integer', 'min:0'],
+        ];
+    }
+
+    /** @return array<string, ValkeyUsageData>|null */
+    private function valkeyUsage(): ?array
+    {
+        if (! RuntimeFeatures::valkeyEnabled()) {
+            return null;
+        }
+
+        /** @var list<array{valkey_id: string, status: string, restart_count: int, used_memory: int|null, evicted_keys: int|null, errorstat_oom: int|null, connected_clients: int|null, aof_last_write_status: string|null}>|null $items */
+        $items = $this->validated('metadata.'.self::VALKEYS_KEY);
+
+        return $items === null ? null : ValkeyUsageData::fromReport($items);
     }
 
     private function bucketSizes(): ?BucketSizesData

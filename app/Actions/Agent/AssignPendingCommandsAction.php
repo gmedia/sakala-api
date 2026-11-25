@@ -66,13 +66,15 @@ final class AssignPendingCommandsAction
                 // A deployment of several replicas waits for a node that runs
                 // them all, one with a release command or workers for a node
                 // that runs them; an older one would quietly run one replica,
-                // or skip them.
+                // or skip them. One that joins a Valkey store's network waits
+                // for the store's node (ADR-023).
                 $node = $this->scheduler->selectNodeFor(
                     $command->type,
                     $command->project,
                     $command->requestedReplicas(),
                     $command->requestsReleaseCommand(),
                     $command->requestsWorkerProcesses(),
+                    $command->requestedValkeyNodeId(),
                 );
 
                 if ($node === null || ($onlyFor !== null && $node->id !== $onlyFor->id)) {
