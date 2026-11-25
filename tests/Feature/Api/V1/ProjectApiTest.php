@@ -94,6 +94,21 @@ test('rejects the slug of the object storage host, s3', function (string $name):
     expect(Project::query()->where('slug', 's3')->exists())->toBeFalse();
 })->with(['s3', 'S3', ' s3 ']);
 
+test('rejects the slug of the custom domain target, edge', function (string $name): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user, 'web')
+        ->postJson('/api/v1/app/projects', [
+            'name' => $name,
+            'repository_url' => 'https://github.com/user/repo',
+            'branch' => 'main',
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['name' => 'dicadangkan Sakala']);
+
+    expect(Project::query()->where('slug', 'edge')->exists())->toBeFalse();
+})->with(['edge', 'Edge', ' edge ']);
+
 test('renaming a project to S3 keeps its slug, so it never takes the object storage host', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->create(['user_id' => $user->id, 'slug' => 'my-app']);
