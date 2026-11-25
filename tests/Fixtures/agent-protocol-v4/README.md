@@ -42,5 +42,15 @@ rather than enum-level.
   `capabilities` and `workloads` into one. `run-job.json` is a poll response
   (`data` list).
 
+- `commands/valkey-commands.json`, `commands/deploy-project-valkey.json`,
+  `commands/run-job-valkey.json`, `heartbeat/valkey-host.json`,
+  `failures/valkey-failures.json` — managed Valkey (ADR-023), copied byte for
+  byte from `examples/` of **sakala-agent main `8d108cb`** (PR #146), before a
+  tagged release; **re-check them against the release tag**. The heartbeat file
+  carries only the Valkey fields that tests merge into a full heartbeat. The
+  command results are written from the contract in `docs/AGENT_API.md`
+  ("Command Valkey") at that commit. `ValkeyCommandLifecycleTest` replays every
+  `fail` body.
+
 Do not "fix" these files to match the API; when the agent contract changes,
 replace them from the new tag and adjust the API.

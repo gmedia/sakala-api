@@ -1,0 +1,58 @@
+{
+  "status": "ready",
+  "hostname": "runtime-01",
+  "runtime_network": "sakala-runtime",
+  "capabilities": [
+    "docker-runtime",
+    "project-inspection",
+    "worker-processes",
+    "scheduled-jobs",
+    "managed-valkey"
+  ],
+  "metadata": {
+    "version": "0.18.2",
+    "protocol_version": 4,
+    "runtime_driver": "docker",
+    "runtime": {
+      "region": "id-jog-1"
+    },
+    "valkey": {
+      "capacity_mb": 384,
+      "available": true
+    },
+    "valkeys": [
+      {
+        "valkey_id": "0b5c3f9e-1d2a-4e8b-9c7d-6a5f4e3d2c1b",
+        "mode": "persistent",
+        "maxmemory_mb": 64,
+        "locked": false,
+        "status": "running",
+        "restart_count": 0,
+        "used_memory": 1048576,
+        "maxmemory": 67108864,
+        "evicted_keys": 0,
+        "errorstat_oom": 0,
+        "connected_clients": 3,
+        "aof_last_write_status": "ok"
+      },
+      {
+        "valkey_id": "5d6e7f80-91a2-4b3c-8d4e-5f6071829304",
+        "mode": "cache",
+        "maxmemory_mb": 32,
+        "locked": true,
+        "status": "exited",
+        "restart_count": 4,
+        "used_memory": null,
+        "maxmemory": null,
+        "evicted_keys": null,
+        "errorstat_oom": null,
+        "connected_clients": null,
+        "aof_last_write_status": null
+      }
+    ],
+    "detail_counts": {
+      "valkeys": 2
+    }
+  },
+  "sent_at": "2026-11-25T03:20:00Z"
+}

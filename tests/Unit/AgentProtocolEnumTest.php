@@ -37,6 +37,12 @@ test('agent command types match the shared Rust protocol', function () {
         'LockBucket',
         'UnlockBucket',
         'RunJob',
+        'CreateValkey',
+        'DeleteValkey',
+        'RotateValkeyPassword',
+        'LockValkey',
+        'UnlockValkey',
+        'ResizeValkey',
     ]);
 });
 
