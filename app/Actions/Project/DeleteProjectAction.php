@@ -21,6 +21,7 @@ use App\Models\ValkeyAttachment;
 use App\Services\Runtime\ProjectWorkloadService;
 use App\Services\Schedule\ScheduleRunCanceller;
 use App\Support\Bucket\BucketAudit;
+use App\Support\CustomDomain\CustomDomainAudit;
 use App\Support\Database\DatabaseAudit;
 use App\Support\Valkey\ValkeyAudit;
 use Illuminate\Support\Facades\DB;
@@ -61,6 +62,26 @@ final class DeleteProjectAction
         });
     }
 
+    /**
+     * Custom domains go with the project (ADR-024): every claim is soft
+     * deleted in the same transaction, under the project row lock, before
+     * any claim row is locked. The StopProject removes the node route, and
+     * a deleted project has no Edge route. Restoring the project does not
+     * bring them back.
+     */
+    private function deleteDomains(Project $project, ?User $user): void
+    {
+        foreach ($project->domains()->get() as $domain) {
+            $domain->next_check_at = null;
+            $domain->save();
+            $domain->delete();
+
+            CustomDomainAudit::record($user ?? CustomDomainAudit::PROJECT_DELETE_ACTOR, CustomDomainAudit::DELETED, $domain, [
+                'reason' => CustomDomainAudit::DELETE_REASON_PROJECT_DELETED,
+            ]);
+        }
+    }
+
     public function handle(Project $project, ?User $user = null): void
     {
         DB::transaction(function () use ($project, $user): void {
@@ -72,6 +93,7 @@ final class DeleteProjectAction
             $this->detachBuckets($locked, $user);
             $this->detachValkeys($locked, $user);
             $this->deleteSchedules($locked);
+            $this->deleteDomains($locked, $user);
 
             $locked->delete();
 

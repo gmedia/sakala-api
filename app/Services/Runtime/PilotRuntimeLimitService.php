@@ -26,6 +26,7 @@ use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
 use App\Models\ManagedValkey;
 use App\Models\Project;
+use App\Models\ProjectDomain;
 use App\Models\ProjectSchedule;
 use App\Models\User;
 use App\Models\Workspace;
@@ -68,6 +69,14 @@ class PilotRuntimeLimitService
 
     /** MB of `maxmemory` the stores of such a workspace may reserve together; 0 for the same reason. */
     public const DEFAULT_MAX_VALKEY_MEMORY_MB = 0;
+
+    /**
+     * Custom domains of a workspace that follows the global setting, when
+     * that is unset or empty (ADR-024, hosted decision of 25 November 2026):
+     * one, so an ordinary account can use its own domain. A domain costs one
+     * certificate and one route.
+     */
+    public const DEFAULT_MAX_CUSTOM_DOMAINS = 1;
 
     /**
      * Worker containers of a workspace that follows the global setting, when
@@ -113,6 +122,7 @@ class PilotRuntimeLimitService
                 $this->scheduleLimitsFor($profile),
                 $this->maxValkeysFor($profile),
                 $this->maxValkeyMemoryMbFor($profile),
+                $this->maxCustomDomainsFor($profile),
             );
         }
 
@@ -137,6 +147,7 @@ class PilotRuntimeLimitService
             max_concurrent_job_runs: $workloads->maxConcurrentJobRuns,
             max_valkeys: $this->maxValkeysFor(null),
             max_valkey_memory_mb: $this->maxValkeyMemoryMbFor(null),
+            max_custom_domains: $this->maxCustomDomainsFor(null),
         );
 
         if ($workspace->type === WorkspaceType::Personal) {
@@ -164,6 +175,7 @@ class PilotRuntimeLimitService
             max_concurrent_job_runs: $personal->max_concurrent_job_runs,
             max_valkeys: $personal->max_valkeys,
             max_valkey_memory_mb: $personal->max_valkey_memory_mb,
+            max_custom_domains: $personal->max_custom_domains,
         );
     }
 
@@ -264,6 +276,19 @@ class PilotRuntimeLimitService
     {
         return max(0, $profile->max_valkey_memory_mb
             ?? self::configuredOr('sakala.valkey.default_max_memory_mb', self::DEFAULT_MAX_VALKEY_MEMORY_MB));
+    }
+
+    /**
+     * Custom domains a workspace under this profile may hold (ADR-024). A
+     * profile without its own value, and a workspace without a profile,
+     * follow `sakala.custom_domains.default_max_count`: unset or empty means
+     * DEFAULT_MAX_CUSTOM_DOMAINS. 0 allows none. This is the only place that
+     * decides.
+     */
+    public function maxCustomDomainsFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_custom_domains
+            ?? self::configuredOr('sakala.custom_domains.default_max_count', self::DEFAULT_MAX_CUSTOM_DOMAINS));
     }
 
     /**
@@ -645,6 +670,7 @@ class PilotRuntimeLimitService
             current_schedules_count: ProjectSchedule::enabledCountIn($workspace->id),
             current_valkeys_count: ManagedValkey::countIn($workspace->id),
             current_valkey_memory_mb: ManagedValkey::reservedMbIn($workspace->id),
+            current_custom_domains_count: ProjectDomain::countIn($workspace->id),
         );
     }
 

@@ -41,7 +41,7 @@ final class GetEdgeRouteTableAction
             return $this->build();
         }
 
-        /** @var array{generated_at: string, revision: string, expected_minimum_routes: int, routes: list<array{host: string, project_id: string, upstreams: list<string>}>, skipped_routes: list<array{host: string, project_id: string, reason: string}>} $table */
+        /** @var array{generated_at: string, revision: string, expected_minimum_routes: int, routes: list<array{host: string, project_id: string, upstreams: list<string>}>, skipped_routes: list<array{host: string, project_id: string, reason: string}>, expected_minimum_custom_routes?: int, custom_routes?: list<array{host: string, project_id: string, upstreams: list<string>}>} $table */
         $table = Cache::remember(self::CACHE_KEY, $seconds, fn (): array => $this->build()->toArray());
 
         return EdgeRouteTableData::fromArray($table);

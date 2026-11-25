@@ -54,3 +54,14 @@ rather than enum-level.
 
 Do not "fix" these files to match the API; when the agent contract changes,
 replace them from the new tag and adjust the API.
+
+- `commands/deploy-project-custom-domains.json`,
+  `commands/wake-project-custom-domains.json`,
+  `commands/update-project-domains.json`, `failures/custom-domain-failures.json`,
+  `edge/route-table-custom-domains.json` — custom domains (ADR-024), copied
+  byte for byte from `examples/` of **sakala-agent main `b19b9e0`** (PR #148),
+  before a tagged release; **re-check them against the release tag**.
+  `update-project-domains.json` holds the command, its `complete` result, and
+  the event; the enum test reads its `command`. The Edge table is the
+  `sakala-edge` example (`docs/EDGE.md`, "Custom domain"); tests compare the
+  API's table with its shape and field types.

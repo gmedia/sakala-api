@@ -56,6 +56,10 @@ final class ProjectAlertMailNotification extends Notification implements ShouldQ
             ProjectAlert::WorkerCrashed => $this->workerCrashed(),
             ProjectAlert::ScheduleFailing => $this->scheduleFailing(),
             ProjectAlert::SchedulePaused => $this->schedulePaused(),
+            ProjectAlert::CustomDomainFailing => $this->customDomainFailing(),
+            ProjectAlert::CustomDomainDisabled => $this->customDomainDisabled(),
+            ProjectAlert::CustomDomainReactivated => $this->customDomainReactivated(),
+            ProjectAlert::CustomDomainReleased => $this->customDomainReleased(),
         };
 
         return $message
@@ -196,6 +200,76 @@ final class ProjectAlertMailNotification extends Notification implements ShouldQ
         $this->heldBackLine($message, "Ada {$this->heldBack} jadwal lain di proyek ini yang juga dijeda sejak email terakhir.");
 
         return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function customDomainFailing(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $domain = $this->data->summary ?? 'custom domain';
+        $when = $this->data->detail ?? 'segera';
+        $message = (new SakalaMailMessage)
+            ->subject("Domain {$domain} proyek {$name} di Sakala akan dinonaktifkan")
+            ->preheader('Pemeriksaan DNS domain ini gagal terus. Perbaiki record-nya supaya domain tetap aktif.')
+            ->headline("Domain {$domain} akan dinonaktifkan {$when}")
+            ->line("Sakala memeriksa DNS {$domain} secara berkala, dan pemeriksaannya gagal terus. Kalau record-nya belum diperbaiki, domain ini dinonaktifkan {$when}: pengunjung {$domain} tidak lagi sampai ke proyek {$name}. Alamat proyek di Sakala tetap jalan.");
+
+        if ($this->data->recoveryHint !== null) {
+            $message->line("Yang perlu diperbaiki: {$this->data->recoveryHint}");
+        }
+
+        $this->heldBackLine($message, "Ada {$this->heldBack} domain lain di proyek ini yang juga gagal sejak email terakhir.");
+
+        return $message
+            ->action('Buka proyek', $this->console()->project($this->data->projectId))
+            ->line('Setelah record diperbaiki, tekan Periksa sekarang di daftar domain proyek, atau tunggu pemeriksaan berikutnya.');
+    }
+
+    private function customDomainDisabled(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $domain = $this->data->summary ?? 'custom domain';
+        $message = (new SakalaMailMessage)
+            ->subject("Domain {$domain} proyek {$name} di Sakala dinonaktifkan")
+            ->preheader('Pengunjung domain ini tidak lagi sampai ke proyekmu. Alamat proyek di Sakala tetap jalan.')
+            ->headline("Domain {$domain} dinonaktifkan")
+            ->line("Pengunjung {$domain} tidak lagi sampai ke proyek {$name}. Alamat proyek di Sakala tetap jalan, dan domain ini tetap tercatat di proyek sampai kamu menghapusnya.");
+
+        if ($this->data->recoveryHint !== null) {
+            $message->line($this->data->recoveryHint);
+        }
+
+        $this->heldBackLine($message, "Ada {$this->heldBack} domain lain di proyek ini yang juga dinonaktifkan sejak email terakhir.");
+
+        return $message
+            ->action('Buka proyek', $this->console()->project($this->data->projectId))
+            ->line('Domain yang dinonaktifkan karena DNS aktif lagi sendiri kalau record-nya diperbaiki dalam 30 hari. Sakala memeriksanya sekali sehari, atau saat kamu menekan Periksa sekarang.');
+    }
+
+    private function customDomainReactivated(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $domain = $this->data->summary ?? 'custom domain';
+
+        return (new SakalaMailMessage)
+            ->subject("Domain {$domain} proyek {$name} di Sakala aktif lagi")
+            ->preheader('Pemeriksaan DNS domain ini lolos lagi.')
+            ->headline("Domain {$domain} aktif lagi")
+            ->line("Pemeriksaan DNS {$domain} lolos lagi, jadi pengunjung domain ini kembali sampai ke proyek {$name}. Tidak ada yang perlu kamu lakukan.")
+            ->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function customDomainReleased(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $domain = $this->data->summary ?? 'custom domain';
+
+        return (new SakalaMailMessage)
+            ->subject("Domain {$domain} sekarang dipakai proyek lain di Sakala")
+            ->preheader('Domain yang dinonaktifkan di proyekmu diklaim pemilik DNS-nya untuk proyek lain.')
+            ->headline("Domain {$domain} dipakai proyek lain")
+            ->line("{$domain} sudah dinonaktifkan di proyek {$name}. Sekarang proyek lain membuktikan kepemilikan domain ini lewat record TXT-nya, jadi domain itu aktif di sana dan tidak bisa aktif lagi di proyek {$name}.")
+            ->line('Kalau domain ini masih milikmu, periksa siapa yang bisa mengubah DNS-nya. Hapus domain ini dari daftar domain proyekmu.')
+            ->action('Buka proyek', $this->console()->project($this->data->projectId));
     }
 
     private function heldBackLine(SakalaMailMessage $message, string $sentence): void

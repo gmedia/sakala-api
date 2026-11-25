@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Bucket\BucketAttachmentController;
 use App\Http\Controllers\Api\V1\Bucket\BucketController;
+use App\Http\Controllers\Api\V1\CustomDomain\ProjectDomainController;
 use App\Http\Controllers\Api\V1\Database\DatabaseAttachmentController;
 use App\Http\Controllers\Api\V1\Database\DatabaseController;
 use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
@@ -142,6 +143,24 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
                 ->name('api.v1.app.projects.schedules.runs.cancel');
             Route::get('projects/{project}/schedules/{schedule}/runs/{run}/logs', [ScheduleRunController::class, 'logs'])
                 ->name('api.v1.app.projects.schedules.runs.logs');
+        });
+
+    // Custom domains of a project (ADR-024); 404 while
+    // SAKALA_CUSTOM_DOMAINS_ENABLED is off. "Check now" asks the domain's
+    // name servers, so it is rate limited per domain and per user.
+    Route::scopeBindings()
+        ->middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::CUSTOM_DOMAINS)
+        ->whereUuid(['project', 'domain'])
+        ->group(function (): void {
+            Route::get('projects/{project}/domains', [ProjectDomainController::class, 'index'])
+                ->name('api.v1.app.projects.domains.index');
+            Route::post('projects/{project}/domains', [ProjectDomainController::class, 'store'])
+                ->name('api.v1.app.projects.domains.store');
+            Route::post('projects/{project}/domains/{domain}/check', [ProjectDomainController::class, 'check'])
+                ->middleware('throttle:custom-domain-check')
+                ->name('api.v1.app.projects.domains.check');
+            Route::delete('projects/{project}/domains/{domain}', [ProjectDomainController::class, 'destroy'])
+                ->name('api.v1.app.projects.domains.destroy');
         });
 
     // GitHub routes

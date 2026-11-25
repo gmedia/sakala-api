@@ -41,6 +41,7 @@ enum AgentCommandType: string
     case LockValkey = 'LockValkey';
     case UnlockValkey = 'UnlockValkey';
     case ResizeValkey = 'ResizeValkey';
+    case UpdateProjectDomains = 'UpdateProjectDomains';
 
     /**
      * Capability of a node that hosts the shared PostgreSQL instance of its
@@ -70,6 +71,16 @@ enum AgentCommandType: string
      * ever go to a node that advertises it.
      */
     public const MANAGED_VALKEY_CAPABILITY = 'managed-valkey';
+
+    /**
+     * Capability of a node whose router serves a project's custom domains as
+     * extra site addresses (ADR-024): it reads `custom_domains` on the
+     * route-writing commands (writesProjectRoute()) and runs
+     * UpdateProjectDomains. An older agent fails to read a poll response that
+     * holds UpdateProjectDomains and ignores the field, so both only go to a
+     * node that advertises it.
+     */
+    public const CUSTOM_DOMAINS_CAPABILITY = 'custom-domains';
 
     /**
      * Return the set of node capabilities required to handle this command type.
@@ -109,6 +120,7 @@ enum AgentCommandType: string
             self::LockValkey,
             self::UnlockValkey,
             self::ResizeValkey => [self::MANAGED_VALKEY_CAPABILITY],
+            self::UpdateProjectDomains => [self::CUSTOM_DOMAINS_CAPABILITY],
             self::DrainNode,
             self::ResumeNode => [],
         };
@@ -155,7 +167,9 @@ enum AgentCommandType: string
             self::RotateValkeyPassword,
             self::LockValkey,
             self::UnlockValkey,
-            self::ResizeValkey => false,
+            self::ResizeValkey,
+            // Only rewrites the site address line of the route the node keeps.
+            self::UpdateProjectDomains => false,
         };
     }
 
@@ -336,7 +350,24 @@ enum AgentCommandType: string
             self::RotateValkeyPassword,
             self::LockValkey,
             self::UnlockValkey,
-            self::ResizeValkey => true,
+            self::ResizeValkey,
+            self::UpdateProjectDomains => true,
+            default => false,
+        };
+    }
+
+    /**
+     * Commands that write the route of a project on its node, and so carry
+     * the project's custom domains (`custom_domains`, ADR-024) to a node with
+     * CUSTOM_DOMAINS_CAPABILITY. UpdateProjectDomains writes only that list.
+     */
+    public function writesProjectRoute(): bool
+    {
+        return match ($this) {
+            self::DeployProject,
+            self::RestartProject,
+            self::SleepProject,
+            self::WakeProject => true,
             default => false,
         };
     }
@@ -352,7 +383,9 @@ enum AgentCommandType: string
      * and a secret access key where one is set. RunJob carries its command
      * and the live deployment's image identity, variables, and resources.
      * Valkey commands carry the store ID, and a password or a size where one
-     * is set.
+     * is set. UpdateProjectDomains carries the project's custom domains.
+     * Independently of this, AgentCommandPayloadMaterializer adds
+     * `custom_domains` to the commands that write a project's route.
      */
     public function carriesPayload(): bool
     {
@@ -381,7 +414,8 @@ enum AgentCommandType: string
             self::RotateValkeyPassword,
             self::LockValkey,
             self::UnlockValkey,
-            self::ResizeValkey => true,
+            self::ResizeValkey,
+            self::UpdateProjectDomains => true,
             default => false,
         };
     }

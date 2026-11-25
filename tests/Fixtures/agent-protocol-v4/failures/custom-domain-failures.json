@@ -1,0 +1,37 @@
+[
+  {
+    "type": "DeployProject",
+    "body": {
+      "error_code": "runtime_custom_domain_invalid",
+      "error_message": "custom domain \"api.sakala.dev\" is under a zone Sakala does not accept as a custom domain"
+    }
+  },
+  {
+    "type": "UpdateProjectDomains",
+    "body": {
+      "error_code": "runtime_custom_domain_invalid",
+      "error_message": "custom domain \"www.portfolio.sakala.app\" is under a Sakala project domain, which is not a custom domain"
+    }
+  },
+  {
+    "type": "WakeProject",
+    "body": {
+      "error_code": "runtime_custom_domain_taken",
+      "error_message": "custom domain www.contoh.com is already served by another project on this node"
+    }
+  },
+  {
+    "type": "UpdateProjectDomains",
+    "body": {
+      "error_code": "invalid_runtime_command",
+      "error_message": "UpdateProjectDomains payload is invalid: missing field `custom_domains`"
+    }
+  },
+  {
+    "type": "UpdateProjectDomains",
+    "body": {
+      "error_code": "unsupported_runtime_command",
+      "error_message": "runtime does not support custom domains"
+    }
+  }
+]

@@ -16,7 +16,7 @@ class StoreLimitProfileRequest extends FormRequest
 {
     use RequiresAdminReason;
 
-    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region', 'max_databases', 'max_database_storage_mb', 'max_buckets', 'max_bucket_storage_mb', 'max_valkeys', 'max_valkey_memory_mb', 'max_worker_containers', 'max_schedules', 'min_schedule_interval_minutes', 'max_concurrent_job_runs'];
+    public const FIELDS = ['name', 'max_projects', 'max_active_containers', 'max_active_deployments', 'max_memory_mb', 'max_cpu_millis', 'max_builds_per_hour', 'idle_sleep_minutes', 'max_replicas', 'default_region', 'max_databases', 'max_database_storage_mb', 'max_buckets', 'max_bucket_storage_mb', 'max_valkeys', 'max_valkey_memory_mb', 'max_custom_domains', 'max_worker_containers', 'max_schedules', 'min_schedule_interval_minutes', 'max_concurrent_job_runs'];
 
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
@@ -81,6 +81,12 @@ class StoreLimitProfileRequest extends FormRequest
              * existing store.
              */
             'max_valkey_memory_mb' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_VALKEY_MEMORY_MB_CEILING],
+            /**
+             * Custom domains the workspace's projects may hold together (ADR-024), pending and disabled claims
+             * included. `null` (the default) follows `SAKALA_CUSTOM_DOMAIN_DEFAULT_MAX_COUNT`; `0` allows none.
+             * Lowering it never removes a domain; it only refuses new ones.
+             */
+            'max_custom_domains' => ['sometimes', 'nullable', 'integer', 'between:0,'.LimitProfile::MAX_CUSTOM_DOMAINS_CEILING],
             /**
              * Worker containers the workspace may run at once (ADR-022). They also count against
              * `max_active_containers`. `null` (the default) follows `SAKALA_WORKER_DEFAULT_MAX_CONTAINERS`; `0` allows none.

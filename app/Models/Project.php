@@ -359,6 +359,16 @@ class Project extends Model
         return $this->hasMany(ProjectSchedule::class);
     }
 
+    /**
+     * Custom domain claims of the project (ADR-024), deleted ones left out.
+     *
+     * @return HasMany<ProjectDomain, $this>
+     */
+    public function domains(): HasMany
+    {
+        return $this->hasMany(ProjectDomain::class);
+    }
+
     /** @return HasMany<ScheduleRun, $this> */
     public function scheduleRuns(): HasMany
     {

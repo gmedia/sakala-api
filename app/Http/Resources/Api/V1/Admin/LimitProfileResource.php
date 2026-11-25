@@ -78,6 +78,11 @@ final class LimitProfileResource extends JsonResource
              */
             'max_valkey_memory_mb' => $profile->max_valkey_memory_mb,
             /**
+             * Custom domains the workspace's projects may hold together. `null` follows the global
+             * `SAKALA_CUSTOM_DOMAIN_DEFAULT_MAX_COUNT`; `0` allows none.
+             */
+            'max_custom_domains' => $profile->max_custom_domains,
+            /**
              * Worker containers the workspace may run at once. `null` follows the global
              * `SAKALA_WORKER_DEFAULT_MAX_CONTAINERS`; `0` allows none.
              */

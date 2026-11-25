@@ -1,0 +1,12 @@
+{
+  "id": "7c9e2f4a-1b3d-4e5f-8a6b-9c0d1e2f3a4b",
+  "type": "WakeProject",
+  "status": "Pending",
+  "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+  "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+  "payload": {
+    "custom_domains": [
+      "www.contoh.com"
+    ]
+  }
+}

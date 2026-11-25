@@ -6,6 +6,7 @@ namespace App\Http\Resources\Api\V1\Runtime;
 
 use App\Data\Runtime\PilotQuotaLimitsData;
 use App\Models\ManagedValkey;
+use App\Services\CustomDomain\CustomDomainPolicy;
 use App\Services\Schedule\SchedulePolicy;
 use App\Support\Runtime\RuntimeFeatures;
 use Illuminate\Http\Request;
@@ -140,6 +141,13 @@ final class PilotLimitsResource extends JsonResource
                 'max_valkey_memory_mb' => $limits->max_valkey_memory_mb,
                 /** MB the workspace's Valkey stores reserve now: the sum of their sizes, a pending growth included. */
                 'current_valkey_memory_mb' => $this->resource->current_valkey_memory_mb,
+                /**
+                 * Custom domains the workspace's projects may hold together, from its limit profile or the global
+                 * setting (ADR-024); `0` allows none.
+                 */
+                'max_custom_domains' => $limits->max_custom_domains,
+                /** Custom domain claims that count towards `max_custom_domains`: pending, verified, failed, and disabled ones. */
+                'current_custom_domains_count' => $this->resource->current_custom_domains_count,
             ],
             'runtime_defaults' => [
                 /** @var int */
@@ -234,6 +242,17 @@ final class PilotLimitsResource extends JsonResource
                 'available' => $this->valkeysAvailable,
                 'sizes_mb' => ManagedValkey::SIZES_MB,
                 'default_size_mb' => ManagedValkey::DEFAULT_SIZE_MB,
+            ],
+            /**
+             * Custom domains for projects on this installation (ADR-024). `enabled` follows
+             * `SAKALA_CUSTOM_DOMAINS_ENABLED`; while it is false the domain endpoints answer 404. `target` is the name
+             * a domain points at with a CNAME (or flattening, ALIAS, ANAME for an apex); never an IP address.
+             *
+             * @var array{enabled: bool, target: string}
+             */
+            'custom_domains' => [
+                'enabled' => RuntimeFeatures::customDomainsEnabled(),
+                'target' => app(CustomDomainPolicy::class)->target(),
             ],
         ];
     }

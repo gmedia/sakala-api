@@ -68,6 +68,7 @@ require_once __DIR__.'/Support/RollbackFixtures.php';
 require_once __DIR__.'/Support/WorkerScheduleFixtures.php';
 require_once __DIR__.'/Support/ValkeyFixtures.php';
 require_once __DIR__.'/Support/WorkspaceFixtures.php';
+require_once __DIR__.'/Support/CustomDomainFixtures.php';
 /*
 |--------------------------------------------------------------------------
 | Functions

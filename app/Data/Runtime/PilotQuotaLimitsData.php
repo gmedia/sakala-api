@@ -38,6 +38,8 @@ final readonly class PilotQuotaLimitsData
         public int $current_valkeys_count = 0,
         /** MB of `maxmemory` the workspace's stores reserve (allocated, not used). */
         public int $current_valkey_memory_mb = 0,
+        /** Custom domain claims that count towards `limits->max_custom_domains` (ADR-024). */
+        public int $current_custom_domains_count = 0,
     ) {}
 
     /**
