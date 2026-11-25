@@ -20,6 +20,7 @@ use App\Models\Project;
 use App\Models\ProjectControlRequest;
 use App\Models\User;
 use App\Services\Runtime\ProjectWorkloadService;
+use App\Support\Database\TransactionRetry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -93,7 +94,7 @@ final class RestartProjectAction
             }
 
             return $this->queue($locked, $deployment, $user, $idempotencyKey ?? Str::uuid()->toString());
-        });
+        }, TransactionRetry::ATTEMPTS);
     }
 
     /**

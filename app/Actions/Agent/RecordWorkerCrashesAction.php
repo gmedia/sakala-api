@@ -14,6 +14,7 @@ use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Notification\UserNotifier;
+use App\Support\Database\RowLock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -46,7 +47,10 @@ final class RecordWorkerCrashesAction
                     ->orWhereIn('id', array_keys($reported));
             })
             ->orderBy('id')
-            ->lockForUpdate()
+            // FOR NO KEY UPDATE (see HeartbeatAgentAction): a command created
+            // for one of these deployments checks its foreign key without
+            // waiting for the heartbeat, which writes projects after this.
+            ->lock(RowLock::NO_KEY_UPDATE)
             ->get();
 
         foreach ($deployments as $deployment) {

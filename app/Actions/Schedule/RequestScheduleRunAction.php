@@ -12,6 +12,7 @@ use App\Models\ScheduleRun;
 use App\Models\User;
 use App\Services\Schedule\SchedulePolicy;
 use App\Services\Schedule\ScheduleRunLauncher;
+use App\Support\Database\TransactionRetry;
 use App\Support\Project\WorkloadAudit;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -60,6 +61,6 @@ final class RequestScheduleRunAction
             ]);
 
             return $run;
-        });
+        }, TransactionRetry::ATTEMPTS);
     }
 }

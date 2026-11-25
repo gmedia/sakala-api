@@ -8,6 +8,7 @@ use App\Actions\Bucket\RecordBucketSizesAction;
 use App\Actions\Database\RecordDatabaseSizesAction;
 use App\Data\Agent\AgentHeartbeatData;
 use App\Models\AgentNode;
+use App\Support\Database\RowLock;
 use Illuminate\Support\Facades\DB;
 
 final class HeartbeatAgentAction
@@ -28,9 +29,14 @@ final class HeartbeatAgentAction
         AgentHeartbeatData $data,
     ): AgentNode {
         $agent = DB::transaction(function () use ($agent, $data): AgentNode {
+            // FOR NO KEY UPDATE, like every row lock below: it still serialises
+            // heartbeats, claims, and admin changes of this node, but lets a
+            // command insert check its foreign key to the node. A transaction
+            // that holds a project and creates a command for this node would
+            // otherwise wait here while this heartbeat waits for the project.
             /** @var AgentNode $agent */
             $agent = AgentNode::query()
-                ->lockForUpdate()
+                ->lock(RowLock::NO_KEY_UPDATE)
                 ->findOrFail($agent->id);
 
             $agent->update([
