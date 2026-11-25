@@ -38,6 +38,7 @@ use App\Services\Deployment\DeploymentInspectionHold;
 use App\Services\GitHub\GithubBranchService;
 use App\Services\GitHub\GithubRepositoryAccessService;
 use App\Services\Runtime\PilotRuntimeLimitService;
+use App\Support\Database\TransactionRetry;
 use App\Support\Deployment\DeploymentRollbackEligibility;
 use App\Support\GitHub\CommitMessage;
 use App\Support\Project\DeploymentConfigFingerprint;
@@ -190,6 +191,9 @@ final class CreateDeploymentAction
                 $commit,
                 &$created
             ) {
+                // A deadlock retry runs this again from the start.
+                $created = false;
+
                 // The workspace row first: its quotas span all of its projects,
                 // so two deployments in one workspace are counted one at a time.
                 if ($project->workspace_id !== null) {
@@ -437,7 +441,7 @@ final class CreateDeploymentAction
                 }
 
                 return $deployment;
-            });
+            }, TransactionRetry::ATTEMPTS);
 
             if ($created && config('sakala.deployments.simulate') === true) {
                 SimulatedDeploymentJob::dispatch($deployment);

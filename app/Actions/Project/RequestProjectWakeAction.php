@@ -14,6 +14,7 @@ use App\Models\Project;
 use App\Models\User;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Services\Runtime\ProjectWorkloadService;
+use App\Support\Database\TransactionRetry;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -82,6 +83,6 @@ final class RequestProjectWakeAction
                 user: $user,
                 systemActorId: self::PUBLIC_ACTOR_ID,
             );
-        });
+        }, TransactionRetry::ATTEMPTS);
     }
 }
