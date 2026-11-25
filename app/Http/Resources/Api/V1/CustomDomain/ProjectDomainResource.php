@@ -128,6 +128,8 @@ final class ProjectDomainResource extends JsonResource
             /**
              * True when the domain is verified but the node that runs the project cannot serve custom domains yet
              * (an older agent): visitors get a 404 until the project runs on a node that can.
+             *
+             * @var bool
              */
             'waiting_for_node' => $this->waitingForNode,
             'created_at' => $domain->created_at?->toAtomString(),

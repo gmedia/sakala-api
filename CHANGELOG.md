@@ -27,6 +27,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Fixed
 
+- **`waiting_for_node` is typed as a boolean in the OpenAPI document.** The custom domain resource sent a boolean but the document said string, so generated clients had to override it.
 - A restart, stop, deploy, wake, or other command created for a project no longer deadlocks with a heartbeat of the node that serves it, which answered `500`. The command insert checks its foreign keys to the node and the deployment, and the heartbeat held those rows `FOR UPDATE` while it waited for the project to record `last_request_at` (or a crash change). The heartbeat now locks its node, deployment, and project rows `FOR NO KEY UPDATE`: heartbeats, claims, and admin node changes still run one at a time, but a foreign key check no longer waits for them. The member and admin transactions that create such commands (restart, stop, reconcile, inspection, wake, run now, deployment) are also run again, up to 3 attempts, when PostgreSQL picks them as a deadlock victim.
 
 ### Changed

@@ -203,6 +203,12 @@ test('the OpenAPI document types the bucket default quota and the buckets on the
         ->and($bucket['required'])->toBe(['id', 'name', 'status']);
 });
 
+test('the OpenAPI document types waiting_for_node of a custom domain as a boolean', function (): void {
+    $domain = openApiDocumentForTypes()['components']['schemas']['ProjectDomainResource'];
+
+    expect($domain['properties']['waiting_for_node']['type'])->toBe('boolean');
+});
+
 test('responses send the types the OpenAPI document gives', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();
