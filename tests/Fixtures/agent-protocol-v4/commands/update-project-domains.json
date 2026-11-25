@@ -1,0 +1,36 @@
+{
+  "command": {
+    "id": "3e8f1a2b-4c5d-4e6f-9a7b-8c9d0e1f2a3b",
+    "type": "UpdateProjectDomains",
+    "status": "Pending",
+    "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+    "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+    "payload": {
+      "custom_domains": [
+        "www.contoh.com",
+        "contoh.com"
+      ]
+    }
+  },
+  "complete": {
+    "result": {
+      "status": "updated",
+      "custom_domains": [
+        "contoh.com",
+        "www.contoh.com"
+      ]
+    }
+  },
+  "event": {
+    "event_type": "workload.domains.updated",
+    "level": "info",
+    "message": "The project's route now serves the requested custom domains.",
+    "metadata": {
+      "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+      "custom_domains": [
+        "contoh.com",
+        "www.contoh.com"
+      ]
+    }
+  }
+}

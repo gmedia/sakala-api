@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Models\ProjectDomain;
 use App\Models\User;
+use App\Services\CustomDomain\Dns\DnsResolver;
+use App\Services\CustomDomain\Dns\NetDnsResolver;
 use App\Support\Domains\ProjectDomainGenerator;
 use App\Support\Slug\ReservedSlug;
 use Dedoc\Scramble\Scramble;
@@ -27,6 +30,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Custom domain checks (ADR-024): a new resolver per check, so its
+        // zone cache never outlives one check. Tests bind a fake instance.
+        $this->app->bind(DnsResolver::class, NetDnsResolver::class);
+
         // Komponen yang membutuhkan konfigurasi aplikasi
         $this->app->singleton(
             ReservedSlug::class,
@@ -134,6 +141,20 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perHour((int) config('sakala.rate_limits.workspace_invitations', 20))
                 ->by('workspace-invitations:'.(string) $identifier);
+        });
+
+        // "Check now" of a custom domain (ADR-024) asks the domain's name
+        // servers several questions, so it is limited per domain, whoever
+        // asks, and per user across domains.
+        RateLimiter::for('custom-domain-check', function (Request $request): array {
+            $limit = (int) config('sakala.rate_limits.custom_domain_check', 6);
+            $domain = $request->route('domain');
+            $domainId = $domain instanceof ProjectDomain ? $domain->id : (is_string($domain) ? $domain : '');
+
+            return [
+                Limit::perMinute($limit)->by('custom-domain-check:domain:'.$domainId),
+                Limit::perMinute($limit * 2)->by('custom-domain-check:user:'.(string) ($request->user()?->getAuthIdentifier() ?? $request->ip())),
+            ];
         });
 
         RateLimiter::for('inspection', function (Request $request): Limit {

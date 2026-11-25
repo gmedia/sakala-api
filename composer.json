@@ -12,14 +12,17 @@
     "license": "Apache-2.0",
     "require": {
         "php": "^8.5",
+        "ext-intl": "*",
         "dedoc/scramble": "^0.13",
         "firebase/php-jwt": "^7.1",
+        "jeremykendall/php-domain-parser": "^6.4",
         "laravel/framework": "^13.30",
         "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.3",
         "laravel/socialite": "^5.28",
         "laravel/tinker": "^3.0",
-        "league/flysystem-aws-s3-v3": "^3.0"
+        "league/flysystem-aws-s3-v3": "^3.0",
+        "mikepultz/netdns2": "^2.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

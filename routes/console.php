@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Console\Commands\AssignAgentCommandsCommand;
 use App\Console\Commands\CheckBucketUsageCommand;
+use App\Console\Commands\CheckCustomDomainsCommand;
 use App\Console\Commands\CheckEdgeHealthCommand;
 use App\Console\Commands\CheckValkeyUsageCommand;
 use App\Console\Commands\CollectUsageSignalsCommand;
@@ -79,6 +80,15 @@ Schedule::command(CheckBucketUsageCommand::class)
 // Valkey nodes report store memory at most once a minute, so a minute warns
 // about a store near its maxmemory soon after the node sees it (ADR-023).
 Schedule::command(CheckValkeyUsageCommand::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// Custom domains (ADR-024): each claim carries its own next_check_at (a
+// pending claim every minute at first, an active one every 6 hours), so the
+// sweep runs every minute and only checks the due ones. Nothing while
+// SAKALA_CUSTOM_DOMAINS_ENABLED is off.
+Schedule::command(CheckCustomDomainsCommand::class)
     ->everyMinute()
     ->withoutOverlapping()
     ->onOneServer();

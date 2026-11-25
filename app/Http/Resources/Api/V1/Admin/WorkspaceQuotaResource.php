@@ -55,6 +55,8 @@ final class WorkspaceQuotaResource extends JsonResource
                 'max_valkeys' => $limits->max_valkeys,
                 /** Effective MB of `maxmemory` the Valkey stores may reserve together. `0` allows no new allocation. */
                 'max_valkey_memory_mb' => $limits->max_valkey_memory_mb,
+                /** Effective custom domains, from the profile or the global setting. `0` allows none. */
+                'max_custom_domains' => $limits->max_custom_domains,
                 /** Effective worker containers at once, from the profile or the global setting. `0` allows none. */
                 'max_worker_containers' => $limits->max_worker_containers,
                 /** Effective enabled schedules, from the profile or the global setting. `0` allows none. */
@@ -89,6 +91,8 @@ final class WorkspaceQuotaResource extends JsonResource
                 'valkeys' => $this->resource->current_valkeys_count,
                 /** MB of `maxmemory` the workspace's Valkey stores reserve (allocated, not used). */
                 'valkey_memory_mb' => $this->resource->current_valkey_memory_mb,
+                /** Custom domain claims that count towards `max_custom_domains`. */
+                'custom_domains' => $this->resource->current_custom_domains_count,
             ],
         ];
     }

@@ -46,9 +46,11 @@ final readonly class WorkspaceLimitsData
         public int $max_valkeys = 0,
         /** Effective MB of `maxmemory` the workspace's stores may reserve together; 0 = no new allocation. */
         public int $max_valkey_memory_mb = 0,
+        /** Effective custom domains the workspace may hold; 0 = none (ADR-024). */
+        public int $max_custom_domains = 0,
     ) {}
 
-    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas, ?int $maxBuildsPerHour, int $maxDatabases, int $maxDatabaseStorageMb, int $maxBuckets, int $maxBucketStorageMb, ScheduleLimitsData $workloads, int $maxValkeys = 0, int $maxValkeyMemoryMb = 0): self
+    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas, ?int $maxBuildsPerHour, int $maxDatabases, int $maxDatabaseStorageMb, int $maxBuckets, int $maxBucketStorageMb, ScheduleLimitsData $workloads, int $maxValkeys = 0, int $maxValkeyMemoryMb = 0, int $maxCustomDomains = 0): self
     {
         return new self(
             max_projects: $profile->max_projects,
@@ -70,6 +72,7 @@ final readonly class WorkspaceLimitsData
             max_concurrent_job_runs: $workloads->maxConcurrentJobRuns,
             max_valkeys: $maxValkeys,
             max_valkey_memory_mb: $maxValkeyMemoryMb,
+            max_custom_domains: $maxCustomDomains,
         );
     }
 }

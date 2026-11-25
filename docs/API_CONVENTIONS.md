@@ -129,6 +129,8 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `BUCKET_UNAVAILABLE` | `409` | Membuat bucket untuk proyek (`project_id`) saat `buckets.available` `false`. Membuat bucket tanpa proyek tidak kena. | - |
 | `BUCKET_KEY_ROTATING` | `409` | Deploy proyek yang bucket terpasangnya sedang dalam jendela key tidak pasti, atau membaca kredensial bucket itu. Lihat [Rotasi key](#rotasi-key). Push webhook dilewati dengan `reason` `bucket_key_rotating`. | `bucket` (`id`, `name`) |
 | `BUCKET_ENDPOINT_UNAVAILABLE` | `409` | Deploy proyek yang bucket terpasangnya ada di node yang belum melaporkan object storage-nya (`metadata.object_storage`); push webhook dilewati dengan `reason` `bucket_endpoint_unavailable`. | `bucket` (`id`, `name`) |
+| `CUSTOM_DOMAIN_LIMIT_EXCEEDED` | `422` | Menambah custom domain saat klaim workspace (`pending`, `verified`, `failed`, `disabled`) sudah sebanyak `max_custom_domains` efektifnya. `limit` `0` berarti workspace itu belum boleh memakai custom domain. Lihat [Custom Domain](#custom-domain). | `limit`, `current` (integer) |
+| `DOMAIN_TAKEN` | `409` | Menambah custom domain yang sedang `verified` di project lain. Klaim `pending` di project lain tidak pernah menghalangi. | `hostname` (bentuk akhir) |
 | `VALKEY_LIMIT_EXCEEDED` | `422` | Workspace sudah punya Valkey sebanyak `max_valkeys` efektifnya. `limit` `0` berarti workspace itu belum boleh membuat Valkey. Lihat [Valkey](#valkey). | `limit`, `current` (integer) |
 | `VALKEY_MEMORY_LIMIT_EXCEEDED` | `422` | Membuat Valkey atau memperbesarnya akan membuat jumlah `maxmemory` Valkey workspace melewati `max_valkey_memory_mb`. | `limit_mb`, `current_mb` (MB Valkey lain, tanpa yang ini), `requested_mb` (integer) |
 | `VALKEY_UNAVAILABLE` | `409` | Tidak ada node `managed-valkey` yang boleh menerima Valkey ini: tidak ada di region itu, atau node tempat proyek (`project_id`) berjalan tidak punya peran Valkey. | - |
@@ -1747,3 +1749,9 @@ Node juga punya `region`, `region_override`, `reported_region`, `edge_address`, 
 ### Yang Belum Ada
 
 Tidak ada model laporan abuse: sinyal `manual_intervention` di `signals` dan audit `project.suspend_requested` adalah catatan yang ada sekarang. Akun pengguna juga tidak punya status suspend; yang bisa ditangguhkan adalah project.
+
+## Custom Domain
+
+Custom domain project mengikuti ADR-024 dan dijelaskan lengkap di [CUSTOM_DOMAINS.md](CUSTOM_DOMAINS.md): endpoint `GET`, `POST`, `POST .../check`, dan `DELETE` di `/api/v1/app/projects/{project}/domains`, status `pending`, `verified`, `failed`, `disabled`, dan `released`, pemeriksaan TXT, arah CNAME, dan CAA, kuota `max_custom_domains` (default 1 per workspace), notifikasi, dan endpoint admin `custom-domains`. Peran mengikuti `ProjectPolicy`: semua anggota membaca, owner dan member menambah, memeriksa, dan menghapus.
+
+Fitur ini hanya aktif bila `SAKALA_CUSTOM_DOMAINS_ENABLED=true` (default mati). Selama mati, semua endpoint itu dijawab `404`, command agent tidak membawa `custom_domains`, tabel Edge tidak punya bagian custom, dan `custom-domains:check` tidak melakukan apa-apa. `GET app/pilot-limits` selalu memuat `quotas.max_custom_domains`, `quotas.current_custom_domains_count`, dan `custom_domains` (`enabled`, `target`). Production tetap mati sampai versi pemberitahuan privasi yang menyebut Let's Encrypt berlaku.

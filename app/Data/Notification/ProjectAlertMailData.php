@@ -25,5 +25,7 @@ final readonly class ProjectAlertMailData
         public ?string $recoveryHint = null,
         /** Whether an earlier version still serves visitors. */
         public bool $previousVersionServing = false,
+        /** Extra fixed text of the alert, such as when a failing custom domain is disabled (ADR-024). */
+        public ?string $detail = null,
     ) {}
 }

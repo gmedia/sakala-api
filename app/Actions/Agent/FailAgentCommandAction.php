@@ -19,6 +19,7 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Bucket\BucketCommandOutcomeService;
+use App\Services\CustomDomain\CustomDomainRouteSync;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
@@ -47,6 +48,7 @@ final class FailAgentCommandAction
         private readonly ValkeyCommandOutcomeService $valkeyOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
         private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
+        private readonly CustomDomainRouteSync $customDomainRoutes,
     ) {}
 
     /**
@@ -160,6 +162,10 @@ final class FailAgentCommandAction
 
             if ($command->type === AgentCommandType::RunJob) {
                 $this->scheduleRunOutcome->failed($command, $errorCode, $errorMessage);
+            }
+
+            if ($command->type === AgentCommandType::UpdateProjectDomains) {
+                $this->customDomainRoutes->failed($agent, $command, $errorCode);
             }
 
             if ($command->type === AgentCommandType::ResumeNode) {

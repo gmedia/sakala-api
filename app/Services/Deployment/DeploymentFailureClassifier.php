@@ -6,6 +6,7 @@ namespace App\Services\Deployment;
 
 use App\Data\Deployment\DeploymentFailureData;
 use App\Enums\DeploymentFailureCategory as Category;
+use App\Services\CustomDomain\CustomDomainRouteSync;
 use App\Support\Valkey\ValkeyCommandFailure;
 
 /**
@@ -224,6 +225,20 @@ final class DeploymentFailureClassifier
                 Category::Start,
                 'Jaringan Valkey yang dipasang ke proyek ini tidak ditemukan di server, jadi versi baru tidak dijalankan. Versi sebelumnya, kalau ada, tetap melayani.',
                 'Ini gangguan di sisi Sakala, bukan kesalahan di aplikasimu. Coba deploy ulang beberapa saat lagi. Kalau gagal lagi, lepas Valkey dari proyek atau hubungi admin Sakala.',
+            ),
+
+            CustomDomainRouteSync::ERROR_INVALID => $this->platform(
+                $errorCode,
+                Category::Route,
+                'Server Sakala menolak salah satu custom domain proyek ini, jadi versi baru tidak dijalankan. Versi sebelumnya, kalau ada, tetap melayani.',
+                'Hubungi admin Sakala dan sebutkan domain yang tertulis di detail kegagalan. Sementara itu, kamu bisa menghapus domain itu dari proyek, lalu deploy ulang.',
+            ),
+
+            CustomDomainRouteSync::ERROR_TAKEN => $this->platform(
+                $errorCode,
+                Category::Route,
+                'Salah satu custom domain proyek ini masih tercatat di proyek lain di server yang sama, jadi versi baru tidak dijalankan. Versi sebelumnya, kalau ada, tetap melayani.',
+                'Biasanya ini sisa proyek lama yang memakai domain yang sama dan sedang dibersihkan Sakala. Coba deploy ulang beberapa menit lagi. Kalau gagal lagi, hubungi admin Sakala.',
             ),
 
             'runtime_routing_failed' => $this->platform(

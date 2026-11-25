@@ -30,7 +30,7 @@ Panduan ini berlaku untuk AI agent dan Codex yang bekerja di `sakala-api`.
 - Alokasi deployment sequence, claim command, dan perubahan state yang bersaing wajib dilakukan dalam transaction.
 - Secret memakai encrypted cast atau hash satu arah dan harus disembunyikan dari serialization.
 - Seeder development harus idempotent, bebas credential nyata, dan dibatasi ke environment `local`/`testing`.
-- Jangan menambahkan custom domain atau layanan managed sebelum kontrak MVP berubah. Pengecualiannya database PostgreSQL terkelola (ADR-020, `docs/API_CONVENTIONS.md#database`) bucket S3 terkelola (ADR-021, `docs/API_CONVENTIONS.md#bucket`), dan Valkey terkelola (ADR-023, `docs/API_CONVENTIONS.md#valkey`, di balik `SAKALA_VALKEY_ENABLED`): resource milik workspace dengan aturan kuotanya sendiri, di luar logika project, yang dipakai project hanya lewat attachment dan variabel koneksi.
+- Jangan menambahkan layanan managed sebelum kontrak MVP berubah. Pengecualiannya database PostgreSQL terkelola (ADR-020, `docs/API_CONVENTIONS.md#database`) bucket S3 terkelola (ADR-021, `docs/API_CONVENTIONS.md#bucket`), dan Valkey terkelola (ADR-023, `docs/API_CONVENTIONS.md#valkey`, di balik `SAKALA_VALKEY_ENABLED`): resource milik workspace dengan aturan kuotanya sendiri, di luar logika project, yang dipakai project hanya lewat attachment dan variabel koneksi. Custom domain project mengikuti ADR-024 (`docs/CUSTOM_DOMAINS.md`, di balik `SAKALA_CUSTOM_DOMAINS_ENABLED`).
 
 ## Laravel Conventions
 

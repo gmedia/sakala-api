@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Actions\Edge\EvaluateEdgeHealthAction;
 use App\Services\Bucket\BucketQuotaPolicy;
+use App\Services\CustomDomain\CustomDomainPolicy;
 use App\Services\Runtime\PilotRuntimeLimitService;
 use App\Services\Schedule\SchedulePolicy;
 use App\Support\Domains\ProjectDomainGenerator;
@@ -52,6 +53,9 @@ return [
         'edge' => (int) env('SAKALA_EDGE_RATE_LIMIT', 120),
         // Per minute per IP: the signed one-click unsubscribe link in alert emails.
         'notification_unsubscribe' => (int) env('SAKALA_NOTIFICATION_UNSUBSCRIBE_RATE_LIMIT', 10),
+        // Per minute per custom domain and, separately, per user: "check now"
+        // asks the domain's name servers several questions each time (ADR-024).
+        'custom_domain_check' => (int) env('SAKALA_CUSTOM_DOMAIN_CHECK_RATE_LIMIT', 6),
     ],
 
     // Current versions of the published documents, stored per user on acceptance.
@@ -254,6 +258,52 @@ return [
         // profiles. Empty values fall back to the defaults.
         'default_max_count' => env('SAKALA_VALKEY_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_VALKEYS),
         'default_max_memory_mb' => env('SAKALA_VALKEY_DEFAULT_MAX_MEMORY_MB', PilotRuntimeLimitService::DEFAULT_MAX_VALKEY_MEMORY_MB),
+    ],
+
+    // Custom domains for projects (ADR-024). Off by default, so an
+    // installation changes nothing until an operator turns it on: the
+    // endpoints answer 404, no command carries `custom_domains`, the Edge
+    // route table has no custom part, and custom-domains:check does nothing.
+    // Production stays off until the privacy notice that names Let's Encrypt
+    // is in force.
+    'custom_domains' => [
+        'enabled' => (bool) env('SAKALA_CUSTOM_DOMAINS_ENABLED', false),
+        // The stable name users point a CNAME at; empty means
+        // edge.<SAKALA_PROJECT_DEFAULT_DOMAIN>. It must resolve to the Edge
+        // addresses: an apex domain passes when its addresses equal these.
+        'target' => env('SAKALA_CUSTOM_DOMAIN_TARGET'),
+        // Custom domains a workspace may hold, for a workspace whose limit
+        // profile leaves the field empty and one without a profile. Empty
+        // means the default; 0 allows none.
+        'default_max_count' => env('SAKALA_CUSTOM_DOMAIN_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_CUSTOM_DOMAINS),
+        // Zones that are never a custom domain, comma separated; names under
+        // them are refused too. The project domain is always refused. Keep it
+        // equal to SAKALA_CUSTOM_DOMAIN_FORBIDDEN_ZONES on the agents and
+        // SAKALA_EDGE_CUSTOM_DOMAIN_FORBIDDEN_ZONES on the Edge.
+        'forbidden_zones' => env('SAKALA_CUSTOM_DOMAIN_FORBIDDEN_ZONES', CustomDomainPolicy::DEFAULT_FORBIDDEN_ZONES),
+        // Recursive resolvers (IP addresses, comma separated) used to find a
+        // domain's name servers and to resolve the target; empty uses
+        // /etc/resolv.conf. Records of the domain itself are asked from its
+        // authoritative name servers.
+        'resolvers' => env('SAKALA_CUSTOM_DOMAIN_RESOLVERS', ''),
+        'dns_timeout_seconds' => env('SAKALA_CUSTOM_DOMAIN_DNS_TIMEOUT_SECONDS', CustomDomainPolicy::DEFAULT_DNS_TIMEOUT_SECONDS),
+        // The Public Suffix List file; empty uses the copy shipped in
+        // resources/data (docs/CUSTOM_DOMAINS.md says how to refresh it).
+        'public_suffix_list_path' => env('SAKALA_PUBLIC_SUFFIX_LIST_PATH'),
+        // Timing of the checks, in minutes, so staging can shorten them. Empty
+        // values fall back to the defaults in CustomDomainPolicy: a pending
+        // claim every minute for 30 minutes, then every 15 minutes, and
+        // failed after 72 hours; an active domain every 6 hours, an email
+        // after 24 hours of failing checks, disabled after 72; a disabled
+        // domain daily for 30 days.
+        'pending_fast_window_minutes' => env('SAKALA_CUSTOM_DOMAIN_PENDING_FAST_WINDOW_MINUTES'),
+        'pending_interval_minutes' => env('SAKALA_CUSTOM_DOMAIN_PENDING_INTERVAL_MINUTES'),
+        'pending_expire_minutes' => env('SAKALA_CUSTOM_DOMAIN_PENDING_EXPIRE_MINUTES'),
+        'recheck_minutes' => env('SAKALA_CUSTOM_DOMAIN_RECHECK_MINUTES'),
+        'warn_after_minutes' => env('SAKALA_CUSTOM_DOMAIN_WARN_AFTER_MINUTES'),
+        'disable_after_minutes' => env('SAKALA_CUSTOM_DOMAIN_DISABLE_AFTER_MINUTES'),
+        'disabled_recheck_minutes' => env('SAKALA_CUSTOM_DOMAIN_DISABLED_RECHECK_MINUTES'),
+        'reactivation_window_minutes' => env('SAKALA_CUSTOM_DOMAIN_REACTIVATION_WINDOW_MINUTES'),
     ],
 
     'workspaces' => [
