@@ -119,6 +119,9 @@ return [
             // Managed object storage serves S3 at s3.<default_domain> (ADR-021);
             // that host-level site wins over the project wildcard.
             's3',
+            // Custom domains point a CNAME at edge.<default_domain> (ADR-024);
+            // that explicit record wins over the project wildcard.
+            'edge',
         ],
     ],
 
