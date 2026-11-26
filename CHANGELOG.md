@@ -32,6 +32,7 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ### Changed
 
+- The privacy notice default is `privasi-v3`, in force from 7 December 2026 00:00 WIB; until then the API keeps reporting and recording `privasi-v2`. `LegalChangeCatalog` gains the `privasi-v3` summary (managed buckets), so `legal:announce-change privasi-v3` can announce it, and `mail:preview legal-document-changed` shows it.
 - **Slug `edge` is reserved.** Custom domains point a CNAME at `edge.<default_domain>` (ADR-024), an explicit DNS record that wins over the project wildcard, so a project can no longer take the slug `edge`.
 
 ## [0.12.0] - 2026-11-24
@@ -53,7 +54,6 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 - One implementation now serves database password and bucket key rotations: `RedeployAfterCredentialRotationAction`, `RedeployAfterCredentialRotationJob`, `CredentialRotation`, `AttachedProjectDeployer`, and the skip reason enum `AttachedRedeploySkipReason` (renamed from `DatabaseRedeploySkipReason`; values unchanged). `RedeployAfterPasswordRotationJob` stays for jobs queued before the upgrade. Rotation redeploys now report `database_not_ready`, `bucket_endpoint_unavailable`, and `bucket_not_ready` instead of `failed` for a project whose other attached resource cannot be used.
 - Database and bucket rule exceptions share `ManagedResourceRuleException` and one Scramble extension.
-- The privacy notice default is `privasi-v3`, in force from 7 December 2026 00:00 WIB; until then the API keeps reporting and recording `privasi-v2`. `LegalChangeCatalog` gains the `privasi-v3` summary (managed buckets), so `legal:announce-change privasi-v3` can announce it, and `mail:preview legal-document-changed` shows it.
 
 ### Fixed
 
