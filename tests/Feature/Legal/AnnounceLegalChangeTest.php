@@ -7,6 +7,7 @@ use App\Enums\LegalDocument;
 use App\Models\LegalChangeAnnouncement;
 use App\Models\User;
 use App\Notifications\Legal\LegalDocumentChangedNotification;
+use App\Support\Legal\LegalChangeCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Notifications\Dispatcher;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -195,4 +196,43 @@ test('an email that cannot be queued leaves no record, so the next run tries aga
 
     announce()->assertSuccessful();
     Notification::assertSentToTimes($user, LegalDocumentChangedNotification::class, 1);
+});
+
+// ─── privasi-v3 ──────────────────────────────────────────────────────────────
+
+test('privasi-v3 has a summary that follows privasi-v2', function (): void {
+    $change = app(LegalChangeCatalog::class)->find('privasi-v3');
+
+    expect($change)->not->toBeNull()
+        ->and($change->document)->toBe(LegalDocument::PrivacyNotice)
+        ->and($change->version)->toBe('privasi-v3')
+        ->and($change->previousVersion)->toBe('privasi-v2')
+        ->and($change->changes)->toHaveCount(4)
+        ->and(collect($change->changes)->every(fn (string $line): bool => trim($line) !== ''))->toBeTrue()
+        ->and(app(LegalChangeCatalog::class)->find('privasi-v2'))->not->toBeNull();
+});
+
+test('privasi-v3 is announced before 7 December 2026 WIB, and refused from then', function (): void {
+    config()->set('sakala.legal.versions.privacy_notice', 'privasi-v3');
+    config()->set('sakala.legal.effective_at.privacy_notice', '2026-12-07T00:00:00+07:00');
+    config()->set('sakala.legal.previous_versions.privacy_notice', 'privasi-v2');
+    User::factory()->create();
+
+    $this->travelTo(CarbonImmutable::parse('2026-12-06 23:59:59', 'Asia/Jakarta'));
+
+    $this->artisan('legal:announce-change', ['version' => 'privasi-v3', '--dry-run' => true])
+        ->expectsTable(
+            ['Version', 'Effective', 'Already announced', 'Waiting', 'Would queue'],
+            [['privasi-v3', '7 Desember 2026 pukul 00.00 WIB', '0', '1', '1']],
+        )
+        ->assertSuccessful();
+
+    $this->travelTo(CarbonImmutable::parse('2026-12-07 00:00:00', 'Asia/Jakarta'));
+
+    $this->artisan('legal:announce-change', ['version' => 'privasi-v3', '--dry-run' => true])
+        ->expectsOutputToContain('Changes are announced before they take effect.')
+        ->assertFailed();
+
+    Notification::assertNothingSent();
+    expect(LegalChangeAnnouncement::query()->count())->toBe(0);
 });

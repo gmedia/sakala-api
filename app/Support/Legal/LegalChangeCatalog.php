@@ -36,6 +36,17 @@ final class LegalChangeCatalog
                     'Daftar email kini lengkap, termasuk undangan workspace dan email notifikasi proyek yang bisa kamu atur sendiri. Pembatasan lalu lintas keluar dari container pengguna kini disebut sebagai pengaman yang sudah berjalan.',
                 ],
             ),
+            'privasi-v3' => new LegalChangeData(
+                document: LegalDocument::PrivacyNotice,
+                version: 'privasi-v3',
+                previousVersion: 'privasi-v2',
+                changes: [
+                    'Ada bagian baru tentang bucket terkelola, yaitu tempat menyimpan berkas yang memakai API S3. Isi bucket adalah datamu dan data pengguna aplikasimu, dan kami memprosesnya hanya untuk menjalankan proyekmu.',
+                    'Isi bucket disimpan di server Sakala sendiri. Isi setiap bucket di-backup setiap malam dalam bentuk terenkripsi, dan salinannya disimpan sekitar 14 hari. Pemulihan dikerjakan maintainer setelah sepakat dengan pemilik workspace.',
+                    'Menghapus bucket langsung menghapus berkasnya dari server penyimpanan, tetapi salinannya masih ada di backup sekitar 14 hari. Bucket tidak ikut terhapus saat proyek dihapus. Bucket di workspace pribadi ikut dihapus saat akunmu dihapus.',
+                    'Secret key bucket hanya bisa dibuka pemilik workspace dan admin Sakala, dan setiap pembukaannya dicatat. Endpoint, region, nama bucket, dan access key ID terlihat oleh semua anggota workspace.',
+                ],
+            ),
         ];
     }
 }

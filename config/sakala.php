@@ -69,13 +69,13 @@ return [
         'versions' => [
             'terms' => env('SAKALA_LEGAL_TERMS_VERSION', 'syarat-v1'),
             'acceptable_use' => env('SAKALA_LEGAL_ACCEPTABLE_USE_VERSION', 'penggunaan-wajar-v1'),
-            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_VERSION', 'privasi-v2'),
+            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_VERSION', 'privasi-v3'),
         ],
         'effective_at' => [
-            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_EFFECTIVE_AT', '2026-11-30T00:00:00+07:00'),
+            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_EFFECTIVE_AT', '2026-12-07T00:00:00+07:00'),
         ],
         'previous_versions' => [
-            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_PREVIOUS_VERSION', 'privasi-v1'),
+            'privacy_notice' => env('SAKALA_LEGAL_PRIVACY_NOTICE_PREVIOUS_VERSION', 'privasi-v2'),
         ],
     ],
 

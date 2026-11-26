@@ -237,8 +237,8 @@ final class MailPreviewCatalog
             'legal-document-changed' => [
                 'trigger' => 'Maintainer menjalankan legal:announce-change untuk versi dokumen hukum yang baru',
                 'notification' => new LegalDocumentChangedNotification(
-                    change: app(LegalChangeCatalog::class)->find('privasi-v2') ?? throw new LogicException('privasi-v2 has no summary.'),
-                    effectiveAt: CarbonImmutable::parse('2026-11-30 00:00:00', SakalaMailMessage::TIMEZONE),
+                    change: app(LegalChangeCatalog::class)->find('privasi-v3') ?? throw new LogicException('privasi-v3 has no summary.'),
+                    effectiveAt: CarbonImmutable::parse('2026-12-07 00:00:00', SakalaMailMessage::TIMEZONE),
                 ),
                 'notifiable' => $user,
             ],

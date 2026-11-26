@@ -442,22 +442,23 @@ test('deleting the account confirms it to the old address, with nothing to click
 });
 
 test('a legal change reaches every verified account once, with the date, the changes, and the page', function (): void {
-    $this->travelTo(CarbonImmutable::parse('2026-11-24 10:00:00', 'Asia/Jakarta'));
+    // The announcement day of privasi-v3, with the shipped configuration.
+    $this->travelTo(CarbonImmutable::parse('2026-11-30 10:00:00', 'Asia/Jakarta'));
     $user = User::factory()->create(['email' => 'rani@example.test', 'name' => 'Rani Lestari']);
 
-    $this->artisan('legal:announce-change', ['version' => 'privasi-v2', '--interval' => 0])->assertSuccessful();
+    $this->artisan('legal:announce-change', ['version' => 'privasi-v3', '--interval' => 0])->assertSuccessful();
 
     $email = onlyMailTo('rani@example.test');
     $html = (string) $email->getHtmlBody();
     $text = (string) $email->getTextBody();
 
-    expect($email->getSubject())->toBe('Pemberitahuan Privasi Sakala berubah mulai 30 November 2026')
+    expect($email->getSubject())->toBe('Pemberitahuan Privasi Sakala berubah mulai 7 Desember 2026')
         ->and(primaryLink($email))->toBe(MAIL_SITE.'/privasi')
         ->and($text)->toContain('Halo Rani Lestari,')
-        ->and($text)->toContain('Versi baru, privasi-v2, berlaku mulai 30 November 2026. Sampai tanggal itu, yang berlaku masih privasi-v1.')
-        ->and($text)->toContain('- Password database hanya bisa dibuka pemilik workspace dan admin Sakala')
+        ->and($text)->toContain('Versi baru, privasi-v3, berlaku mulai 7 Desember 2026. Sampai tanggal itu, yang berlaku masih privasi-v2.')
+        ->and($text)->toContain('- Secret key bucket hanya bisa dibuka pemilik workspace dan admin Sakala')
         ->and($text)->toContain('tidak meminta persetujuanmu')
-        ->and(substr_count($html, '<li'))->toBe(5);
+        ->and(substr_count($html, '<li'))->toBe(4);
 
     expectAddressLink($email, (string) config('sakala.contact.privacy_email'));
 
@@ -465,7 +466,7 @@ test('a legal change reaches every verified account once, with the date, the cha
     // gets no single link to count.
     expectWellFormedMail($email, null, [(string) $user->password]);
 
-    $this->artisan('legal:announce-change', ['version' => 'privasi-v2', '--interval' => 0])->assertSuccessful();
+    $this->artisan('legal:announce-change', ['version' => 'privasi-v3', '--interval' => 0])->assertSuccessful();
 
     expect(deliveredMail())->toHaveCount(1);
 });
