@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Data\Agent\NodeCapacityData;
 use App\Data\Bucket\ObjectStorageData;
 use App\Data\Database\DatabaseEndpointData;
+use App\Data\Valkey\ValkeyHostData;
 use App\Enums\AgentAuthStatus;
 use App\Enums\AgentNodeDesiredState;
 use App\Enums\AgentNodeStatus;
@@ -109,6 +110,14 @@ class AgentNode extends Model
     public const IMAGE_ROLLBACK_CAPABILITY = 'image-rollback';
 
     /**
+     * Capability of a node that runs `DeployProject.processes`, worker
+     * containers next to the web process (ADR-022). An older agent ignores
+     * the field and runs the web process only, so the field is only sent to,
+     * and a deployment with workers only placed on, a node that advertises it.
+     */
+    public const WORKER_PROCESSES_CAPABILITY = 'worker-processes';
+
+    /**
      * Key under the heartbeat's `metadata.workloads` where an agent with
      * REPLICAS_CAPABILITY reports the most replicas it runs per project
      * (`SAKALA_MAX_REPLICAS_PER_PROJECT`), or null when its driver cannot run
@@ -171,6 +180,15 @@ class AgentNode extends Model
 
     /** `metadata.object_storage.available`: whether the agent's last usage reading worked. */
     public const OBJECT_STORAGE_AVAILABLE_METADATA_KEY = 'available';
+
+    /** `metadata.valkey`: what a node with the `managed-valkey` capability reports about its role (ADR-023). */
+    public const VALKEY_METADATA_KEY = 'valkey';
+
+    /** `metadata.valkey.capacity_mb`: SAKALA_VALKEY_TOTAL_MEMORY_MB, the bound of Σ(maxmemory_mb + 64). */
+    public const VALKEY_CAPACITY_METADATA_KEY = 'capacity_mb';
+
+    /** `metadata.valkey.available`: whether the agent's last reading of its stores worked. */
+    public const VALKEY_AVAILABLE_METADATA_KEY = 'available';
 
     /** Highest TCP port. */
     public const MAX_PORT = 65535;
@@ -300,6 +318,28 @@ class AgentNode extends Model
         return ! is_array($storage) || ($storage[self::OBJECT_STORAGE_AVAILABLE_METADATA_KEY] ?? true) !== false;
     }
 
+    /**
+     * The node's Valkey role from its last heartbeat; null when it reported
+     * none or a malformed one.
+     */
+    public function valkeyHost(): ?ValkeyHostData
+    {
+        $valkey = $this->metadata[self::VALKEY_METADATA_KEY] ?? null;
+
+        if (! is_array($valkey)) {
+            return null;
+        }
+
+        $capacity = $valkey[self::VALKEY_CAPACITY_METADATA_KEY] ?? null;
+        $available = $valkey[self::VALKEY_AVAILABLE_METADATA_KEY] ?? null;
+
+        if (! is_int($capacity) || $capacity < 1 || ! is_bool($available)) {
+            return null;
+        }
+
+        return new ValkeyHostData($capacity, $available);
+    }
+
     /** Free memory and container slots from the last heartbeat. */
     public function capacity(): NodeCapacityData
     {
@@ -382,13 +422,15 @@ class AgentNode extends Model
 
     /**
      * Whether a deployment may be sent to this node: one with `$replicas`
-     * containers (supportsReplicas()) and, when `$releaseCommand`, a release
-     * command to run first (RELEASE_COMMAND_CAPABILITY).
+     * containers (supportsReplicas()), when `$releaseCommand`, a release
+     * command to run first (RELEASE_COMMAND_CAPABILITY), and when
+     * `$workerProcesses`, worker definitions (WORKER_PROCESSES_CAPABILITY).
      */
-    public function canRunDeployment(int $replicas, bool $releaseCommand): bool
+    public function canRunDeployment(int $replicas, bool $releaseCommand, bool $workerProcesses = false): bool
     {
         return $this->supportsReplicas($replicas)
-            && (! $releaseCommand || $this->hasCapability(self::RELEASE_COMMAND_CAPABILITY));
+            && (! $releaseCommand || $this->hasCapability(self::RELEASE_COMMAND_CAPABILITY))
+            && (! $workerProcesses || $this->hasCapability(self::WORKER_PROCESSES_CAPABILITY));
     }
 
     /** Whether the node's last heartbeat advertised `$capability`. */

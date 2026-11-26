@@ -21,6 +21,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 /**
  * @property string|null $database_id The managed database a database command acts on.
  * @property string|null $bucket_id The managed bucket a bucket command acts on.
+ * @property string|null $valkey_id The managed Valkey store a Valkey command acts on.
  * @property AgentCommandType $type
  * @property AgentCommandStatus $status
  * @property array<string, mixed>|null $payload
@@ -28,7 +29,8 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  * @property array<string, mixed>|null $response_context
  * @property array<string, mixed>|null $result
  * @property int $attempts
- * @property int $reported_log_bytes
+ * @property int $reported_log_bytes Bytes of log lines without a `process`: the deployment's own lines.
+ * @property array<string, int>|null $process_log_bytes Bytes of log lines per `process` (ADR-022), each against its own `max_total_bytes`.
  * @property CarbonImmutable $available_at
  * @property CarbonImmutable|null $claimed_at
  * @property CarbonImmutable|null $started_at
@@ -45,6 +47,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
     'deployment_id',
     'database_id',
     'bucket_id',
+    'valkey_id',
     'agent_node_id',
     'type',
     'status',
@@ -55,6 +58,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
     'idempotency_key',
     'attempts',
     'reported_log_bytes',
+    'process_log_bytes',
     'error_code',
     'error_message',
     'available_at',
@@ -102,6 +106,37 @@ class AgentCommand extends Model
         $command = $this->payload['release_command'] ?? null;
 
         return is_string($command) && $command !== '';
+    }
+
+    /**
+     * Whether a DeployProject carries worker definitions (`processes`, ADR-022)
+     * and so must stay on a node with AgentNode::WORKER_PROCESSES_CAPABILITY.
+     * Read from the payload, like requestsReleaseCommand().
+     */
+    public function requestsWorkerProcesses(): bool
+    {
+        $processes = $this->payload['processes'] ?? null;
+
+        return is_array($processes) && $processes !== [];
+    }
+
+    /**
+     * The node a DeployProject must run on because it joins a Valkey store's
+     * network (`valkey.network`, ADR-023): the node of that store. Null
+     * without the field, or for a store the API no longer knows. Read from
+     * the payload, like requestsWorkerProcesses().
+     */
+    public function requestedValkeyNodeId(): ?string
+    {
+        $valkey = $this->payload['valkey'] ?? null;
+        $id = ManagedValkey::idFromNetwork(is_array($valkey) ? ($valkey['network'] ?? null) : null);
+
+        if ($id === null) {
+            return null;
+        }
+
+        /** @var string|null */
+        return ManagedValkey::withTrashed()->whereKey($id)->value('node_id');
     }
 
     /**
@@ -209,6 +244,12 @@ class AgentCommand extends Model
         return $this->belongsTo(ManagedBucket::class, 'bucket_id')->withTrashed();
     }
 
+    /** @return BelongsTo<ManagedValkey, $this> */
+    public function valkey(): BelongsTo
+    {
+        return $this->belongsTo(ManagedValkey::class, 'valkey_id')->withTrashed();
+    }
+
     /** @return BelongsTo<AgentNode, $this> */
     public function agentNode(): BelongsTo
     {
@@ -251,6 +292,7 @@ class AgentCommand extends Model
             'result' => 'array',
             'attempts' => 'integer',
             'reported_log_bytes' => 'integer',
+            'process_log_bytes' => 'array',
             'available_at' => 'immutable_datetime',
             'claimed_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',

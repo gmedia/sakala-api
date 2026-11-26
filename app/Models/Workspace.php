@@ -163,6 +163,17 @@ class Workspace extends Model
     }
 
     /**
+     * Managed Valkey stores of the workspace, not counting deleted ones
+     * (ADR-023). Also what `{valkey}` route bindings are scoped by.
+     *
+     * @return HasMany<ManagedValkey, $this>
+     */
+    public function valkeys(): HasMany
+    {
+        return $this->hasMany(ManagedValkey::class);
+    }
+
+    /**
      * Managed databases of the workspace, not counting dropped ones.
      *
      * @return HasMany<ManagedDatabase, $this>

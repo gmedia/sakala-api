@@ -6,8 +6,10 @@ namespace App\Actions\Agent;
 
 use App\Actions\Bucket\RecordBucketSizesAction;
 use App\Actions\Database\RecordDatabaseSizesAction;
+use App\Actions\Valkey\RecordValkeyUsageAction;
 use App\Data\Agent\AgentHeartbeatData;
 use App\Models\AgentNode;
+use App\Support\Database\RowLock;
 use Illuminate\Support\Facades\DB;
 
 final class HeartbeatAgentAction
@@ -20,6 +22,8 @@ final class HeartbeatAgentAction
         private readonly RecordWorkloadMetricsAction $recordWorkloadMetrics,
         private readonly RecordDatabaseSizesAction $recordDatabaseSizes,
         private readonly RecordBucketSizesAction $recordBucketSizes,
+        private readonly RecordWorkerCrashesAction $recordWorkerCrashes,
+        private readonly RecordValkeyUsageAction $recordValkeyUsage,
     ) {}
 
     public function handle(
@@ -27,9 +31,14 @@ final class HeartbeatAgentAction
         AgentHeartbeatData $data,
     ): AgentNode {
         $agent = DB::transaction(function () use ($agent, $data): AgentNode {
+            // FOR NO KEY UPDATE, like every row lock below: it still serialises
+            // heartbeats, claims, and admin changes of this node, but lets a
+            // command insert check its foreign key to the node. A transaction
+            // that holds a project and creates a command for this node would
+            // otherwise wait here while this heartbeat waits for the project.
             /** @var AgentNode $agent */
             $agent = AgentNode::query()
-                ->lockForUpdate()
+                ->lock(RowLock::NO_KEY_UPDATE)
                 ->findOrFail($agent->id);
 
             $agent->update([
@@ -42,8 +51,15 @@ final class HeartbeatAgentAction
                 'last_seen_at' => now(),
             ]);
 
+            // Store rows before any project: every Valkey path locks the
+            // store before the projects attached to it (ADR-023).
+            if ($data->valkeyUsage !== null) {
+                $this->recordValkeyUsage->handleWithinTransaction($agent, $data->valkeyUsage);
+            }
+
             if ($data->crashedWorkloads !== null) {
                 $this->reconcileCrashedWorkloads->handleWithinTransaction($agent, $data->crashedWorkloads);
+                $this->recordWorkerCrashes->handleWithinTransaction($agent, $data->crashedWorkloads);
             }
 
             if ($data->workloadTraffic !== null) {

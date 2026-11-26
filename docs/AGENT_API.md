@@ -273,6 +273,38 @@ yang tidak sesuai menolak seluruh heartbeat `422`:
 API menulis `size_bytes` dan `usage_checked_at` hanya untuk bucket yang `node_id`-nya
 node pelapor dan nama di node-nya cocok, termasuk yang sedang dihapus, dengan satu
 `UPDATE` per heartbeat. Bucket yang tidak tercantum menyimpan nilai terakhirnya.
+
+`metadata.valkey` dan `metadata.valkeys` juga tambahan opsional di dalam revision 4,
+dikirim node ber-capability `managed-valkey` (ADR-023; contoh di sakala-agent
+`examples/heartbeat/valkey-host.json`). Keduanya hanya divalidasi dan dibaca selama
+`SAKALA_VALKEY_ENABLED` menyala; selama mati API mengabaikannya, seperti yang diminta
+catatan kompatibilitas agent (`metadata.valkeys` tetap tidak disimpan di
+`agent_nodes.metadata`). Selama menyala, nilai yang tidak sesuai menolak seluruh
+heartbeat `422`:
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `metadata.valkey` | object, opsional | Dikirim di setiap heartbeat node Valkey. Disimpan di `agent_nodes.metadata`. |
+| `metadata.valkey.capacity_mb` | integer ≥ 1, wajib bila `valkey` ada | `SAKALA_VALKEY_TOTAL_MEMORY_MB`: batas Σ(`maxmemory_mb` + 64) store node itu. API memakai rumus yang sama saat menempatkan dan memperbesar store. |
+| `metadata.valkey.available` | boolean, wajib bila `valkey` ada | `false` membuat node dipilih paling akhir untuk store baru dan `valkeys.available` tidak dihitung dari node itu. |
+| `metadata.valkeys` | array, paling banyak 1000 item, opsional | Bacaan setiap store, hanya setelah pembacaan baru (paling sering sekali per 60 detik). Tidak dikirim berarti tidak ada bacaan baru. |
+| `metadata.valkeys[].valkey_id` | UUID, wajib | ID store. ID yang tidak dikenal API di node ini diabaikan. |
+| `metadata.valkeys[].mode` | `cache` atau `persistent`, wajib | Dari catatan store di node. |
+| `metadata.valkeys[].maxmemory_mb` | integer 16 sampai 512, wajib | Dari catatan store di node. |
+| `metadata.valkeys[].locked` | boolean, wajib | Dari catatan store di node; API tidak mengubah status dari sini. |
+| `metadata.valkeys[].status` | string ≤ 16, wajib | `State.Status` Docker atau `missing`. |
+| `metadata.valkeys[].restart_count` | integer ≥ 0, wajib | `RestartCount` Docker. |
+| `metadata.valkeys[].used_memory`, `maxmemory`, `evicted_keys`, `errorstat_oom`, `connected_clients` | integer ≥ 0 atau `null`, wajib ada | Dari `INFO`; `null` bila store tidak menjawab. |
+| `metadata.valkeys[].aof_last_write_status` | `ok`, `err`, atau `null`, wajib ada | Hanya store persisten. |
+| `metadata.detail_counts.valkeys` | integer ≥ 0, opsional | Jumlah sebelum daftar dipotong. |
+
+API menulis bacaan itu (`used_memory_bytes`, `evicted_keys`, `errorstat_oom`,
+`connected_clients`, `aof_last_write_status`, `container_status`, `restart_count`,
+`usage_checked_at`) hanya untuk store yang `node_id`-nya node pelapor, termasuk yang
+sedang dihapus, dengan satu `UPDATE` per heartbeat, tepat setelah baris node dikunci
+dan sebelum heartbeat menyentuh proyek apa pun, jadi urutan lock-nya node, store,
+lalu proyek, sama dengan jalur Valkey lain. Peringatan 80 % dikirim `valkeys:check-usage`,
+bukan heartbeat.
 API yang lebih lama dari fitur ini menyimpan `object_storage` dan `buckets` apa adanya
 di `agent_nodes.metadata` tanpa menolaknya, karena `metadata` tidak dibatasi key-nya.
 
@@ -388,6 +420,7 @@ lifecycle command lain hanya membawa identitas.
 | `RefreshRoute` | `caddy-file-routing` |
 | `CreateDatabase`, `DropDatabase`, `RotateDatabasePassword`, `LockDatabase`, `UnlockDatabase`, `InstallDatabaseExtension` | `managed-postgres` |
 | `CreateBucket`, `DeleteBucket`, `RotateBucketKey`, `SetBucketQuota`, `LockBucket`, `UnlockBucket` | `managed-s3` |
+| `CreateValkey`, `DeleteValkey`, `RotateValkeyPassword`, `LockValkey`, `UnlockValkey`, `ResizeValkey` | `managed-valkey` |
 | `DrainNode`, `ResumeNode` | — |
 
 `DeployProject` yang payload-nya membawa `replicas` lebih dari 1 juga butuh
@@ -1088,6 +1121,89 @@ Urutan lock hasil: command, lalu bucket, lalu proyek yang terpasang. Hasil yang 
 | `bucket_name_invalid`, `bucket_key_invalid`, `bucket_quota_invalid` | Bug di API. |
 | `invalid_runtime_command`, `unsupported_runtime_command` | Payload tidak terbaca, atau node tanpa peran object storage; bug penempatan. |
 
+### Perintah Valkey (ADR-023)
+
+Tambahan di dalam protocol revision 4 untuk Valkey terkelola, cocok dengan sakala-agent main `8d108cb` (PR #146, belum bertag): `docs/AGENT_API.md` bagian "Valkey host", `docs/COMPATIBILITY.md` bagian "Revision 4 additions for managed Valkey", dan `docs/VALKEY_HOST.md`. Semuanya hanya berlaku bila `SAKALA_VALKEY_ENABLED` menyala. Enam command type baru, `CreateValkey`, `DeleteValkey`, `RotateValkeyPassword`, `LockValkey`, `UnlockValkey`, dan `ResizeValkey`, ditambahkan setelah `RunJob` dan hanya ditawarkan ke node `managed-valkey`. Aturan pengirimannya sama dengan [Perintah bucket](#perintah-bucket): dipin ke node store saat dibuat, tidak pernah ditetapkan ulang, tanpa `expires_at`, `project_id` dan `deployment_id` `null`, lease biasa, tidak diblokir proyek yang ditangguhkan.
+
+| Command | Payload | Result yang dibaca API |
+| --- | --- | --- |
+| `CreateValkey` | `{ valkey_id, mode, maxmemory_mb, password }` | `network` dan `endpoint: { host, port }` (disimpan); `memory_limit_mb`, `created`, `locked` tidak dibaca |
+| `DeleteValkey` | `{ valkey_id }` | tidak dibaca |
+| `RotateValkeyPassword` | `{ valkey_id, password }` | `disconnected_clients` (audit) |
+| `LockValkey` | `{ valkey_id }` | `disconnected_clients` (audit) |
+| `UnlockValkey` | `{ valkey_id }` | tidak dibaca |
+| `ResizeValkey` | `{ valkey_id, maxmemory_mb }` | `restarted` (audit) |
+
+- `valkey_id` adalah ID store (UUIDv7, huruf kecil). Network, container, dan volume store di node bernama `sakala-valkey-<valkey_id>`.
+- `mode` `cache` atau `persistent`, dipilih saat dibuat dan tidak pernah dikirim berbeda.
+- `maxmemory_mb` di v1 hanya `32`, `64`, atau `128` (agent menerima 16 sampai 512).
+- `password` 32 huruf dan angka acak (agent menerima `^[A-Za-z0-9]{32,128}$`), dikirim **plaintext** hanya ke node target; di `agent_commands.payload` nilainya terenkripsi, node lain yang meminta payload itu ditolak `409`, dan salinannya dihapus setelah store dihapus. Password diredaksi dari `error_message`, event, dan log.
+- `CreateValkey` yang selesai harus melaporkan `network` persis `sakala-valkey-<valkey_id>` dan `endpoint.host` IPv4 dengan `endpoint.port` 1 sampai 65535; selain itu store dianggap gagal (audit `valkey.invalid_result`), karena tidak ada proyek yang bisa menjangkaunya.
+
+Efek di API:
+
+| Command | `complete` | `fail` atau kedaluwarsa |
+| --- | --- | --- |
+| `CreateValkey` | `provisioning` → `ready`, `network`/`host`/`port` disimpan, audit `valkey.provisioned`; pada store `ready` atau `locked` (reconcile) status tetap, alamat diperbarui dan fingerprint proyek terpasang dihitung ulang bila berubah, audit `valkey.reconciled` | `provisioning` → `failed`, audit `valkey.provisioning_failed` |
+| `DeleteValkey` | `deleted`, baris di-soft delete, password dikosongkan dan dihapus dari payload command, audit `valkey.deleted` | tetap `deleting`, audit `valkey.delete_failed`; `DELETE` lagi mengirim ulang |
+| `RotateValkeyPassword` | password baru disimpan, fingerprint proyek terpasang dihitung ulang, audit `valkey.password_rotated`, deploy ulang diantrekan bila diminta | kegagalan pasti: password lama dipertahankan. `valkey_unavailable` atau lease habis: kiriman ulang dengan password yang sama, seperti `RotateBucketKey`; paling banyak 10 kiriman lalu `unknown` |
+| `ResizeValkey` | `maxmemory_mb` = `reserved_maxmemory_mb` = payload, audit `valkey.resized` | `reserved_maxmemory_mb` = `maxmemory_mb`, audit `valkey.resize_failed` |
+| `LockValkey` | `ready` → `locked`, `lock_source` dari `request_context` command (`admin` atau `suspension`), audit `valkey.locked`; kunci penangguhan yang proyeknya sudah aktif lagi langsung diikuti `UnlockValkey` | tidak berubah, audit `valkey.lock_failed` |
+| `UnlockValkey` | `locked` → `ready`, audit `valkey.unlocked` | tidak berubah, audit `valkey.unlock_failed` |
+
+Urutan lock hasil: command, store, lalu proyek yang terpasang. Kode kegagalan tampil di `last_failure` resource Valkey dengan ringkasan berbahasa Indonesia (`ValkeyCommandFailure`); `valkey_size_below_usage` dan `valkey_in_use` bisa diperbaiki pengguna, kode lain urusan operator. `valkey_capacity_exceeded` tidak dicoba ulang otomatis. `valkey_not_found` diselesaikan dengan `valkeys:reconcile`.
+
+**`DeployProject.valkey` dan `RunJob.valkey`.** Bila proyek memasang store dan fitur menyala, payload `DeployProject` membawa `valkey: { network, host }` (dari hasil `CreateValkey`), dan `environment` membawa `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, dan `REDIS_PASSWORD` kecuali yang ditimpa proyek. Tanpa store key `valkey` tidak dikirim sama sekali. Deployment itu selalu dipin ke node store (yang mengiklankan `managed-valkey`), saat dibuat maupun oleh `agent:assign-commands` (node dibaca dari `valkey.network` payload lewat `AgentCommand::requestedValkeyNodeId()`), jadi field ini tidak pernah sampai ke agent lama. `RunJob` menyalin `valkey` dari payload `DeployProject` deployment live. Kegagalan `valkey_network_unavailable` dipetakan ke kategori `start`, gangguan platform (bukan kesalahan pengguna), dan untuk run jadwal ke pesan yang menyarankan deploy ulang.
+
+### Custom domain (ADR-024)
+
+Tambahan di dalam protocol revision 4 untuk custom domain project, cocok dengan sakala-agent main `b19b9e0` (PR #148, belum bertag): `docs/AGENT_API.md` bagian "Custom domain", `docs/COMPATIBILITY.md` bagian "Revision 4 additions for custom domains", dan `docs/EDGE.md` bagian "Custom domain". Semuanya hanya berlaku bila `SAKALA_CUSTOM_DOMAINS_ENABLED` menyala, dan hanya untuk node yang mengiklankan capability `custom-domains`. Aturan API-nya ada di [CUSTOM_DOMAINS.md](CUSTOM_DOMAINS.md).
+
+- **`custom_domains`** di payload `DeployProject`, `WakeProject`, `RestartProject`, dan `SleepProject`: array hostname `verified` project itu, urut, dalam bentuk akhir yang diterima agent tanpa normalisasi. API **selalu** mengirim daftar terkini, termasuk `[]` yang menghapus semuanya, dan mengisinya saat node melakukan poll, bukan saat command dibuat, jadi command yang lama menunggu di antrean tidak pernah memasang lagi domain yang sudah dihapus. Node tanpa capability dan semua node selama fitur mati tidak menerima field ini, sehingga `WakeProject` dan `RestartProject` tetap `{}` dan `SleepProject` tetap `{}` atau `{page}`.
+- **`UpdateProjectDomains`**, ditambahkan setelah `ResizeValkey`, hanya ditawarkan ke node `custom-domains`: `project_id` dan `deployment_id` workload yang disimpan node, payload `{ custom_domains: [...] }` yang juga diisi saat poll (`[]` selama fitur mati, karena field-nya wajib). Dipin saat dibuat ke node yang menyimpan workload project, tanpa `expires_at`, tidak diblokir proyek yang ditangguhkan, dan bukan command lifecycle. Dikirim saat daftar `verified` project berubah; satu command `Pending` per project dan node cukup. Result `{ status: updated | unchanged | no_route, custom_domains }` disimpan apa adanya.
+- **Kegagalan.** `runtime_custom_domain_taken` pada `UpdateProjectDomains` dikirim ulang 60 detik kemudian, paling banyak 5 kali; kode lain dan percobaan yang habis dicatat di audit `project_domain.route_update_failed` dan log error. Lease yang habis juga mengirim ulang. `DeployProject` yang gagal dengan `runtime_custom_domain_invalid` atau `runtime_custom_domain_taken` diklasifikasikan sebagai gangguan platform kategori `route`.
+
+Fixture: `commands/deploy-project-custom-domains.json`, `commands/wake-project-custom-domains.json`, `commands/update-project-domains.json`, `failures/custom-domain-failures.json`, dan `edge/route-table-custom-domains.json`, disalin dari `examples/` agent di commit itu dan diputar ulang oleh `CustomDomainAgentContractTest` dan `EdgeCustomRoutesTest`.
+
+### Proses worker dan RunJob (ADR-022)
+
+Tambahan di dalam protocol revision 4 untuk worker dan jadwal, cocok dengan sakala-agent main `1f41585` (PR #140, rilis berikutnya v0.18.0): `docs/AGENT_API.md` bagian "Proses worker" dan "Job (RunJob)", serta `docs/COMPATIBILITY.md` bagian "Revision 4 additions for worker processes and scheduled jobs". Keduanya hanya berlaku bila `SAKALA_WORKERS_ENABLED` dan `SAKALA_SCHEDULES_ENABLED` dinyalakan; dengan keduanya mati (default) API tidak pernah mengirim `processes` atau `RunJob`.
+
+**`DeployProject.processes`.** Bila proyek punya definisi worker, payload membawa `processes`, daftar `{ name, command, replicas, resources: { memory_mb, cpu_millis, pids_limit } }` yang diurutkan menurut nama. `memory_mb` dan `cpu_millis` `null` berarti ikut `resources` deployment; `pids_limit` selalu `null`. Definisi dengan `replicas: 0` tetap dikirim. Proyek tanpa definisi tidak mengirim key ini sama sekali. Deployment yang membawa `processes` hanya dipin ke node yang mengiklankan `worker-processes`, baik saat dibuat maupun oleh `agent:assign-commands` (dibaca dari payload lewat `AgentCommand::requestsWorkerProcesses()`). Bila tidak ada node yang mungkin menjalankannya, deploy ditolak `409 PROJECT_WORKER_PROCESSES_UNSUPPORTED`. Rollback memakai `processes` rekaman payload target, dan redeploy yang hanya mengubah worker memakai ulang image live karena worker tidak masuk fingerprint build. `deployments.worker_containers` (jumlah `replicas` worker) dihitung terhadap `max_active_containers` dan `max_worker_containers` saat deploy dan wake.
+
+**`RunJob`.** Command type setelah `UnlockBucket` di enum. Dibuat oleh `schedules:dispatch` dan "Run now", dipin saat dibuat ke node deployment live (`isPinnedAtCreation`), hanya bila node itu mengiklankan `scheduled-jobs`, dan diblokir untuk proyek yang ditangguhkan. `project_id` dan `deployment_id` (deployment live) selalu terisi. Payload:
+
+| Field | Sumber |
+| --- | --- |
+| `command`, `timeout_seconds` | Jadwal saat run dibuat (`timeout_seconds` 1 sampai 600, default 300). |
+| `commit_sha`, `container_port` | Deployment live. |
+| `reuse_image_from_deployment_id` | Hanya bila deployment live memakai ulang image (`Deployment::imageBuilderId()` bukan dirinya sendiri). |
+| `environment`, `resources`, `log_bounds` | Disalin dari payload `DeployProject` deployment live; `environment` tetap terenkripsi di database dan hanya didekripsi untuk node yang dipin, sama seperti `DeployProject`. |
+
+`idempotency_key` adalah `schedule-run:{schedule_id}:{slot UTC ISO 8601}` untuk slot, dan `schedule-run:{schedule_id}:manual:{run_id}` untuk "Run now". `expires_at` adalah tenggat mulai run (10 menit setelah slot, atau slot berikutnya bila lebih cepat). Lease setelah klaim adalah `timeout_seconds` + 30 detik (waktu agent menghentikan, menghapus, dan melaporkan container) + `SAKALA_AGENT_LEASE_GRACE_SECONDS`, bukan `command_timeout_seconds`, jadi job panjang tidak pernah kedaluwarsa saat masih berjalan.
+
+Efek di API, pada run jadwal (`schedule_runs`):
+
+| Laporan | Run |
+| --- | --- |
+| `claim` | `queued` → `running`, `started_at`. |
+| Event `job.finished` | `exit_code` (`null` setelah timeout), `duration_ms`, `oom_killed`, `timed_out` disimpan sebagai kolom. Event `RunJob` disimpan di laporan command (`agent_command_reports`), tidak di timeline deployment live. |
+| Log | Disimpan di log deployment live dengan `process: "job"` dan `agent_command_id` command itu; tersedia lewat `GET .../runs/{run}/logs`. |
+| `complete` `{ exit_code, duration_ms, oom_killed }` | `succeeded`. |
+| `fail` `job_timeout` | `timed_out`. |
+| `fail` `runtime_cancelled` | `cancelled` (Stop run, `StopProject`, atau agent berhenti); bukan kegagalan. |
+| `fail` kode lain (`job_failed`, `job_image_missing`, `runtime_capacity_exceeded`, `invalid_runtime_command`, `runtime_port_conflict`, ...) | `failed`, dengan `error_code` dan `error_message` yang sudah diredaksi. |
+| `expires_at` lewat sebelum klaim | `missed`, `reason: not_started`. |
+| Lease habis | `lost`. |
+
+`failed`, `timed_out`, dan `lost` dihitung sebagai kegagalan beruntun jadwal. Stop run memakai `cancel_requested` yang sudah ada.
+
+**Log `process`.** Item log boleh membawa `process` (nama worker atau `job`, pola `^[a-z][a-z0-9-]*$`, paling panjang 30); nilai lain menolak batch dengan `422`. Baris tanpa `process` tetap seperti sebelumnya. Budget `max_total_bytes` dihitung terpisah per `process` (`agent_commands.process_log_bytes`), di samping `reported_log_bytes` untuk baris deployment sendiri, sehingga `422` budget satu worker tidak menghentikan baris lain. Hash idempotensi baris tanpa `process` tidak berubah.
+
+**Heartbeat `process`.** `crashed_details[]` dan `metrics[]` boleh membawa `process` (pola yang sama); `crashed_details[]` juga boleh membawa `restart_count` dan `running`. Item dengan `process` adalah worker: tidak pernah mengubah `runtime_status` proyek, dicatat di `deployments.crashed_processes` (per nama, dengan `since`), ditampilkan sebagai `crash` di `GET .../processes`, dan diberitahukan sekali per worker yang mulai crash (in-app dan email `project_issue`). Worker yang hilang dari daftar lengkap dianggap pulih; daftar terpotong tidak memulihkan apa pun. Sampel `metrics[]` dengan `process` tidak masuk metrik proyek, karena replika 0 worker akan tercampur dengan replika 0 web; sampel itu tetap tersimpan di `metadata` node. `unhealthy_details[].process` diterima tanpa diproses.
+
+**Kegagalan deploy `worker_start_failed`.** Kategori `start`, bisa diperbaiki pengguna; petunjuknya membaca log proses worker itu.
+
 ## Enum
 
 Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
@@ -1098,8 +1214,10 @@ Nilai berikut harus identik dengan `sakala-agent-protocol` dan dikunci oleh
   `ReconcileWorkload`, `CleanupRuntime`, `DrainNode`, `ResumeNode`,
   `CreateDatabase`, `DropDatabase`, `RotateDatabasePassword`, `LockDatabase`,
   `UnlockDatabase`, `InstallDatabaseExtension`, `CreateBucket`, `DeleteBucket`,
-  `RotateBucketKey`, `SetBucketQuota`, `LockBucket`, `UnlockBucket` (urutan ini
-  juga urutan enum `CommandType` di agent).
+  `RotateBucketKey`, `SetBucketQuota`, `LockBucket`, `UnlockBucket`, `RunJob`,
+  `CreateValkey`, `DeleteValkey`, `RotateValkeyPassword`, `LockValkey`,
+  `UnlockValkey`, `ResizeValkey` (urutan ini juga urutan enum `CommandType` di
+  agent).
 - `AgentCommandStatus`: `Pending`, `Claimed`, `Running`, `Succeeded`, `Failed`,
   `Cancelled`, `Expired`.
 - `AgentNodeStatus` (dilaporkan): `ready`, `busy`, `degraded`, `draining`,
@@ -1126,10 +1244,10 @@ dilihat console (`failure.category`):
 | `checkout` | tidak | `repository_credential_expired`, `repository_checkout_failed`, `runtime_repository_failed`, `repository_access_check_failed` (control plane), `inspection_failed` (control plane: inspeksi yang ditunggu deployment gagal dengan kode yang tidak dikenali) |
 | `build` | ya | `runtime_build_failed`, `runtime_root_directory_invalid` |
 | `release` | ya | `release_command_failed` (perintah rilis keluar dengan kode selain 0), `release_command_timeout` (perintah rilis melewati batas waktu); versi sebelumnya tetap melayani |
-| `start` | ya | `runtime_app_crashed`, `runtime_app_exec_denied`, `runtime_app_host_blocked` (framework menolak domain project: `allowedHosts` Vite atau `ALLOWED_HOSTS` Django; versi sebelumnya tetap melayani), `runtime_port_conflict` |
-| `start` | tidak | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed` |
+| `start` | ya | `runtime_app_crashed`, `runtime_app_exec_denied`, `runtime_app_host_blocked` (framework menolak domain project: `allowedHosts` Vite atau `ALLOWED_HOSTS` Django; versi sebelumnya tetap melayani), `runtime_port_conflict`, `worker_start_failed` (worker keluar sebelum route pindah; versi sebelumnya tetap melayani bersama worker-nya) |
+| `start` | tidak | `runtime_execution_failed`, `runtime_container_failed`, `runtime_workload_not_found`, `runtime_workload_not_running`, `runtime_reporting_failed`, `runtime_filesystem_failed`, `valkey_network_unavailable` (network store Valkey tidak ada di node; versi sebelumnya tetap melayani) |
 | `health` | ya | `runtime_app_not_listening`, `runtime_app_unhealthy`, `runtime_health_check_failed` |
-| `route` | tidak | `runtime_routing_failed` |
+| `route` | tidak | `runtime_routing_failed`, `runtime_custom_domain_invalid` (agent menolak nama custom domain dari API; versi sebelumnya tetap melayani), `runtime_custom_domain_taken` (route project lain di node masih melayani nama itu; versi sebelumnya tetap melayani) |
 | `timeout` | ya | `runtime_timeout` |
 | `timeout` | tidak | `command_lease_expired` (control plane) |
 | `resource` | ya | `runtime_app_out_of_memory`, `runtime_replicas_exceeded` (replika melebihi batas node; kurangi di pengaturan proyek) |
@@ -1163,6 +1281,20 @@ tanpa Agent atau Docker sungguhan. Lihat README di folder tersebut.
 (PR #138) sebelum ada tag rilis; periksa ulang terhadap tag rilis agent. Test
 memastikan setiap kode di `bucket-failures.json` dikenal API dan ditangani sesuai
 bagian 13 kontrak (kirim ulang, `unknown`, atau `failed`).
+`commands/deploy-project-processes.json`, `commands/run-job.json`,
+`failures/job-failures.json`, `failures/deploy-failures.json`, dan
+`heartbeat/worker-processes.json` disalin dari sakala-agent main `1f41585` (PR #140)
+sebelum ada tag rilis (v0.18.0); periksa ulang terhadap tag rilis. Test
+membandingkan `processes` payload deploy dengan contoh agent byte per byte,
+memastikan payload `RunJob` memakai key contoh agent, memetakan setiap body di
+`job-failures.json` ke status run, dan mereplay heartbeat worker.
+`commands/valkey-commands.json`, `commands/deploy-project-valkey.json`,
+`commands/run-job-valkey.json`, `heartbeat/valkey-host.json`, dan
+`failures/valkey-failures.json` disalin dari sakala-agent main `8d108cb` (PR #146)
+sebelum ada tag rilis; periksa ulang terhadap tag rilis. Test membandingkan key dan
+tipe payload keenam command Valkey serta field `valkey` `DeployProject` dan `RunJob`
+dengan contoh agent, mereplay heartbeat Valkey, dan memetakan setiap body di
+`valkey-failures.json` ke penanganan API.
 
 ## Belum tersedia pada API
 
@@ -1253,3 +1385,13 @@ bernilai `false`):
     `metadata.buckets` setelah pembacaan baru, dan keenam command di
     [Perintah bucket](#perintah-bucket), dengan urutan `CommandType` yang sama
     seperti di bagian Enum.
+
+Tambahan untuk Valkey terkelola (opsional; selama `SAKALA_VALKEY_ENABLED` mati API
+tidak mengirim apa pun, dan tanpa node `managed-valkey` pembuatan store dijawab
+`409 VALKEY_UNAVAILABLE`):
+
+13. Sudah di sakala-agent main `8d108cb` (PR #146), belum bertag: capability
+    `managed-valkey`, `metadata.valkey` di setiap heartbeat, `metadata.valkeys`
+    setelah pembacaan baru, keenam command di [Perintah Valkey](#perintah-valkey-adr-023),
+    dan field `valkey` di `DeployProject` dan `RunJob`. Agent tidak boleh diturunkan
+    ke versi tanpa peran Valkey selama ada store di node.

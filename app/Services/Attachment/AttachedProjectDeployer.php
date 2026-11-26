@@ -19,14 +19,19 @@ use App\Exceptions\Runtime\ActiveDeploymentLimitExceededException;
 use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\ProjectReleaseCommandUnsupportedException;
 use App\Exceptions\Runtime\ProjectSuspendedException;
+use App\Exceptions\Runtime\ProjectWorkerProcessesUnsupportedException;
 use App\Exceptions\Runtime\RepositoryAccessRevokedException;
+use App\Exceptions\Runtime\WorkerContainerLimitExceededException;
+use App\Exceptions\Valkey\ValkeyNodeMismatchException;
+use App\Exceptions\Valkey\ValkeyNotReadyException;
+use App\Exceptions\Valkey\ValkeyPasswordRotatingException;
 use App\Models\Project;
 use App\Models\User;
 use Throwable;
 
 /**
- * Deploys a project attached to a database or bucket for someone who asked
- * earlier (a password or key rotation with `redeploy_attached`, a database
+ * Deploys a project attached to a database, bucket, or Valkey store for
+ * someone who asked earlier (a password or key rotation with `redeploy_attached`, a database
  * created with `deploy_when_ready`), through the normal deployment path with every limit.
  * Never throws: a project that cannot be deployed is skipped with a reason,
  * so one project's failure never stops the others. Called outside any
@@ -74,8 +79,18 @@ final class AttachedProjectDeployer
             return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::BucketKeyRotating);
         } catch (BucketNotReadyException) {
             return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::BucketNotReady);
+        } catch (ValkeyNotReadyException) {
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::ValkeyNotReady);
+        } catch (ValkeyPasswordRotatingException) {
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::ValkeyPasswordRotating);
+        } catch (ValkeyNodeMismatchException) {
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::ValkeyNodeMismatch);
         } catch (ProjectReleaseCommandUnsupportedException) {
             return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::ReleaseCommandUnsupported);
+        } catch (WorkerContainerLimitExceededException) {
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::WorkerContainerLimit);
+        } catch (ProjectWorkerProcessesUnsupportedException) {
+            return AttachedProjectDeployOutcomeData::skipped(AttachedRedeploySkipReason::WorkerProcessesUnsupported);
         } catch (Throwable $exception) {
             // Anything else, such as GitHub not answering, is reported and
             // must not stop the other projects.

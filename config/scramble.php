@@ -10,6 +10,7 @@ use App\Support\Scramble\ManagedResourceRuleExceptionToResponseExtension;
 use App\Support\Scramble\MergeSameStatusResponsesExtension;
 use App\Support\Scramble\ProjectWakeConflictExceptionToResponseExtension;
 use App\Support\Scramble\RollbackAndRestartConflictExceptionToResponseExtension;
+use App\Support\Scramble\ScheduleExceptionToResponseExtension;
 use Dedoc\Scramble\Http\Middleware\RestrictedDocsAccess;
 
 return [
@@ -168,6 +169,7 @@ return [
         BuildRateLimitExceptionToResponseExtension::class,
         ManagedResourceRuleExceptionToResponseExtension::class,
         RollbackAndRestartConflictExceptionToResponseExtension::class,
+        ScheduleExceptionToResponseExtension::class,
         MergeSameStatusResponsesExtension::class,
     ],
 

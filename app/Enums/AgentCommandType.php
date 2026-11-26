@@ -34,6 +34,14 @@ enum AgentCommandType: string
     case SetBucketQuota = 'SetBucketQuota';
     case LockBucket = 'LockBucket';
     case UnlockBucket = 'UnlockBucket';
+    case RunJob = 'RunJob';
+    case CreateValkey = 'CreateValkey';
+    case DeleteValkey = 'DeleteValkey';
+    case RotateValkeyPassword = 'RotateValkeyPassword';
+    case LockValkey = 'LockValkey';
+    case UnlockValkey = 'UnlockValkey';
+    case ResizeValkey = 'ResizeValkey';
+    case UpdateProjectDomains = 'UpdateProjectDomains';
 
     /**
      * Capability of a node that hosts the shared PostgreSQL instance of its
@@ -47,6 +55,32 @@ enum AgentCommandType: string
      * protocol tenants speak, not the engine.
      */
     public const MANAGED_S3_CAPABILITY = 'managed-s3';
+
+    /**
+     * Capability of a node that runs RunJob (ADR-022). An older agent fails
+     * to read a poll response that holds an unknown command type, so RunJob
+     * is only ever pinned to a node that advertises it.
+     */
+    public const SCHEDULED_JOBS_CAPABILITY = 'scheduled-jobs';
+
+    /**
+     * Capability of a node that runs managed Valkey stores, one container per
+     * store on its own internal network, and the Valkey commands (ADR-023).
+     * An older agent fails to read a poll response with these command types
+     * and ignores the `valkey` field of DeployProject and RunJob, so both only
+     * ever go to a node that advertises it.
+     */
+    public const MANAGED_VALKEY_CAPABILITY = 'managed-valkey';
+
+    /**
+     * Capability of a node whose router serves a project's custom domains as
+     * extra site addresses (ADR-024): it reads `custom_domains` on the
+     * route-writing commands (writesProjectRoute()) and runs
+     * UpdateProjectDomains. An older agent fails to read a poll response that
+     * holds UpdateProjectDomains and ignores the field, so both only go to a
+     * node that advertises it.
+     */
+    public const CUSTOM_DOMAINS_CAPABILITY = 'custom-domains';
 
     /**
      * Return the set of node capabilities required to handle this command type.
@@ -79,6 +113,14 @@ enum AgentCommandType: string
             self::SetBucketQuota,
             self::LockBucket,
             self::UnlockBucket => [self::MANAGED_S3_CAPABILITY],
+            self::RunJob => [self::SCHEDULED_JOBS_CAPABILITY],
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey => [self::MANAGED_VALKEY_CAPABILITY],
+            self::UpdateProjectDomains => [self::CUSTOM_DOMAINS_CAPABILITY],
             self::DrainNode,
             self::ResumeNode => [],
         };
@@ -99,7 +141,8 @@ enum AgentCommandType: string
             self::RestartProject,
             self::WakeProject,
             self::RefreshRoute,
-            self::ReconcileWorkload => true,
+            self::ReconcileWorkload,
+            self::RunJob => true,
 
             self::StopProject,
             self::SleepProject,
@@ -118,7 +161,15 @@ enum AgentCommandType: string
             self::RotateBucketKey,
             self::SetBucketQuota,
             self::LockBucket,
-            self::UnlockBucket => false,
+            self::UnlockBucket,
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey,
+            // Only rewrites the site address line of the route the node keeps.
+            self::UpdateProjectDomains => false,
         };
     }
 
@@ -191,12 +242,48 @@ enum AgentCommandType: string
     }
 
     /**
-     * Commands for one managed resource (a database or a bucket), pinned to
-     * the node that hosts it and never reassigned.
+     * Commands for one managed Valkey store (`agent_commands.valkey_id`). Like
+     * the database and bucket commands, they carry no project or deployment
+     * identity and always go to the node that runs the store.
+     */
+    public function isValkey(): bool
+    {
+        return match ($this) {
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey => true,
+            default => false,
+        };
+    }
+
+    /**
+     * Valkey commands whose payload carries a password, encrypted at rest and
+     * decrypted only for the pinned node.
+     */
+    public function carriesValkeyPassword(): bool
+    {
+        return $this === self::CreateValkey || $this === self::RotateValkeyPassword;
+    }
+
+    /**
+     * Commands whose payload carries the project's variables, encrypted at
+     * rest and decrypted only for the node the command is pinned to.
+     */
+    public function carriesEnvironment(): bool
+    {
+        return $this === self::DeployProject || $this === self::RunJob;
+    }
+
+    /**
+     * Commands for one managed resource (a database, a bucket, or a Valkey
+     * store), pinned to the node that hosts it and never reassigned.
      */
     public function isManagedResource(): bool
     {
-        return $this->isDatabase() || $this->isBucket();
+        return $this->isDatabase() || $this->isBucket() || $this->isValkey();
     }
 
     /**
@@ -256,7 +343,31 @@ enum AgentCommandType: string
             self::RotateBucketKey,
             self::SetBucketQuota,
             self::LockBucket,
-            self::UnlockBucket => true,
+            self::UnlockBucket,
+            self::RunJob,
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey,
+            self::UpdateProjectDomains => true,
+            default => false,
+        };
+    }
+
+    /**
+     * Commands that write the route of a project on its node, and so carry
+     * the project's custom domains (`custom_domains`, ADR-024) to a node with
+     * CUSTOM_DOMAINS_CAPABILITY. UpdateProjectDomains writes only that list.
+     */
+    public function writesProjectRoute(): bool
+    {
+        return match ($this) {
+            self::DeployProject,
+            self::RestartProject,
+            self::SleepProject,
+            self::WakeProject => true,
             default => false,
         };
     }
@@ -269,13 +380,19 @@ enum AgentCommandType: string
      * SleepProject at most the optional `page` a suspension sets (SleepPage).
      * Database commands carry the database and role names, and a password
      * where one is set; bucket commands the bucket name and access key ID,
-     * and a secret access key where one is set.
+     * and a secret access key where one is set. RunJob carries its command
+     * and the live deployment's image identity, variables, and resources.
+     * Valkey commands carry the store ID, and a password or a size where one
+     * is set. UpdateProjectDomains carries the project's custom domains.
+     * Independently of this, AgentCommandPayloadMaterializer adds
+     * `custom_domains` to the commands that write a project's route.
      */
     public function carriesPayload(): bool
     {
         return match ($this) {
             self::InspectProject,
             self::DeployProject,
+            self::RunJob,
             self::StopProject,
             self::SleepProject,
             self::ReconcileWorkload,
@@ -291,7 +408,14 @@ enum AgentCommandType: string
             self::RotateBucketKey,
             self::SetBucketQuota,
             self::LockBucket,
-            self::UnlockBucket => true,
+            self::UnlockBucket,
+            self::CreateValkey,
+            self::DeleteValkey,
+            self::RotateValkeyPassword,
+            self::LockValkey,
+            self::UnlockValkey,
+            self::ResizeValkey,
+            self::UpdateProjectDomains => true,
             default => false,
         };
     }

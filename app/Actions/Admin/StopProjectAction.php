@@ -18,6 +18,7 @@ use App\Models\Deployment;
 use App\Models\Project;
 use App\Models\ProjectControlRequest;
 use App\Models\User;
+use App\Support\Database\TransactionRetry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -240,6 +241,6 @@ final class StopProjectAction
                 command: $command,
                 responseContext: $responseContext,
             );
-        });
+        }, TransactionRetry::ATTEMPTS);
     }
 }

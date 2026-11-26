@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Support\Scramble;
 
 use App\Exceptions\Bucket\BucketRuleException;
+use App\Exceptions\CustomDomain\CustomDomainRuleException;
 use App\Exceptions\Database\DatabaseRuleException;
 use App\Exceptions\ManagedResourceRuleException;
+use App\Exceptions\Valkey\ValkeyRuleException;
 use Dedoc\Scramble\Extensions\ExceptionToResponseExtension;
 use Dedoc\Scramble\Support\Generator\Reference;
 use Dedoc\Scramble\Support\Generator\Response;
@@ -20,7 +22,7 @@ use Dedoc\Scramble\Support\Type\ObjectType;
 use Dedoc\Scramble\Support\Type\Type;
 
 /**
- * Every managed database and bucket rule answer, with its stable `code`
+ * Every managed database, bucket, Valkey, and custom domain rule answer, with its stable `code`
  * (docs/API_CONVENTIONS.md). The exception class declares the code, status,
  * description, and extra fields, so one extension covers them all;
  * MergeSameStatusResponsesExtension joins those of one status.
@@ -31,7 +33,7 @@ final class ManagedResourceRuleExceptionToResponseExtension extends ExceptionToR
     {
         return $type instanceof ObjectType
             && $type->isInstanceOf(ManagedResourceRuleException::class)
-            && ! in_array($type->name, [ManagedResourceRuleException::class, DatabaseRuleException::class, BucketRuleException::class], true);
+            && ! in_array($type->name, [ManagedResourceRuleException::class, DatabaseRuleException::class, BucketRuleException::class, ValkeyRuleException::class, CustomDomainRuleException::class], true);
     }
 
     public function toResponse(Type $type): Response

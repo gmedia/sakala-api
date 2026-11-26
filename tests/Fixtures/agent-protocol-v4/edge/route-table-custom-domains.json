@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-11-25T03:00:00Z",
+  "revision": "sha256:4b7a1c9e2d3f5a60",
+  "expected_minimum_routes": 1,
+  "routes": [
+    {
+      "host": "portfolio.sakala.app",
+      "project_id": "0a6f7f3e-4f3b-4d0e-9b8e-1f1f1f1f1f1a",
+      "upstreams": [
+        "10.0.47.201:8180"
+      ]
+    }
+  ],
+  "expected_minimum_custom_routes": 2,
+  "custom_routes": [
+    {
+      "host": "www.contoh.com",
+      "project_id": "0a6f7f3e-4f3b-4d0e-9b8e-1f1f1f1f1f1a",
+      "upstreams": [
+        "10.0.47.201:8180"
+      ]
+    },
+    {
+      "host": "contoh.net",
+      "project_id": "0a6f7f3e-4f3b-4d0e-9b8e-1f1f1f1f1f1b",
+      "upstreams": []
+    }
+  ]
+}

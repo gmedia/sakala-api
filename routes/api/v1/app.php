@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Bucket\BucketAttachmentController;
 use App\Http\Controllers\Api\V1\Bucket\BucketController;
+use App\Http\Controllers\Api\V1\CustomDomain\ProjectDomainController;
 use App\Http\Controllers\Api\V1\Database\DatabaseAttachmentController;
 use App\Http\Controllers\Api\V1\Database\DatabaseController;
 use App\Http\Controllers\Api\V1\Deployment\DeploymentController;
@@ -17,14 +18,21 @@ use App\Http\Controllers\Api\V1\Project\DomainPreviewController;
 use App\Http\Controllers\Api\V1\Project\EnvironmentVariableController;
 use App\Http\Controllers\Api\V1\Project\ProjectController;
 use App\Http\Controllers\Api\V1\Project\ProjectMetricsController;
+use App\Http\Controllers\Api\V1\Project\ProjectProcessController;
 use App\Http\Controllers\Api\V1\Project\SkippedPushController;
 use App\Http\Controllers\Api\V1\Runtime\PilotLimitsController;
 use App\Http\Controllers\Api\V1\Runtime\RegionController;
+use App\Http\Controllers\Api\V1\Schedule\ProjectScheduleController;
+use App\Http\Controllers\Api\V1\Schedule\ScheduleRunController;
+use App\Http\Controllers\Api\V1\Valkey\ValkeyAttachmentController;
+use App\Http\Controllers\Api\V1\Valkey\ValkeyController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceInvitationController;
 use App\Http\Controllers\Api\V1\Workspace\WorkspaceMemberController;
 use App\Http\Middleware\EnsureEmailDeliveryAvailable;
 use App\Http\Middleware\EnsureLegalAcceptance;
+use App\Http\Middleware\EnsureRuntimeFeatureEnabled;
+use App\Support\Runtime\RuntimeFeatures;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -93,6 +101,67 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
             [EnvironmentVariableController::class, 'value']
         )->name('api.v1.app.projects.environment-variables.value');
     });
+
+    // Worker processes of a project (ADR-022); 404 while SAKALA_WORKERS_ENABLED is off.
+    Route::scopeBindings()
+        ->middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::WORKERS)
+        ->whereUuid(['process'])
+        ->group(function (): void {
+            Route::get('projects/{project}/processes', [ProjectProcessController::class, 'index'])
+                ->name('api.v1.app.projects.processes.index');
+            Route::post('projects/{project}/processes', [ProjectProcessController::class, 'store'])
+                ->name('api.v1.app.projects.processes.store');
+            Route::patch('projects/{project}/processes/{process}', [ProjectProcessController::class, 'update'])
+                ->name('api.v1.app.projects.processes.update');
+            Route::delete('projects/{project}/processes/{process}', [ProjectProcessController::class, 'destroy'])
+                ->name('api.v1.app.projects.processes.destroy');
+        });
+
+    // Schedules of a project and their runs (ADR-022); 404 while
+    // SAKALA_SCHEDULES_ENABLED is off. Run now starts work like a deployment,
+    // so it needs the current legal terms.
+    Route::scopeBindings()
+        ->middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::SCHEDULES)
+        ->whereUuid(['schedule', 'run'])
+        ->group(function (): void {
+            Route::get('projects/{project}/schedules', [ProjectScheduleController::class, 'index'])
+                ->name('api.v1.app.projects.schedules.index');
+            Route::post('projects/{project}/schedules', [ProjectScheduleController::class, 'store'])
+                ->name('api.v1.app.projects.schedules.store');
+            Route::get('projects/{project}/schedules/{schedule}', [ProjectScheduleController::class, 'show'])
+                ->name('api.v1.app.projects.schedules.show');
+            Route::patch('projects/{project}/schedules/{schedule}', [ProjectScheduleController::class, 'update'])
+                ->name('api.v1.app.projects.schedules.update');
+            Route::delete('projects/{project}/schedules/{schedule}', [ProjectScheduleController::class, 'destroy'])
+                ->name('api.v1.app.projects.schedules.destroy');
+            Route::get('projects/{project}/schedules/{schedule}/runs', [ScheduleRunController::class, 'index'])
+                ->name('api.v1.app.projects.schedules.runs.index');
+            Route::post('projects/{project}/schedules/{schedule}/runs', [ScheduleRunController::class, 'store'])
+                ->middleware(EnsureLegalAcceptance::class)
+                ->name('api.v1.app.projects.schedules.runs.store');
+            Route::post('projects/{project}/schedules/{schedule}/runs/{run}/cancel', [ScheduleRunController::class, 'cancel'])
+                ->name('api.v1.app.projects.schedules.runs.cancel');
+            Route::get('projects/{project}/schedules/{schedule}/runs/{run}/logs', [ScheduleRunController::class, 'logs'])
+                ->name('api.v1.app.projects.schedules.runs.logs');
+        });
+
+    // Custom domains of a project (ADR-024); 404 while
+    // SAKALA_CUSTOM_DOMAINS_ENABLED is off. "Check now" asks the domain's
+    // name servers, so it is rate limited per domain and per user.
+    Route::scopeBindings()
+        ->middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::CUSTOM_DOMAINS)
+        ->whereUuid(['project', 'domain'])
+        ->group(function (): void {
+            Route::get('projects/{project}/domains', [ProjectDomainController::class, 'index'])
+                ->name('api.v1.app.projects.domains.index');
+            Route::post('projects/{project}/domains', [ProjectDomainController::class, 'store'])
+                ->name('api.v1.app.projects.domains.store');
+            Route::post('projects/{project}/domains/{domain}/check', [ProjectDomainController::class, 'check'])
+                ->middleware('throttle:custom-domain-check')
+                ->name('api.v1.app.projects.domains.check');
+            Route::delete('projects/{project}/domains/{domain}', [ProjectDomainController::class, 'destroy'])
+                ->name('api.v1.app.projects.domains.destroy');
+        });
 
     // GitHub routes
     Route::prefix('github')->group(function (): void {
@@ -229,6 +298,38 @@ Route::prefix('app')->middleware('auth:web')->group(function (): void {
             ->name('api.v1.app.workspaces.buckets.attachments.store');
         Route::delete('/workspaces/{workspace}/buckets/{bucket}/attachments/{project}', [BucketAttachmentController::class, 'destroy'])
             ->name('api.v1.app.workspaces.buckets.attachments.destroy');
+    });
+
+    // Managed Valkey stores of a workspace (ADR-023); 404 while
+    // SAKALA_VALKEY_ENABLED is off. Creating one starts using a resource, so
+    // it needs the current legal terms like a bucket. The project is not a
+    // child of the store before it is attached, so the attachment controller
+    // checks that both belong to the workspace.
+    Route::middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::VALKEY)->group(function (): void {
+        Route::scopeBindings()->whereUuid(['workspace', 'valkey'])->group(function (): void {
+            Route::get('/workspaces/{workspace}/valkeys', [ValkeyController::class, 'index'])
+                ->name('api.v1.app.workspaces.valkeys.index');
+            Route::post('/workspaces/{workspace}/valkeys', [ValkeyController::class, 'store'])
+                ->middleware(EnsureLegalAcceptance::class)
+                ->name('api.v1.app.workspaces.valkeys.store');
+            Route::get('/workspaces/{workspace}/valkeys/{valkey}', [ValkeyController::class, 'show'])
+                ->name('api.v1.app.workspaces.valkeys.show');
+            Route::patch('/workspaces/{workspace}/valkeys/{valkey}', [ValkeyController::class, 'update'])
+                ->name('api.v1.app.workspaces.valkeys.update');
+            Route::delete('/workspaces/{workspace}/valkeys/{valkey}', [ValkeyController::class, 'destroy'])
+                ->name('api.v1.app.workspaces.valkeys.destroy');
+            Route::get('/workspaces/{workspace}/valkeys/{valkey}/credentials', [ValkeyController::class, 'credentials'])
+                ->name('api.v1.app.workspaces.valkeys.credentials');
+            Route::post('/workspaces/{workspace}/valkeys/{valkey}/rotate-password', [ValkeyController::class, 'rotatePassword'])
+                ->name('api.v1.app.workspaces.valkeys.rotate-password');
+        });
+
+        Route::whereUuid(['workspace', 'valkey', 'project'])->group(function (): void {
+            Route::post('/workspaces/{workspace}/valkeys/{valkey}/attachments/{project}', [ValkeyAttachmentController::class, 'store'])
+                ->name('api.v1.app.workspaces.valkeys.attachments.store');
+            Route::delete('/workspaces/{workspace}/valkeys/{valkey}/attachments/{project}', [ValkeyAttachmentController::class, 'destroy'])
+                ->name('api.v1.app.workspaces.valkeys.attachments.destroy');
+        });
     });
 
     // Invitations addressed to the caller

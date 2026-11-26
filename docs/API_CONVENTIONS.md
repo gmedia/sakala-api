@@ -62,14 +62,19 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | --- | --- | --- | --- |
 | `PROJECT_LIMIT_EXCEEDED` | `422` | Kuota project workspace habis. | `limit`, `current` |
 | `ACTIVE_DEPLOYMENT_LIMIT_EXCEEDED` | `422` | Batas deployment yang sedang berjalan tercapai. | `scope` (`project`, `user` untuk workspace pribadi, atau `workspace` untuk tim), `limit`, `current` |
-| `ACTIVE_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy akan melewati batas container berjalan workspace: project yang belum melayani butuh slot untuk semua replikanya, dan project yang melayani hanya untuk replika tambahannya. Redeploy dengan replika sama atau lebih sedikit tidak pernah kena. | `limit`, `current` (container yang berjalan di workspace, termasuk milik project ini), `requested` (replika deployment ini) |
+| `ACTIVE_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy akan melewati batas container berjalan workspace: project yang belum melayani butuh slot untuk semua replika dan container worker-nya, dan project yang melayani hanya untuk tambahannya. Redeploy dengan container sama atau lebih sedikit tidak pernah kena. | `limit`, `current` (container yang berjalan di workspace, termasuk milik project ini), `requested` (replika dan container worker deployment ini), `workers` (container worker di antaranya) |
+| `WORKER_CONTAINER_LIMIT_EXCEEDED` | `422` | Deploy akan membuat container worker yang berjalan di workspace melewati `max_worker_containers`. Lihat [Proses Worker](#proses-worker). | `limit`, `current` (container worker project lain), `requested` (container worker project ini) |
 | `BUILD_RATE_LIMIT_EXCEEDED` | `422` | Workspace sudah membuat deployment yang mem-build sebanyak batas build per jamnya dalam 60 menit terakhir. Setiap deployment yang mem-build dihitung, apa pun statusnya; deployment yang memakai ulang image tidak dihitung dan tidak pernah ditolak dengan kode ini. Lihat [Batas Workspace](#batas-workspace). | `limit`, `current` (deployment workspace yang mem-build dalam 60 menit terakhir, termasuk milik project yang dihapus; bisa lebih dari `limit` bila admin menurunkan batasnya), `retry_after_seconds` (detik sampai ada slot kosong, minimal `1`) |
 | `RESOURCE_LIMIT_EXCEEDED` | `422` | Resource yang diminta di luar batas pilot. | `resource`, `requested`, `maximum` |
 | `PROJECT_SUSPENDED` | `409` | Deploy, rollback, restart, inspeksi ulang, atau membangunkan lewat Console project yang ditangguhkan admin. | - |
 | `PROJECT_NOT_SLEEPING` | `409` | Membangunkan lewat Console project yang `runtime_status`-nya bukan `sleeping`. | `runtime_status` |
-| `PROJECT_WAKE_LIMIT_EXCEEDED` | `409` | Membangunkan project, dengan semua replika deployment yang tidur, akan melewati batas container berjalan workspace. Endpoint publik tidak menyertakan angkanya. | `limit`, `current` (container project lain), `requested` (replika yang dinyalakan); hanya lewat Console |
+| `PROJECT_WAKE_LIMIT_EXCEEDED` | `409` | Membangunkan project, dengan semua replika dan container worker deployment yang tidur, akan melewati batas container berjalan workspace, atau container worker-nya akan melewati `max_worker_containers`. Endpoint publik tidak menyertakan angkanya. | `limit`, `current` (container project lain), `requested` (container yang dinyalakan); hanya lewat Console |
 | `PROJECT_REPLICAS_UNSUPPORTED` | `409` | Deploy project dengan lebih dari 1 replika yang tidak bisa dijalankan node mana pun: node-nya belum punya capability `replicas`, atau batas replika per project node itu lebih kecil. Lihat [Replika](#replika). | `replicas`, `node_maximum` (batas terbesar yang dilaporkan node, atau `null` bila tidak ada node yang bisa menjalankan replika) |
 | `PROJECT_RELEASE_COMMAND_UNSUPPORTED` | `409` | Deploy project dengan `release_command` yang tidak bisa dijalankan node mana pun: node tempat project berjalan, atau untuk project baru semua node aktif, belum punya capability `release-command`. Kosongkan `release_command` atau tunggu operator memperbarui agent. Lihat [Perintah Rilis](#perintah-rilis). | - |
+| `PROJECT_WORKER_PROCESSES_UNSUPPORTED` | `409` | Deploy project yang punya definisi worker, sementara tidak ada node yang bisa menjalankannya: node tempat project berjalan, atau untuk project baru semua node aktif, belum punya capability `worker-processes`. Hapus worker atau tunggu operator memperbarui agent. Lihat [Proses Worker](#proses-worker). | - |
+| `SCHEDULE_LIMIT_EXCEEDED` | `422` | Membuat atau mengaktifkan jadwal saat workspace sudah punya jadwal aktif sebanyak `max_schedules`. Jadwal nonaktif selalu bisa disimpan. Lihat [Jadwal](#jadwal). | `limit`, `current` |
+| `SCHEDULE_RUN_REFUSED` | `409` | Run now saat sebuah slot akan dilewati: run jadwal itu masih terbuka, proyek ditangguhkan, belum ada deployment live, atau node-nya belum punya capability `scheduled-jobs`. Tidak ada yang dicatat. | `reason`: `overlap`, `project_suspended`, `no_live_deployment`, `node_unsupported` |
+| `SCHEDULE_RUN_NOT_OPEN` | `409` | Stop run pada run yang sudah selesai. | - |
 | `PROJECT_REGION_UNAVAILABLE` | `409` | Deploy project yang harus berjalan di region (miliknya sendiri atau default profil workspace) yang tidak punya node yang diizinkan menerima pekerjaan sama sekali. Node region itu yang hanya offline ditunggu. Lihat [Region dan Penempatan](#region-dan-penempatan). | `region` |
 | `DEPLOYMENT_ALREADY_FINISHED` | `409` | Membatalkan deployment yang sudah `succeeded` atau `failed`. | `status` |
 | `DEPLOYMENT_NOT_ROLLBACK_TARGET` | `409` | Rollback ke deployment yang tidak bisa dijadikan tujuan. Lihat [Rollback dan jeda auto-deploy](#rollback-dan-jeda-auto-deploy). | `reason`: `not_succeeded` (deployment itu tidak `succeeded`), `already_active` (deployment itu yang sedang melayani), `no_commit` (tidak mencatat commit), `branch_changed` (branch-nya bukan branch project sekarang), `settings_unavailable` (pengaturan yang dipakainya tidak tercatat) |
@@ -82,13 +87,13 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `REPOSITORY_ACCESS_REVOKED` | `409` | Deploy project GitHub App saat orang yang menjadi sandaran aksesnya tidak lagi punya akses ke repository atau sudah keluar dari tim. Lihat [Akses GitHub untuk project tim](#akses-github-untuk-project-tim). | - |
 | `invalid_reset_token` | `422` | Token reset kata sandi salah atau kedaluwarsa, atau emailnya tidak dikenal. | - |
 | `email_not_verified` | `403` | Login dengan kata sandi benar, tetapi email belum diverifikasi. Lihat [Autentikasi](AUTHENTICATION.md). | - |
-| `LEGAL_ACCEPTANCE_REQUIRED` | `403` | Membuat proyek, membuat bucket, inspeksi ulang, deploy, rollback, atau restart sebelum menyetujui versi terbaru. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen). | - |
+| `LEGAL_ACCEPTANCE_REQUIRED` | `403` | Membuat proyek, membuat bucket atau Valkey, inspeksi ulang, deploy, rollback, atau restart sebelum menyetujui versi terbaru. Lihat [Persetujuan Dokumen](AUTHENTICATION.md#persetujuan-dokumen). | - |
 | `REAUTHENTICATION_REQUIRED` | `403` | Akun tanpa kata sandi menghapus akun tanpa login baru di provider. Lihat [Menghapus Akun](AUTHENTICATION.md#menghapus-akun). | - |
 | `ADMIN_ACCOUNT_CANNOT_BE_DELETED` | `409` | Admin menghapus akunnya sendiri. | - |
 | `ACCOUNT_DELETION_CONFLICT` | `409` | Proyek baru terus muncul selama akun dihapus. Aman diulang. | - |
 | `WORKSPACE_IS_PERSONAL` | `409` | Mengganti nama, menghapus, meninggalkan, atau mengundang ke workspace pribadi. | - |
-| `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek, database, atau bucket. | `workspaces` (`id`, `name`, `slug`) |
-| `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek, database, atau bucket. Database dan bucket yang sedang dihapus tidak dihitung. | `projects`, `databases`, `buckets` (integer, selalu ada) |
+| `LAST_WORKSPACE_OWNER` | `409` | Pemilik terakhir tim keluar, dikeluarkan, atau diturunkan perannya, atau menghapus akun selagi timnya masih punya proyek, database, bucket, atau Valkey. | `workspaces` (`id`, `name`, `slug`) |
+| `WORKSPACE_NOT_EMPTY` | `409` | Menghapus tim yang masih punya proyek, database, bucket, atau Valkey. Database, bucket, dan Valkey yang sedang dihapus tidak dihitung. | `projects`, `databases`, `buckets`, `valkeys` (integer, selalu ada) |
 | `TEAM_LIMIT_EXCEEDED` | `422` | Menjadi owner satu tim lagi akan melewati batas tim yang dimiliki: membuat tim, menerima undangan owner, atau dijadikan owner. | `limit`, `current` |
 | `INVITATION_EMAIL_MISMATCH` | `403` | Menerima undangan sebagai `owner` dari akun yang email terverifikasinya bukan alamat undangan, walaupun membawa token. Saat membaca undangan, kode ini muncul di `accept_error_code`, bukan sebagai error. | - |
 | `EMAIL_VERIFICATION_REQUIRED` | `403` | Membuat atau bergabung ke tim dengan email yang belum diverifikasi. | - |
@@ -124,6 +129,19 @@ Error aturan bisnis yang dilihat console selalu memuat `code` yang stabil untuk 
 | `BUCKET_UNAVAILABLE` | `409` | Membuat bucket untuk proyek (`project_id`) saat `buckets.available` `false`. Membuat bucket tanpa proyek tidak kena. | - |
 | `BUCKET_KEY_ROTATING` | `409` | Deploy proyek yang bucket terpasangnya sedang dalam jendela key tidak pasti, atau membaca kredensial bucket itu. Lihat [Rotasi key](#rotasi-key). Push webhook dilewati dengan `reason` `bucket_key_rotating`. | `bucket` (`id`, `name`) |
 | `BUCKET_ENDPOINT_UNAVAILABLE` | `409` | Deploy proyek yang bucket terpasangnya ada di node yang belum melaporkan object storage-nya (`metadata.object_storage`); push webhook dilewati dengan `reason` `bucket_endpoint_unavailable`. | `bucket` (`id`, `name`) |
+| `CUSTOM_DOMAIN_LIMIT_EXCEEDED` | `422` | Menambah custom domain saat klaim workspace (`pending`, `verified`, `failed`, `disabled`) sudah sebanyak `max_custom_domains` efektifnya. `limit` `0` berarti workspace itu belum boleh memakai custom domain. Lihat [Custom Domain](#custom-domain). | `limit`, `current` (integer) |
+| `DOMAIN_TAKEN` | `409` | Menambah custom domain yang sedang `verified` di project lain. Klaim `pending` di project lain tidak pernah menghalangi. | `hostname` (bentuk akhir) |
+| `VALKEY_LIMIT_EXCEEDED` | `422` | Workspace sudah punya Valkey sebanyak `max_valkeys` efektifnya. `limit` `0` berarti workspace itu belum boleh membuat Valkey. Lihat [Valkey](#valkey). | `limit`, `current` (integer) |
+| `VALKEY_MEMORY_LIMIT_EXCEEDED` | `422` | Membuat Valkey atau memperbesarnya akan membuat jumlah `maxmemory` Valkey workspace melewati `max_valkey_memory_mb`. | `limit_mb`, `current_mb` (MB Valkey lain, tanpa yang ini), `requested_mb` (integer) |
+| `VALKEY_UNAVAILABLE` | `409` | Tidak ada node `managed-valkey` yang boleh menerima Valkey ini: tidak ada di region itu, atau node tempat proyek (`project_id`) berjalan tidak punya peran Valkey. | - |
+| `VALKEY_CAPACITY_UNAVAILABLE` | `409` | Ada node `managed-valkey` yang cocok, tetapi anggaran memorinya (`metadata.valkey.capacity_mb`) tidak cukup untuk ukuran yang diminta, juga untuk admin. Sisa anggaran tidak disebutkan. | - |
+| `VALKEY_NOT_READY` | `409` | Memasang, membaca kredensial, merotasi password, atau mengubah ukuran Valkey yang masih `provisioning`, `failed`, atau `deleting`. Juga deploy proyek yang Valkey terpasangnya belum siap; push webhook dilewati dengan `reason` `valkey_not_ready`. | `status` |
+| `VALKEY_LOCKED` | `409` | Memasang Valkey yang dikunci. | - |
+| `VALKEY_IN_USE` | `409` | Menghapus Valkey yang masih terpasang ke proyek. | `projects` (`id`, `name`, `slug`) |
+| `VALKEY_BUSY` | `409` | Merotasi password atau mengubah ukuran saat permintaan sebelumnya belum selesai, saat `CreateValkey` masih berjalan, atau menghapus Valkey yang `CreateValkey`-nya sudah diambil node. Aman diulang setelahnya. | - |
+| `PROJECT_VALKEY_ALREADY_ATTACHED` | `409` | Memasang Valkey ke proyek, atau membuat Valkey untuk proyek (`project_id`), yang sudah memakai Valkey lain. | `valkey` (`id`, `name`) |
+| `VALKEY_NODE_MISMATCH` | `409` | Memasang Valkey ke proyek, atau deploy proyek, yang berjalan (atau wajib berjalan karena region-nya) di node lain dari node Valkey itu. Push webhook dilewati dengan `reason` `valkey_node_mismatch`. | `valkey` (`id`, `name`) |
+| `VALKEY_PASSWORD_ROTATING` | `409` | Deploy proyek yang Valkey terpasangnya sedang dalam jendela password tidak pasti, atau membaca kredensial Valkey itu. Push webhook dilewati dengan `reason` `valkey_password_rotating`. | `valkey` (`id`, `name`) |
 
 Anggota workspace project yang ditangguhkan dan admin menerima `409 PROJECT_SUSPENDED`. Pengguna lain tetap menerima `403` generik tanpa `code`, sehingga tidak bisa mengetahui status project orang lain.
 
@@ -228,7 +246,7 @@ Console memanggilnya dengan `since` berisi `created_at` deployment tertua di hal
 
 | Field | Tipe | Keterangan |
 | --- | --- | --- |
-| `kind` | string enum, selalu ada | `user` untuk `trigger` `manual`, `redeploy`, dan `rollback`; `github_push` untuk `webhook`; `system` untuk `system`, `database_password_rotated`, `database_ready`, dan `bucket_key_rotated`. |
+| `kind` | string enum, selalu ada | `user` untuk `trigger` `manual`, `redeploy`, dan `rollback`; `github_push` untuk `webhook`; `system` untuk `system`, `database_password_rotated`, `database_ready`, `bucket_key_rotated`, dan `valkey_password_rotated`. |
 | `name` | string atau `null` | `user`: nama anggota yang meminta, nama saat ini (bukan saat deploy); `null` setelah akunnya dihapus. `github_push`: nama GitHub yang push (`pusher.name`, lalu `sender.login`), paling panjang 255 karakter; `null` untuk deployment dari sebelum nama ini dicatat. `system`: selalu `null`. Teks dari GitHub, tampilkan sebagai teks. |
 | `user_id` | integer atau `null` | ID user anggota itu, hanya untuk `user`; `null` setelah akunnya dihapus. Selalu `null` untuk `github_push` (anggota yang menjadi sandaran push tidak pernah tampil) dan `system`. |
 
@@ -379,10 +397,13 @@ Bila GitHub menolak token itu sendiri, API mengulang permintaan yang sama sekali
 | `per_page` | 1 sampai 200 | 6 | Baris per halaman. |
 | `order` | `asc`, `desc` | `asc` | `desc` mulai dari baris terbaru, dan `next_cursor` berjalan ke baris yang lebih lama. Baca isi halaman terbalik untuk menampilkannya berurutan. |
 | `cursor` | string | - | Dari `meta.next_cursor`. Pakai bersama `order` yang sama dengan halaman sebelumnya. |
+| `process` | nama worker, `job`, atau `web` | - | Hanya baris satu proses (ADR-022). `web` berarti baris milik deployment sendiri yang tidak membawa proses: build, perintah rilis, dan web. Tanpa parameter ini semua baris dikirim, seperti sebelumnya. Nilai yang tidak sesuai pola nama proses dijawab `422`; nama yang sesuai pola tetapi tidak dipakai proyek ini menghasilkan daftar kosong. |
 
 Klien yang tidak mengirim `order` tetap menerima urutan lama. Endpoint ini memakai limiter `api` (`SAKALA_API_RATE_LIMIT`, default 240 request per menit per user), jadi `order=desc&per_page=200` menjangkau baris terakhir log gagal dalam satu request. Bila kena limit, response `429` membawa `Retry-After`, dan header itu terbaca lintas origin lewat `exposed_headers` di `config/cors.php`. Endpoint event tetap paling banyak 10 per halaman tanpa `order`.
 
 Broadcast `deployment.log.created` membawa `sequence` untuk urutan semua event realtime deployment, dan `log_sequence` yang sama dengan `sequence` di endpoint ini. Pakai `log_sequence` untuk membuang baris yang sudah diambil.
+
+Setiap baris, di endpoint maupun broadcast, membawa `process`: nama worker untuk output container worker, `job` untuk output run jadwal (yang disimpan di log deployment live), dan `null` untuk baris deployment sendiri.
 
 ## Membatalkan Deployment
 
@@ -490,6 +511,25 @@ Setiap replika dihitung sebagai satu container berjalan untuk batas workspace (l
 Deployment dengan `release_command` hanya dikirim ke node yang mengiklankan capability `release-command`, karena agent lama akan mengabaikan field itu dan menjalankan versi baru tanpa migrasinya. Bila tidak ada node yang bisa menjalankannya, yaitu node tempat project berjalan, atau untuk project baru semua node aktif, deploy langsung ditolak `409 PROJECT_RELEASE_COMMAND_UNSUPPORTED`; kosongkan `release_command` untuk deploy sekarang, atau tunggu operator memperbarui agent. Bila node yang sanggup hanya sedang offline, deployment menunggu di antrean (`queue_state` `waiting_for_node`). Project yang juga meminta lebih dari 1 replika butuh satu node yang sanggup keduanya; bila tidak ada node yang sanggup menjalankan replikanya, jawabannya `PROJECT_REPLICAS_UNSUPPORTED`.
 
 Perintah rilis yang keluar dengan kode selain 0 menggagalkan deployment dengan `failure.code` `release_command_failed`, dan yang melewati batas waktu dengan `release_command_timeout`. Keduanya berkategori `release` dan `user_fixable: true`; `failure.detail` memuat pesan agent yang sudah diredaksi, termasuk kode keluar perintahnya. Versi baru tidak menerima traffic, dan versi sebelumnya, kalau ada, tetap melayani. Log perintah rilis ada di log deployment.
+
+### Proses Worker
+
+Proses worker (ADR-022) adalah container tambahan dari image dan variabel deployment yang sama dengan `web`, yang menjalankan perintah lain tanpa route, misalnya `php artisan queue:work`. Fitur ini hanya aktif bila `SAKALA_WORKERS_ENABLED=true`; selama mati, endpoint di bawah dijawab `404`, deployment tidak membawa worker, dan definisi yang tersimpan tidak berpengaruh apa pun, termasuk ke `redeploy_required`. `GET app/pilot-limits` memberi tahu Console lewat `workers.enabled`.
+
+| Method | Path | Keterangan |
+| --- | --- | --- |
+| `GET` | `/api/v1/app/projects/{project}/processes` | Definisi worker, urut nama. Semua anggota workspace. Setiap item membawa `crash` bila node melaporkan worker itu crash pada deployment yang melayani, atau `null`. |
+| `POST` | `/api/v1/app/projects/{project}/processes` | Tambah definisi, `201`. Owner dan member; viewer `403`. |
+| `PATCH` | `/api/v1/app/projects/{project}/processes/{process}` | Ubah sebagian field. |
+| `DELETE` | `/api/v1/app/projects/{project}/processes/{process}` | Hapus, `204`. |
+
+Field: `name` (huruf kecil, angka, dan `-`, diawali huruf, paling panjang 30, unik di proyek; `web`, `release`, dan `job` dicadangkan), `command` (satu baris 1 sampai 1000 karakter, dijalankan `sh -c` di dalam container), `replicas` (0 sampai `max_replicas` workspace, default 1; `0` menyimpan definisi tanpa menjalankan apa pun), `memory_mb` dan `cpu_millis` (per container, sampai batas per container workspace; `null` mengikuti deployment). Satu proyek paling banyak punya 5 definisi, dan jumlah `replicas` semua worker proyek tidak boleh melebihi `max_worker_containers` workspace; keduanya dijawab `422`. Jawaban `POST` dan `PATCH` membawa `redeploy_required`.
+
+Perubahan berlaku mulai deployment berikutnya, seperti replika: payload `DeployProject` membawa `processes`, dan deployment yang hanya mengubah worker memakai ulang image live tanpa build. Rollback menjalankan worker yang direkam deployment tujuan, jadi worker yang ditambahkan setelahnya tidak ikut. Deployment dengan worker hanya dikirim ke node yang mengiklankan `worker-processes`; bila tidak ada, deploy ditolak `409 PROJECT_WORKER_PROCESSES_UNSUPPORTED`, dan bila node itu hanya offline, deployment menunggu. Worker yang keluar sebelum route pindah menggagalkan deployment dengan `failure.code` `worker_start_failed`, kategori `start`, `user_fixable: true`; versi sebelumnya tetap melayani bersama worker-nya.
+
+Setiap container worker dihitung sebagai satu container berjalan untuk `max_active_containers`, saat deploy dan saat wake, dan juga untuk `max_worker_containers` (lihat [Batas Workspace](#batas-workspace)). Proyek tidur sebagai satu kesatuan: idle sleep menghentikan web dan worker bersama, worker yang sibuk tidak membuat proyek tetap bangun, dan wake menyalakan keduanya. Workspace yang butuh worker selalu berjalan memakai profil dengan `idle_sleep_minutes` `0`.
+
+Worker yang crash tidak pernah mengubah `runtime_status` proyek dan tidak menyentuh route. Ia tampil sebagai `crash` (`exit_code`, `oom_killed`, `finished_at`, `restart_count`, `running`, `since`) pada definisinya, dan owner serta member diberi tahu sekali saat worker mulai crash (`project_issue`, juga email). Worker yang keluar dengan kode 0, misalnya `queue:work --max-time`, bukan crash. Log worker memakai `process` nama worker dan budget byte sendiri.
 
 ### Region dan Penempatan
 
@@ -900,6 +940,12 @@ Batas dihitung per workspace, tidak pernah per anggota, dan datang dari profil b
 | Total ukuran database | `SAKALA_DATABASE_DEFAULT_MAX_STORAGE_MB` (512 MB) | sama dengan pribadi |
 | Bucket terkelola | `SAKALA_BUCKET_DEFAULT_MAX_COUNT` (0) | sama dengan pribadi |
 | Total kuota bucket | `SAKALA_BUCKET_DEFAULT_MAX_STORAGE_MB` (0 MB) | sama dengan pribadi |
+| Container worker berjalan | `SAKALA_WORKER_DEFAULT_MAX_CONTAINERS` (1) | sama dengan pribadi |
+| Jadwal aktif | `SAKALA_SCHEDULE_DEFAULT_MAX_COUNT` (2) | sama dengan pribadi |
+| Interval jadwal minimum | `SAKALA_SCHEDULE_DEFAULT_MIN_INTERVAL_MINUTES` (15 menit) | sama dengan pribadi |
+| Run jadwal bersamaan | `SAKALA_SCHEDULE_DEFAULT_MAX_CONCURRENT_RUNS` (1) | sama dengan pribadi |
+
+Empat batas ADR-022 di akhir tabel adalah opsi A yang diputuskan maintainer pada 24 November 2026 dan hanya berlaku selama fiturnya dinyalakan. Container worker juga dihitung sebagai container berjalan, jadi worker tidak pernah menambah kapasitas di luar `max_active_containers`; batasnya diperiksa saat deploy (worker container proyek lain yang melayani atau sedang di-deploy, ditambah milik deployment ini) dan saat wake. Run jadwal tidak dihitung sebagai container. Field profil `max_worker_containers` (0 sampai 100), `max_schedules` (0 sampai 1000), `min_schedule_interval_minutes` (1 sampai 1440), dan `max_concurrent_job_runs` (0 sampai 100) bernilai `null` untuk mengikuti default global; perubahannya diaudit seperti field profil lain.
 
 Dengan default ini tidak ada yang berubah bagi user yang sudah ada, kecuali build per jam yang sekarang ditegakkan (lihat di bawah). Default tim sengaja kecil dan tidak mengikuti nilai pribadi, supaya membuat tim tidak menggandakan kuota; tim yang butuh lebih mendapat profil batas dari admin. Nilai env yang kosong memakai default di tabel. Container berjalan adalah jumlah replika project yang melayani (`active_deployment_id` terisi dan tidak `sleeping`) atau sedang di-deploy; project yang sedang di-deploy dihitung dengan replika terbanyak antara deployment aktif dan deployment yang berjalan. Batasnya berlaku saat men-deploy project yang belum melayani atau sedang tidur, saat redeploy dengan replika lebih banyak, dan saat membangunkan project (lihat [Replika](#replika)). `max_replicas` profil (1 sampai 10, atau `null`) mengatur replika terbanyak per project; `null` dan workspace tanpa profil berarti 1, jadi replika mati sampai admin mengizinkannya. `idle_sleep_minutes` profil (0 sampai 10080, atau `null`) mengatur jendela sepi: `null` mengikuti `SAKALA_PROJECT_IDLE_SLEEP_MINUTES`, `0` berarti project workspace itu tidak pernah ditidurkan, dan nilai lain menidurkannya setelah sekian menit, juga saat nilai global `0`. Default memory dan CPU tidak pernah melebihi batas profil. Batas deployment per project (`SAKALA_MAX_ACTIVE_DEPLOYMENTS_PER_PROJECT`) tetap global.
 
@@ -907,7 +953,7 @@ Build per jam membatasi berapa deployment yang mem-build image yang boleh dibuat
 
 Membuat project mengunci baris user lalu baris workspace, dan membuat deployment mengunci baris workspace lalu baris project, sehingga dua request di workspace yang sama dihitung bergantian. Admin yang bertindak tidak dibatasi, sama seperti sebelumnya, termasuk oleh batas build per jam; deploy admin tetap ikut dihitung untuk deploy anggota berikutnya.
 
-`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (jumlah replika, tanpa project yang `sleeping`), `quotas.max_replicas`, `quotas.max_builds_per_hour` (batas build per jam efektif, `null` berarti tanpa batas), `quotas.max_databases`, `quotas.current_databases_count`, `quotas.max_database_storage_mb`, `quotas.current_database_storage_bytes` (lihat [Database](#database)), `quotas.max_buckets`, `quotas.current_buckets_count`, `quotas.max_bucket_storage_mb`, `quotas.current_bucket_storage_mb`, `quotas.current_bucket_usage_bytes` (lihat [Bucket](#bucket)), `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur), `databases.available` (lihat [Ketersediaan](#ketersediaan)), dan `buckets` (lihat [Ketersediaan bucket](#ketersediaan-bucket)); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
+`POST /api/v1/app/projects` menerima `workspace_id` opsional; tanpa itu project masuk ke workspace pribadi pemanggil, jadi Console lama tetap bekerja. Workspace yang tidak ada atau bukan UUID dijawab `422`; workspace yang tidak boleh diisi pemanggil (viewer atau bukan anggota) dijawab `403`. `GET /api/v1/app/pilot-limits?workspace_id=` menjawab untuk workspace itu, atau workspace pribadi bila kosong. Field lamanya tetap, dengan `_per_user` berarti per workspace, ditambah `workspace_id`, `limit_profile`, `quotas.max_active_containers`, `quotas.current_active_containers_count` (jumlah replika, tanpa project yang `sleeping`), `quotas.max_replicas`, `quotas.max_builds_per_hour` (batas build per jam efektif, `null` berarti tanpa batas), `quotas.max_databases`, `quotas.current_databases_count`, `quotas.max_database_storage_mb`, `quotas.current_database_storage_bytes` (lihat [Database](#database)), `quotas.max_buckets`, `quotas.current_buckets_count`, `quotas.max_bucket_storage_mb`, `quotas.current_bucket_storage_mb`, `quotas.current_bucket_usage_bytes` (lihat [Bucket](#bucket)), `project_idle_sleep_minutes` (jendela sepi efektif, `0` berarti tidak pernah tidur), `databases.available` (lihat [Ketersediaan](#ketersediaan)), `buckets` (lihat [Ketersediaan bucket](#ketersediaan-bucket)), `quotas.max_worker_containers`, `quotas.current_worker_containers_count`, `quotas.max_schedules`, `quotas.current_schedules_count`, `quotas.min_schedule_interval_minutes`, `quotas.max_concurrent_job_runs`, `workers.enabled`, `schedules` (`enabled`, `default_timezone`, `default_timeout_seconds`, `max_timeout_seconds`, `start_deadline_minutes`), `quotas.max_valkeys`, `quotas.current_valkeys_count`, `quotas.max_valkey_memory_mb`, `quotas.current_valkey_memory_mb`, dan `valkeys` (lihat [Ketersediaan Valkey](#ketersediaan-valkey)); `runtime_defaults` dan `runtime_maximums` untuk memory dan CPU mengikuti profil.
 
 ### Akses GitHub untuk Project Tim
 
@@ -1081,7 +1127,7 @@ Body `redeploy_attached` (boolean, opsional, default `false`; nilai lain `422`) 
 | `project_suspended` | Proyek ditangguhkan. |
 | `active_deployment_limit`, `active_container_limit`, `build_rate_limit` | Batas workspace atau proyek tercapai, misalnya karena deployment yang diantrekan sebelum rotasi masih berjalan. |
 | `repository_access_revoked`, `database_endpoint_unavailable`, `release_command_unsupported` | Sama artinya dengan error deploy bernama sama. |
-| `database_not_ready`, `bucket_endpoint_unavailable`, `bucket_not_ready`, `bucket_key_rotating` | Proyek juga memakai database atau bucket yang belum bisa dipakai, sama artinya dengan error deploy `DATABASE_NOT_READY`, `BUCKET_ENDPOINT_UNAVAILABLE`, `BUCKET_NOT_READY`, dan `BUCKET_KEY_ROTATING`. Daftar ini dipakai bersama oleh rotasi password database dan rotasi key bucket. |
+| `database_not_ready`, `bucket_endpoint_unavailable`, `bucket_not_ready`, `bucket_key_rotating`, `valkey_not_ready`, `valkey_password_rotating`, `valkey_node_mismatch` | Proyek juga memakai database, bucket, atau Valkey yang belum bisa dipakai, sama artinya dengan error deploy `DATABASE_NOT_READY`, `BUCKET_ENDPOINT_UNAVAILABLE`, `BUCKET_NOT_READY`, `BUCKET_KEY_ROTATING`, `VALKEY_NOT_READY`, `VALKEY_PASSWORD_ROTATING`, dan `VALKEY_NODE_MISMATCH`. Daftar ini dipakai bersama oleh rotasi password database, rotasi key bucket, dan rotasi password Valkey. |
 | `failed` | Kesalahan lain, misalnya GitHub tidak menjawab; dilaporkan ke error tracker. |
 | `database_provisioning_failed` | Hanya untuk `deploy_when_ready`: pembuatan database gagal atau kedaluwarsa. |
 
@@ -1285,6 +1331,171 @@ Penguncian karena penyalahgunaan hanya lewat artisan di versi ini: `php artisan 
 
 Subject `App\Models\ManagedBucket`. Metadata boleh berisi ID, `s3_bucket`, `access_key_id`, `command_id`, `quota_mb`, `node_id`, `region`, dan kode, tidak pernah secret atau map `variables`: `bucket.created` (dengan `project_id` bila dibuat untuk proyek), `bucket.provisioned`, `bucket.provisioning_failed`, `bucket.reconciled`, `bucket.renamed`, `bucket.quota_change_requested` (`from_mb`, `to_mb`), `bucket.quota_changed`, `bucket.quota_change_failed`, `bucket.delete_requested`, `bucket.deleted`, `bucket.delete_failed`, `bucket.attached`, `bucket.detached` (`reason`: `user` atau `project_deleted`), `bucket.credentials_viewed`, `bucket.key_rotation_requested` (`redeploy_attached`), `bucket.key_rotated`, `bucket.key_rotation_failed` (`outcome_unknown`, `attempt`), `bucket.key_rotation_resent` (`resent_command_id`, `attempt`), `bucket.key_rotation_redeploys_queued` (`redeploys`), `bucket.lock_requested` (`reason`), `bucket.locked`, `bucket.lock_failed`, `bucket.unlock_requested`, `bucket.unlocked`, `bucket.unlock_failed`, `bucket.storage_warning`. Aktor mengikuti aturan database: hasil node memakai node sebagai aktor, kedaluwarsa memakai `system`/`agent:expire-commands`, dan sweep memakai `system`/`buckets:check-usage`.
 
+## Valkey
+
+Valkey terkelola mengikuti ADR-023: store milik workspace (pribadi atau tim), satu container per store di node yang mengiklankan capability `managed-valkey`, di network internal miliknya sendiri dengan alamat IPv4 tetap. Store dipasang ke nol, satu, atau beberapa proyek di workspace yang sama, paling banyak satu store per proyek, dan hanya ke proyek yang berjalan di node store itu, karena network store hanya ada di node itu. Store bisa dibuat tanpa proyek dan tetap ada saat proyek yang memakainya dihapus. Kontrak agent ada di [Agent API](AGENT_API.md#valkey-host).
+
+Fitur ini hanya aktif bila `SAKALA_VALKEY_ENABLED=true` (default mati). Selama mati, semua endpoint di bawah dijawab `404`, `DeployProject` dan `RunJob` tidak pernah membawa `valkey`, tidak ada variabel `REDIS_*` yang di-inject, store yang terpasang tidak ikut fingerprint deploy, `ProjectResource` dan daftar project tidak memuat key `valkeys`, dan field `valkey`/`valkeys` di heartbeat diabaikan tanpa divalidasi. Production tetap mati sampai versi pemberitahuan privasi yang mencakup Valkey berlaku.
+
+### Endpoint Valkey
+
+Semua endpoint berada di `/api/v1/app/workspaces/{workspace}/valkeys` dan memakai sesi Console. Peran sama dengan bucket: semua anggota membaca, owner dan member mengubah, hanya owner yang membaca password. Admin tidak dibatasi jumlah dan memori Valkey workspace, tetapi tetap dibatasi anggaran node. Pengguna di luar workspace menerima `403` generik; store atau proyek milik workspace lain menerima `404`.
+
+| Endpoint | Owner | Member | Viewer | Admin | Hasil |
+| --- | --- | --- | --- | --- | --- |
+| `GET .../valkeys` | ya | ya | ya | ya | `200 {data: ValkeyResource[]}`, terbaru dulu, tanpa pagination. |
+| `POST .../valkeys` | ya | ya | `403` | ya | `201 {data: ValkeyResource}`, status `provisioning`. Butuh persetujuan dokumen terbaru (`403 LEGAL_ACCEPTANCE_REQUIRED`). |
+| `GET .../valkeys/{valkey}` | ya | ya | ya | ya | `200`. |
+| `PATCH .../valkeys/{valkey}` | ya | ya | `403` | ya | `200` untuk ganti nama saja atau ukuran yang tidak berubah; `202` bila `ResizeValkey` dikirim ke node. |
+| `DELETE .../valkeys/{valkey}` | ya | ya | `403` | ya | `202` dengan status `deleting`, atau `204` bila store `provisioning` dihapus sebelum node mengambil `CreateValkey`-nya. |
+| `POST .../valkeys/{valkey}/attachments/{project}` | ya | ya | `403` | ya | `201 {data: ValkeyAttachmentResource}`, atau `200` bila sudah terpasang. |
+| `DELETE .../valkeys/{valkey}/attachments/{project}` | ya | ya | `403` | ya | `204`. Data tetap ada. `404` bila tidak terpasang. |
+| `GET .../valkeys/{valkey}/credentials` | ya | `403` | `403` | ya | `200 {data: ValkeyCredentialsResource}`, `Cache-Control: no-store`, diaudit sebelum dikirim. |
+| `POST .../valkeys/{valkey}/rotate-password` | ya | ya | `403` | ya | `202 {data: ValkeyResource}`. |
+
+Memasang, melepas, dan membuat store dengan `project_id` juga memeriksa hak mengubah proyek itu.
+
+**Body `POST`**
+
+| Field | Tipe | Aturan |
+| --- | --- | --- |
+| `name` | string atau `null` | Wajib tanpa `project_id`, paling panjang 100, unik di antara store workspace yang masih ada. Dengan `project_id` dan kosong: nama proyek, lalu ` 2`, ` 3`, .... |
+| `mode` | string enum, wajib | `cache` (tanpa persistensi, `allkeys-lru`: key yang paling lama tidak dipakai dibuang saat penuh, restart mengosongkan isi) atau `persistent` (AOF setiap detik, `noeviction`: tulisan ditolak saat penuh, backup malam). Tidak bisa diubah setelah dibuat. |
+| `maxmemory_mb` | integer atau `null` | `32`, `64`, atau `128`. `null` berarti `64`. Agent menerima 16 sampai 512, tetapi v1 hanya menawarkan tiga ukuran ini (`valkeys.sizes_mb`). |
+| `region` | string atau `null` | Format region. `null` memakai region proyek (dengan `project_id`), lalu `default_region` profil workspace, lalu region mana pun. |
+| `project_id` | uuid atau `null` | Store ditempatkan di node tempat proyek itu sudah berjalan, lalu dipasang di transaksi yang sama; satu-satunya cara memasang store yang masih `provisioning`. |
+
+**Body `PATCH`**: `name` (string, opsional) dan `maxmemory_mb` (`32`, `64`, atau `128`, opsional), minimal satu. `mode` dijawab `422`. Ganti nama tidak mengubah apa pun di node. Mengubah ukuran butuh status `ready` atau `locked` (`409 VALKEY_NOT_READY`) dan tidak ada `ResizeValkey` atau `CreateValkey` yang masih terbuka (`409 VALKEY_BUSY`). Memperbesar diperiksa terhadap jatah workspace dan anggaran node store itu, keduanya tanpa cadangan store itu sendiri. Store persisten menolak mengecil di bawah datanya (`last_failure.code` `valkey_size_below_usage`, `user_fixable` `true`); store cache menerimanya dan membuang key. Bila runtime menolak mengubah batas container di tempat, agent membuat ulang container-nya (`restarted` di audit): store cache kosong, store persisten memuat AOF-nya.
+
+**`ValkeyResource`**
+
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `id` | string uuid | Juga `valkey_id` di agent. |
+| `name` | string | Nama yang dilihat orang. |
+| `mode` | string enum | `cache` atau `persistent`. |
+| `status` | string enum | `provisioning`, `ready`, `failed`, `deleting`, `locked`. Lihat "Status Valkey". |
+| `region` | string atau `null` | Region node store. |
+| `maxmemory_mb` | integer (MB) | `maxmemory` yang diterapkan node, atau akan diterapkan setelah pembuatan selesai. |
+| `pending_maxmemory_mb` | integer (MB) atau `null` | Ukuran `ResizeValkey` yang masih terbuka. |
+| `usage` | object | Bacaan node terakhir, semuanya `null` sampai node melapor: `used_memory_bytes`, `evicted_keys` (sejak store start, mode cache), `errorstat_oom` (tulisan yang ditolak karena penuh, mode persisten), `connected_clients`, `aof_last_write_status` (`ok` atau `err`, hanya mode persisten), `container_status` (status Docker, atau `missing`), `restart_count`, dan `checked_at` (ISO 8601). |
+| `projects` | array `{id, name, slug}` | Proyek yang terpasang, urut nama. |
+| `connection` | object atau `null` | `{host: string, port: integer}`: alamat store di network privatnya (`REDIS_HOST`) dan `6379`. Terlihat semua anggota; tidak ada yang rahasia, dan alamat itu hanya terjangkau dari proyek yang terpasang. `null` kecuali status `ready` atau `locked`. |
+| `last_failure` | object atau `null` | `{command, code, user_fixable, summary, failed_at}` seperti bucket. `user_fixable` `true` hanya untuk `valkey_size_below_usage` dan `valkey_in_use`. |
+| `password_rotation` | object atau `null` | Bentuknya sama dengan `key_rotation` bucket. Lihat "Rotasi password Valkey". |
+| `created_at`, `updated_at` | string ISO 8601 atau `null` | |
+
+Password dan node tidak pernah muncul di resource ini. `ValkeyAttachmentResource`: `{valkey_id: string, project: {id, name, slug}, redeploy_required: boolean, attached_at: string ISO 8601 atau null}`.
+
+### Status Valkey
+
+| `status` | Arti |
+| --- | --- |
+| `provisioning` | `CreateValkey` menunggu atau sedang berjalan di node. |
+| `ready` | Store berjalan; network dan alamatnya sudah dilaporkan. |
+| `failed` | `CreateValkey` gagal, kedaluwarsa, atau melaporkan network atau alamat yang tidak bisa dipakai (audit `valkey.invalid_result`). Hapus lalu buat lagi. Tidak dihitung ke kuota. |
+| `deleting` | `DeleteValkey` menunggu atau sedang berjalan. Masih dihitung sampai node selesai. |
+| `locked` | User `default` dimatikan dan koneksinya ditutup, jadi aplikasi tidak bisa login; data tetap ada dan backup tetap jalan. Dikunci admin karena penyalahgunaan, atau karena semua proyek yang memakainya ditangguhkan. |
+
+### Ketersediaan Valkey
+
+`GET app/pilot-limits` berisi `valkeys`: `{enabled: boolean, available: boolean, sizes_mb: integer[], default_size_mb: integer}`. `enabled` mengikuti `SAKALA_VALKEY_ENABLED`. `available` bernilai `true` selama fitur menyala dan ada node online yang boleh menerima `CreateValkey`, sudah melaporkan `metadata.valkey`, dan tidak melaporkan `available: false`. `sizes_mb` selalu `[32, 64, 128]` dan `default_size_mb` `64`. Kuotanya ada di `quotas`: `max_valkeys`, `current_valkeys_count` (store yang dihitung), `max_valkey_memory_mb`, dan `current_valkey_memory_mb` (jumlah `maxmemory` yang dicadangkan, bukan yang terpakai). Semua field ini selalu ada, juga saat fitur mati.
+
+### Penempatan dan kuota Valkey
+
+Store ditempatkan di node `managed-valkey` yang aktif, protokolnya didukung, dan sudah melaporkan `metadata.valkey`. Dengan `project_id` dan proyek yang sudah berjalan, hanya node proyek itu yang boleh; tanpa itu hanya node di region yang diminta (atau di mana pun). Anggaran node mengikuti rumus agent: `metadata.valkey.capacity_mb` harus muat Σ(`maxmemory_mb` + 64) semua store node itu yang tidak `failed`, termasuk yang baru. Di antara node online yang muat, node yang perannya menjawab didahulukan, lalu sisa anggaran terbesar, lalu heartbeat terbaru; bila tidak ada yang online tetapi ada node offline yang muat, store menunggunya. Tidak ada kandidat: `409 VALKEY_UNAVAILABLE`; ada tetapi tidak muat: `409 VALKEY_CAPACITY_UNAVAILABLE`. Store tidak pernah pindah node. Urutan lock: workspace, node (`FOR NO KEY UPDATE`, sama seperti heartbeat, supaya insert command untuk node itu tidak menunggu), store, lalu proyek. Agent tetap memeriksa ulang anggaran dan pool network-nya.
+
+`max_valkeys` membatasi jumlah store yang dihitung (`provisioning`, `ready`, `deleting`, `locked`), `max_valkey_memory_mb` membatasi jumlah `reserved_maxmemory_mb`-nya. Selama resize terbuka cadangannya `max(lama, baru)`; resize yang sukses menjadikannya ukuran baru, yang gagal mengembalikannya. Default kode dan hosted keduanya `0`: memori store dipakai terus (store tidak tidur di v1), jadi workspace dibuka satu per satu lewat profil batas. Store tidak dihitung ke `max_active_containers`.
+
+Setiap menit `valkeys:check-usage` memeriksa store `ready` dan `locked` yang sudah dibaca node. Saat `used_memory_bytes` mencapai 80 % `maxmemory_mb`, owner dan member menerima notifikasi kategori `workspace` ("Valkey hampir penuh"; mode persisten: tulisan baru, termasuk job antrean, akan ditolak; mode cache: key lama akan dibuang), audit `valkey.memory_warning` dicatat, dan `memory_warned_at` diisi; di bawah 80 % tandanya dikosongkan.
+
+### Variabel dan network Valkey
+
+Deployment berikutnya dari proyek yang terpasang membawa field `valkey: {network, host}` di `DeployProject`, sehingga semua container-nya (replika web, worker, release command) dibuat di network proyek dan network store sekaligus, dan menerima variabel ini dalam urutan tetap:
+
+| Variabel | Nilai |
+| --- | --- |
+| `REDIS_URL` | `redis://:<password>@<host>:6379`, tanpa nomor database. |
+| `REDIS_HOST` | Alamat store di network privatnya, misalnya `10.213.0.2`. |
+| `REDIS_PORT` | `6379`. |
+| `REDIS_PASSWORD` | Password user `default`: 32 huruf dan angka, aman di URL tanpa escape. |
+
+`REDIS_URL` sengaja tanpa `/0`: Laravel menerapkan nomor database dari URL ke koneksi default maupun cache, sehingga `php artisan cache:clear` ikut menghapus job antrean. `REDIS_USERNAME`, `REDIS_DB`, `REDIS_CLIENT`, `QUEUE_CONNECTION`, `CACHE_STORE`, dan `SESSION_DRIVER` tidak di-inject karena mengubah perilaku aplikasi di luar koneksi; Console menyarankannya sebagai variabel proyek biasa.
+
+Variabel proyek dengan nama yang sama menang; network tetap disambungkan. `ProjectResource.valkeys` (0 atau 1 item, hanya saat fitur menyala) berisi `{id, name, mode, status, variables: string[], overridden_variables: string[]}`; daftar project memuat versi ringan `valkeys` `{id, name, status}`. Variabel dibangun saat deployment dibuat dan tidak pernah disimpan sebagai variabel proyek. `RunJob` menyalin `valkey` dari payload `DeployProject` deployment live, jadi job jadwal menjangkau store yang sama.
+
+Deployment proyek yang memasang store selalu ditempatkan di node store itu, apa pun region dan kapasitas node lain; selama node itu offline, command menunggu dan penugasan ulang hanya memilih node itu. Deploy ditolak `409 VALKEY_NOT_READY` selama store belum `ready` atau `locked`, `409 VALKEY_PASSWORD_ROTATING` selama jendela password tidak pasti, dan `409 VALKEY_NODE_MISMATCH` bila proyek sudah berjalan di node lain. Push webhook dilewati dengan `reason` yang sama (huruf kecil) dan notifikasi `project_issue`. Store `locked` tetap meng-inject variabelnya; aplikasi menerima error autentikasi. Kegagalan deploy `valkey_network_unavailable` (network store tidak ada di node) dipetakan sebagai gangguan platform di katalog kegagalan.
+
+Memasang, melepas, rotasi password yang sukses, dan alamat yang berubah setelah `valkeys:reconcile` mengubah `projects.valkey_fingerprint` (identitas, network, alamat, port, dan password store), jadi `redeploy_required` menjadi `true` sampai deployment berikutnya, karena container yang berjalan tidak pernah disambungkan belakangan. Fingerprint itu hanya dihitung selama fitur menyala. Password Valkey disamarkan dari log deployment, event, laporan command, dan pesan `fail` command Valkey.
+
+### Kredensial Valkey
+
+`ValkeyCredentialsResource`: `{host: string, port: integer, password: string, url: string, variables: {nama: nilai}}`, dengan `variables` persis variabel yang di-inject. Hanya store `ready` atau `locked` yang dilayani (`409 VALKEY_NOT_READY`), dan `409 VALKEY_PASSWORD_ROTATING` selama jendela password tidak pasti. Audit `valkey.credentials_viewed` ditulis sebelum respons dikirim. Alamat itu hanya terjangkau dari container proyek yang terpasang, tidak dari internet.
+
+### Rotasi password Valkey
+
+Sama dengan rotasi key bucket, dengan perbedaan ini. Body `redeploy_attached` (boolean, opsional). Butuh status `ready` atau `locked` dan tidak ada rotasi atau `CreateValkey` yang terbuka (`409 VALKEY_BUSY`). Node mengganti password lalu menutup koneksi yang sudah login, jadi aplikasi gagal sampai di-redeploy. Kode yang hasilnya tidak pasti adalah `valkey_unavailable` (store tidak menjawab; perubahan bisa sudah tertulis dan berlaku saat store menyala lagi) dan lease yang habis: password baru yang sama dikirim ulang dengan jeda 15 detik yang berlipat sampai 10 menit (audit `valkey.password_rotation_resent`), paling banyak 10 kiriman, lalu berakhir `unknown`. Jendela password tidak pasti (kiriman yang sudah diambil node, kiriman ulang yang masih terbuka, atau rotasi `unknown`) menolak deploy dan kredensial dengan `409 VALKEY_PASSWORD_ROTATING`; ditutup oleh rotasi baru yang selesai atau `php artisan valkeys:reconcile --valkey=<id>`. Deploy ulang otomatis memakai `trigger` `valkey_password_rotated` dan idempotency key `valkey-password-rotation:{id command}`; hasilnya dicatat di audit `valkey.password_rotation_redeploys_queued`.
+
+### Menghapus Valkey
+
+- Masih terpasang: `409 VALKEY_IN_USE`.
+- `provisioning` dengan `CreateValkey` yang masih `Pending`: command dibatalkan, baris di-soft delete, `204`. Sudah diambil node: `409 VALKEY_BUSY`.
+- `failed`: `DeleteValkey` tetap dikirim, karena node menyimpan catatan dan alamat store yang gagal sampai dihapus.
+- Node menolak (`valkey_in_use`) selama container yang berjalan masih ada di network store, misalnya proyek yang sudah dilepas tetapi belum di-deploy ulang. Status tetap `deleting`; deploy ulang atau hentikan proyek itu, lalu kirim `DELETE` lagi.
+- Setelah node melapor, baris di-soft delete, password dikosongkan, dan salinannya di payload command dihapus. Backup store persisten tetap ada sekitar 14 hari.
+- Menghapus proyek melepas store-nya (audit `valkey.detached` dengan `reason` `project_deleted`). Menghapus tim butuh store-nya dihapus dulu (`409 WORKSPACE_NOT_EMPTY` dengan `valkeys`). Menghapus akun mengirim `DeleteValkey` untuk store workspace pribadinya.
+
+### Penguncian Valkey
+
+`php artisan valkeys:lock {valkey} --reason=<teks>` (butuh `ready`) dan `php artisan valkeys:unlock {valkey} [--reason=<teks>]` (butuh `locked`) untuk penyalahgunaan; aktor audit `system` dengan `actor_id` `valkeys:lock` atau `valkeys:unlock`. Menangguhkan proyek mengunci store-nya bila semua proyek yang memakai store itu sudah ditangguhkan (store bisa dipakai beberapa proyek satu workspace, jadi proyek lain tidak ikut terputus); membatalkan penangguhan membuka kunci itu, tetapi hanya kunci yang dibuat penangguhan (`lock_source` `suspension`), bukan kunci admin. Keduanya berjalan setelah transaksi penangguhan selesai, di transaksinya sendiri, dengan aktor `project-suspension`. Kunci penangguhan yang baru dilaporkan node setelah proyeknya sudah aktif lagi langsung dibuka.
+
+`php artisan valkeys:reconcile {--node=} {--valkey=}` mengirim ulang `CreateValkey` dengan mode, ukuran, dan password tersimpan untuk setiap store `ready` atau `locked`, misalnya setelah `valkey_not_found` atau node dibangun ulang. Store dengan `CreateValkey`, rotasi, atau resize yang masih terbuka dilewati. `CreateValkey` tidak pernah membuka kunci.
+
+### Audit Valkey
+
+Subject `App\Models\ManagedValkey`. Metadata boleh berisi ID, `mode`, ukuran, `command_id`, `node_id`, `region`, `network`, `host`, dan kode, tidak pernah password atau map `variables`: `valkey.created`, `valkey.provisioned`, `valkey.provisioning_failed`, `valkey.invalid_result`, `valkey.reconciled`, `valkey.renamed`, `valkey.resize_requested`, `valkey.resized` (`from_mb`, `to_mb`, `restarted`), `valkey.resize_failed`, `valkey.delete_requested`, `valkey.deleted`, `valkey.delete_failed`, `valkey.attached`, `valkey.detached`, `valkey.credentials_viewed`, `valkey.password_rotation_requested`, `valkey.password_rotated` (`disconnected_clients`), `valkey.password_rotation_failed`, `valkey.password_rotation_resent`, `valkey.password_rotation_redeploys_queued`, `valkey.lock_requested` (`lock_source`, `reason`), `valkey.locked`, `valkey.lock_failed`, `valkey.unlock_requested`, `valkey.unlocked`, `valkey.unlock_failed`, `valkey.memory_warning`.
+
+## Jadwal
+
+Jadwal (ADR-022) menjalankan perintah proyek pada waktu tertentu di container sekali jalan dari image deployment live, lewat command agent `RunJob`. API adalah satu-satunya penjadwal. Fitur ini hanya aktif bila `SAKALA_SCHEDULES_ENABLED=true`; selama mati, endpoint di bawah dijawab `404` dan `schedules:dispatch` tidak melakukan apa pun. `GET app/pilot-limits` memberi tahu Console lewat `schedules.enabled`.
+
+### Endpoint jadwal
+
+| Method | Path | Keterangan |
+| --- | --- | --- |
+| `GET` | `/api/v1/app/projects/{project}/schedules` | Jadwal proyek, urut dibuat, masing-masing dengan `latest_run`. Semua anggota. |
+| `POST` | `/api/v1/app/projects/{project}/schedules` | Buat jadwal, `201`. Owner dan member; viewer `403`. |
+| `GET` | `/api/v1/app/projects/{project}/schedules/{schedule}` | Satu jadwal. |
+| `PATCH` | `/api/v1/app/projects/{project}/schedules/{schedule}` | Ubah sebagian field. |
+| `DELETE` | `/api/v1/app/projects/{project}/schedules/{schedule}` | Hapus jadwal dan riwayatnya, `204`; run yang terbuka dihentikan dulu. |
+| `GET` | `/api/v1/app/projects/{project}/schedules/{schedule}/runs` | Riwayat run, terbaru dulu, cursor pagination (`per_page` 1 sampai 50, default 20). |
+| `POST` | `/api/v1/app/projects/{project}/schedules/{schedule}/runs` | Run now, `201`. Owner dan member, dan butuh persetujuan dokumen terbaru. Pada proyek yang ditangguhkan dijawab `409 SCHEDULE_RUN_REFUSED` dengan `reason` `project_suspended`. |
+| `POST` | `/api/v1/app/projects/{project}/schedules/{schedule}/runs/{run}/cancel` | Stop run: `200` bila run langsung `cancelled`, `202` bila node masih harus menghentikannya. Tetap boleh pada proyek yang ditangguhkan. |
+| `GET` | `/api/v1/app/projects/{project}/schedules/{schedule}/runs/{run}/logs` | Output run, urut lama ke baru, cursor pagination. Barisnya membawa `process: "job"` dan ikut retensi log deployment. |
+
+Field jadwal: `name` (paling panjang 100), `command` (satu baris 1 sampai 1000 karakter), `cron_expression` (lima bagian standar: menit, jam, tanggal, bulan, hari; makro seperti `@daily` ditolak), `timezone` (nama zona waktu, default `Asia/Jakarta`), `timeout_seconds` (1 sampai 600, default 300), dan `enabled` (default `true`). Waktu di respons dalam UTC ISO 8601; `timezone` hanya menentukan cara membaca ekspresi dan cara Console menampilkannya. Ekspresi ditolak `422` pada `cron_expression` bila dua dari 1000 slot berikutnya lebih rapat dari `min_schedule_interval_minutes` workspace. Membuat atau mengaktifkan jadwal saat workspace sudah punya jadwal aktif sebanyak `max_schedules` dijawab `422 SCHEDULE_LIMIT_EXCEEDED`. Mengubah ekspresi atau zona waktu, atau mengaktifkan jadwal, menghitung slot berikutnya dari sekarang, jadi slot yang sudah lewat tidak pernah dijalankan. Mengaktifkan jadwal yang dijeda menghapus jedanya dan hitungan gagalnya.
+
+Respons jadwal juga membawa `next_run_at` (`null` selama nonaktif), `health` (`healthy` atau `failing`), `consecutive_failures`, `paused_at`, dan `pause_reason` (`consecutive_failures` atau `null`).
+
+### Run
+
+`schedules:dispatch` berjalan setiap menit di satu server. Setiap slot jatuh tempo jadwal aktif dicatat sebagai satu run, unik per jadwal dan slot, lalu diputuskan dengan urutan berikut:
+
+1. Slot yang sudah lewat dari tenggat mulainya (10 menit setelah slot, atau slot berikutnya bila lebih cepat) dicatat `missed` dengan `reason` `dispatcher_late` dan tidak pernah dijalankan terlambat. Bila penjadwal terhenti beberapa slot, slot pertama yang terlewat dan slot terakhir dicatat, bukan setiap slot di antaranya.
+2. Proyek dihapus atau ditangguhkan, run jadwal yang sama masih terbuka, tidak ada deployment live, atau node-nya belum mengiklankan `scheduled-jobs`: `skipped` dengan `reason` `project_deleted`, `project_suspended`, `overlap`, `no_live_deployment`, atau `node_unsupported`.
+3. Workspace sudah menjalankan run sebanyak `max_concurrent_job_runs`: `waiting` dengan `reason` `concurrency_limit`. Dicoba lagi setiap menit, dan menjadi `missed` dengan alasan yang sama bila tenggatnya lewat.
+4. Selain itu `queued` dengan command `RunJob` yang dipin ke node deployment live.
+
+Run tidak pernah membangunkan proyek: proyek yang tidur tetap tidur dan run-nya berjalan dari image yang disimpan node. Status run selanjutnya: `running` saat node mengambilnya, lalu `succeeded`, `failed`, `timed_out`, `cancelled`, `lost` (node berhenti melapor selama run), atau `missed` dengan `reason` `not_started` (node tidak mengambilnya sebelum tenggat). `exit_code` diambil dari event `job.finished` agent dan disimpan sebagai field; `error_summary` menjelaskan kegagalan dalam bahasa Indonesia, dan `reason_message` menjelaskan `reason`. Tidak ada yang dicoba ulang otomatis, jadi job harus aman dilewati dan aman dijalankan lagi.
+
+Run now mengikuti aturan yang sama, tanpa slot (`scheduled_for` `null`, `trigger` `manual`), juga untuk jadwal yang nonaktif. Alasan yang akan membuat slot dilewati menolak permintaan dengan `409 SCHEDULE_RUN_REFUSED` dan tidak mencatat apa pun; workspace yang penuh membuat run `waiting`.
+
+Setiap jadwal menyimpan 100 run terbaru (`SAKALA_SCHEDULE_RUNS_KEPT`). Run `failed`, `timed_out`, dan `lost` dihitung sebagai kegagalan beruntun. Owner dan member diberi tahu saat jadwal mulai gagal (in-app dan email `project_issue`) dan saat pulih (in-app), tidak pada setiap kegagalan. Setelah 10 kegagalan berturut-turut (`SAKALA_SCHEDULE_PAUSE_AFTER_FAILURES`) jadwal dinonaktifkan dengan `paused_at`, dicatat di audit, dan diberitahukan. Menghapus proyek menghentikan run yang terbuka dan menghapus jadwalnya.
+
+### Audit jadwal dan worker
+
+`project.process_created`, `project.process_updated`, `project.process_deleted`, `project.schedule_created`, `project.schedule_updated`, `project.schedule_deleted`, `project.schedule_run_requested` (Run now), `project.schedule_run_cancel_requested` (Stop run), dan `project.schedule_paused` (oleh `schedules:dispatch`) dengan proyek sebagai subject. Metadata berisi ID, nama, dan field yang berubah, tidak pernah variabel proyek.
+
 ## Notifikasi
 
 Notifikasi in-app memakai database notification Laravel; sebagian juga dikirim lewat email (lihat [Email notifikasi](#email-notifikasi)). Kategori: `deployment_success`, `deployment_failure`, `project_issue` (workload crash, auto-deploy dilewati, database yang diminta untuk deploy proyek gagal dibuat), `account_security` (kata sandi dan email), dan `workspace` (tim). `GET` dan `PATCH /notification-preferences` ikut punya `workspace`, default `true`.
@@ -1353,6 +1564,8 @@ Siapa yang dikirimi email:
 - deployment gagal atau berhasil: orang yang meminta deployment selama ia masih owner atau member workspace, dan semua owner workspace;
 - aplikasi berhenti sendiri: orang yang meminta deployment yang sedang berjalan, dengan syarat yang sama, dan semua owner;
 - push dilewati: akun yang dipakai push untuk deploy (pembuat proyek selama masih bisa deploy, atau owner tertua), dan semua owner.
+- worker berhenti sendiri (`worker_crashed`, ADR-022): orang yang meminta deployment yang sedang berjalan, dengan syarat yang sama, dan semua owner;
+- jadwal mulai gagal (`schedule_failing`) atau dijeda setelah gagal berturut-turut (`schedule_paused`): semua owner. Ketiganya berkategori `project_issue`, dan pulihnya worker atau jadwal hanya diberitahukan di lonceng.
 
 Viewer tidak pernah dikirimi email. Di workspace pribadi semuanya berarti pemiliknya. Penerima dengan email kategori itu mati, atau alamat yang belum terverifikasi, dilewati. Tidak ada email sama sekali bila `sakala.email_delivery_enabled` mati. Penerima lonceng tidak berubah: kabar deployment ke peminta (atau semua owner dan member bila ia sudah tidak bisa mengelola proyek), crash dan push dilewati ke semua owner dan member.
 
@@ -1536,3 +1749,9 @@ Node juga punya `region`, `region_override`, `reported_region`, `edge_address`, 
 ### Yang Belum Ada
 
 Tidak ada model laporan abuse: sinyal `manual_intervention` di `signals` dan audit `project.suspend_requested` adalah catatan yang ada sekarang. Akun pengguna juga tidak punya status suspend; yang bisa ditangguhkan adalah project.
+
+## Custom Domain
+
+Custom domain project mengikuti ADR-024 dan dijelaskan lengkap di [CUSTOM_DOMAINS.md](CUSTOM_DOMAINS.md): endpoint `GET`, `POST`, `POST .../check`, dan `DELETE` di `/api/v1/app/projects/{project}/domains`, status `pending`, `verified`, `failed`, `disabled`, dan `released`, pemeriksaan TXT, arah CNAME, dan CAA, kuota `max_custom_domains` (default 1 per workspace), notifikasi, dan endpoint admin `custom-domains`. Peran mengikuti `ProjectPolicy`: semua anggota membaca, owner dan member menambah, memeriksa, dan menghapus.
+
+Fitur ini hanya aktif bila `SAKALA_CUSTOM_DOMAINS_ENABLED=true` (default mati). Selama mati, semua endpoint itu dijawab `404`, command agent tidak membawa `custom_domains`, tabel Edge tidak punya bagian custom, dan `custom-domains:check` tidak melakukan apa-apa. `GET app/pilot-limits` selalu memuat `quotas.max_custom_domains`, `quotas.current_custom_domains_count`, dan `custom_domains` (`enabled`, `target`). Production tetap mati sampai versi pemberitahuan privasi yang menyebut Let's Encrypt berlaku.

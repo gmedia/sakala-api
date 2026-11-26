@@ -28,6 +28,8 @@ use App\Services\Bucket\BucketCommandOutcomeService;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Project\ProjectInspectionOutcomeService;
 use App\Services\Runtime\ProjectWorkloadService;
+use App\Services\Schedule\ScheduleRunOutcomeService;
+use App\Services\Valkey\ValkeyCommandOutcomeService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -41,7 +43,9 @@ final class CompleteAgentCommandAction
         private readonly ProjectWorkloadService $workloads,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
         private readonly BucketCommandOutcomeService $bucketOutcome,
+        private readonly ValkeyCommandOutcomeService $valkeyOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
+        private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
     ) {}
 
     /**
@@ -130,6 +134,14 @@ final class CompleteAgentCommandAction
 
             if ($command->type->isBucket()) {
                 $this->bucketOutcome->completed($agent, $command);
+            }
+
+            if ($command->type->isValkey()) {
+                $this->valkeyOutcome->completed($agent, $command);
+            }
+
+            if ($command->type === AgentCommandType::RunJob) {
+                $this->scheduleRunOutcome->completed($command, $result);
             }
 
             if ($command->type->isNodeLevel()) {

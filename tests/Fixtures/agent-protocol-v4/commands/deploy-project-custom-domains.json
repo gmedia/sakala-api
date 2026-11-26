@@ -1,0 +1,36 @@
+{
+  "id": "5a2d7c1e-8f3b-4c6a-9e1d-2b7f4a8c3e95",
+  "type": "DeployProject",
+  "status": "Pending",
+  "project_id": "ff66ed4a-6303-4be6-8ef4-63c28b112680",
+  "deployment_id": "4f1f21ef-730d-42d5-a46d-d965353cb993",
+  "payload": {
+    "repository_url": "https://github.com/example/student-demo-app.git",
+    "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+    "domain": "student-demo.run.sakala.localhost",
+    "container_port": 3000,
+    "builder": "auto",
+    "environment": {
+      "APP_ENV": "production"
+    },
+    "resources": {
+      "memory_mb": 256,
+      "cpu_millis": 500,
+      "pids_limit": 128
+    },
+    "timeouts": {
+      "build_timeout_seconds": 600,
+      "start_timeout_seconds": 120,
+      "command_timeout_seconds": 900
+    },
+    "log_bounds": {
+      "max_line_length": 4096,
+      "max_batch_lines": 500,
+      "max_total_bytes": 10485760
+    },
+    "custom_domains": [
+      "www.contoh.com",
+      "contoh.com"
+    ]
+  }
+}

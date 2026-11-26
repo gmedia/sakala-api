@@ -30,6 +30,12 @@ enum DeploymentTrigger: string
     case BucketKeyRotated = 'bucket_key_rotated';
 
     /**
+     * Queued by the API after a managed Valkey store's new password took
+     * effect, for a project attached to it, when the rotation asked for it.
+     */
+    case ValkeyPasswordRotated = 'valkey_password_rotated';
+
+    /**
      * A member went back to an earlier successful deployment: its commit and
      * recorded settings, with the project's current variables
      * (RollbackDeploymentAction).
@@ -45,7 +51,7 @@ enum DeploymentTrigger: string
         return match ($this) {
             self::Manual, self::Redeploy, self::Rollback => DeploymentActorKind::User,
             self::Webhook => DeploymentActorKind::GithubPush,
-            self::System, self::DatabasePasswordRotated, self::DatabaseReady, self::BucketKeyRotated => DeploymentActorKind::System,
+            self::System, self::DatabasePasswordRotated, self::DatabaseReady, self::BucketKeyRotated, self::ValkeyPasswordRotated => DeploymentActorKind::System,
         };
     }
 }

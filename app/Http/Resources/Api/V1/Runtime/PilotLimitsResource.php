@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Resources\Api\V1\Runtime;
 
 use App\Data\Runtime\PilotQuotaLimitsData;
+use App\Models\ManagedValkey;
+use App\Services\CustomDomain\CustomDomainPolicy;
+use App\Services\Schedule\SchedulePolicy;
+use App\Support\Runtime\RuntimeFeatures;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -23,6 +27,16 @@ final class PilotLimitsResource extends JsonResource
 
     /** Quota of a bucket created without `quota_mb` (BucketQuotaPolicy::defaultQuotaMb()). */
     public int $bucketDefaultQuotaMb = 0;
+
+    /** Whether the installation offers managed Valkey stores (AgentNodeSchedulerService::valkeysAvailable()). */
+    public bool $valkeysAvailable = false;
+
+    public function withValkeysAvailable(bool $available): static
+    {
+        $this->valkeysAvailable = $available;
+
+        return $this;
+    }
 
     public function withDatabasesAvailable(bool $available): static
     {
@@ -101,6 +115,39 @@ final class PilotLimitsResource extends JsonResource
                 'current_bucket_storage_mb' => $this->resource->current_bucket_storage_mb,
                 /** Usage of the workspace's buckets from the storage nodes' last reports, in bytes; a bucket never measured counts 0. */
                 'current_bucket_usage_bytes' => $this->resource->current_bucket_usage_bytes,
+                /**
+                 * Worker containers the workspace may run at once, from its limit profile or the global setting
+                 * (ADR-022). They also count towards `max_active_containers`. `0` allows none.
+                 */
+                'max_worker_containers' => $limits->max_worker_containers,
+                /** Worker containers of the workspace's projects that serve or are being deployed. */
+                'current_worker_containers_count' => $this->resource->current_worker_containers_count,
+                /** Enabled schedules the workspace may hold, from its limit profile or the global setting; `0` allows none. */
+                'max_schedules' => $limits->max_schedules,
+                /** Enabled schedules that count towards `max_schedules`. */
+                'current_schedules_count' => $this->resource->current_schedules_count,
+                /** Shortest gap between two slots of a schedule, in minutes, from its limit profile or the global setting. */
+                'min_schedule_interval_minutes' => $limits->min_schedule_interval_minutes,
+                /** Scheduled runs the workspace runs at once; a due run beyond that waits. `0` runs none. */
+                'max_concurrent_job_runs' => $limits->max_concurrent_job_runs,
+                /** Managed Valkey stores the workspace may hold, from its limit profile or the global setting (ADR-023); `0` allows none. */
+                'max_valkeys' => $limits->max_valkeys,
+                /** Managed Valkey stores that count towards `max_valkeys`: every live one except those whose creation failed. */
+                'current_valkeys_count' => $this->resource->current_valkeys_count,
+                /**
+                 * MB of `maxmemory` the workspace's Valkey stores may reserve together, from its limit profile or the
+                 * global setting. `0` refuses new stores and growth; existing stores keep their size.
+                 */
+                'max_valkey_memory_mb' => $limits->max_valkey_memory_mb,
+                /** MB the workspace's Valkey stores reserve now: the sum of their sizes, a pending growth included. */
+                'current_valkey_memory_mb' => $this->resource->current_valkey_memory_mb,
+                /**
+                 * Custom domains the workspace's projects may hold together, from its limit profile or the global
+                 * setting (ADR-024); `0` allows none.
+                 */
+                'max_custom_domains' => $limits->max_custom_domains,
+                /** Custom domain claims that count towards `max_custom_domains`: pending, verified, failed, and disabled ones. */
+                'current_custom_domains_count' => $this->resource->current_custom_domains_count,
             ],
             'runtime_defaults' => [
                 /** @var int */
@@ -158,6 +205,54 @@ final class PilotLimitsResource extends JsonResource
                  * @var int
                  */
                 'default_quota_mb' => $this->bucketDefaultQuotaMb,
+            ],
+            /**
+             * Worker processes on this installation (ADR-022). `enabled` follows `SAKALA_WORKERS_ENABLED`; while it
+             * is false the process endpoints answer 404 and deployments carry no workers.
+             */
+            'workers' => [
+                'enabled' => RuntimeFeatures::workersEnabled(),
+            ],
+            /**
+             * Scheduled jobs on this installation (ADR-022). `enabled` follows `SAKALA_SCHEDULES_ENABLED`; while it
+             * is false the schedule endpoints answer 404 and nothing is dispatched. `default_timezone` is the
+             * timezone of a schedule created without one, `max_timeout_seconds` the longest run timeout, and
+             * `start_deadline_minutes` how late a slot may still start.
+             *
+             * @var array{enabled: bool, default_timezone: string, default_timeout_seconds: int, max_timeout_seconds: int, start_deadline_minutes: int}
+             */
+            'schedules' => [
+                'enabled' => RuntimeFeatures::schedulesEnabled(),
+                'default_timezone' => SchedulePolicy::DEFAULT_TIMEZONE,
+                'default_timeout_seconds' => SchedulePolicy::DEFAULT_TIMEOUT_SECONDS,
+                'max_timeout_seconds' => SchedulePolicy::MAX_TIMEOUT_SECONDS,
+                'start_deadline_minutes' => app(SchedulePolicy::class)->startDeadlineMinutes(),
+            ],
+            /**
+             * Managed Valkey stores on this installation (ADR-023). `enabled` follows `SAKALA_VALKEY_ENABLED`; while it
+             * is false the Valkey endpoints answer 404 and deployments carry no store. `available` is true while it
+             * is on and at least one online node with the `managed-valkey` capability may receive new stores and did
+             * not report its role down. `sizes_mb` lists the sizes a store may have, `default_size_mb` the one used
+             * without `maxmemory_mb`.
+             *
+             * @var array{enabled: bool, available: bool, sizes_mb: list<int>, default_size_mb: int}
+             */
+            'valkeys' => [
+                'enabled' => RuntimeFeatures::valkeyEnabled(),
+                'available' => $this->valkeysAvailable,
+                'sizes_mb' => ManagedValkey::SIZES_MB,
+                'default_size_mb' => ManagedValkey::DEFAULT_SIZE_MB,
+            ],
+            /**
+             * Custom domains for projects on this installation (ADR-024). `enabled` follows
+             * `SAKALA_CUSTOM_DOMAINS_ENABLED`; while it is false the domain endpoints answer 404. `target` is the name
+             * a domain points at with a CNAME (or flattening, ALIAS, ANAME for an apex); never an IP address.
+             *
+             * @var array{enabled: bool, target: string}
+             */
+            'custom_domains' => [
+                'enabled' => RuntimeFeatures::customDomainsEnabled(),
+                'target' => app(CustomDomainPolicy::class)->target(),
             ],
         ];
     }

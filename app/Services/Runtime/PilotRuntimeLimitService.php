@@ -9,6 +9,7 @@ use App\Data\Runtime\LogBoundsData;
 use App\Data\Runtime\PilotQuotaLimitsData;
 use App\Data\Runtime\RuntimeResourceLimitsData;
 use App\Data\Runtime\RuntimeTimeoutLimitsData;
+use App\Data\Runtime\ScheduleLimitsData;
 use App\Data\Runtime\WorkspaceLimitsData;
 use App\Enums\DeploymentBuildMode;
 use App\Enums\WorkspaceType;
@@ -18,11 +19,15 @@ use App\Exceptions\Runtime\BuildRateLimitExceededException;
 use App\Exceptions\Runtime\ProjectLimitExceededException;
 use App\Exceptions\Runtime\ProjectWakeLimitExceededException;
 use App\Exceptions\Runtime\ResourceLimitExceededException;
+use App\Exceptions\Runtime\WorkerContainerLimitExceededException;
 use App\Models\Deployment;
 use App\Models\LimitProfile;
 use App\Models\ManagedBucket;
 use App\Models\ManagedDatabase;
+use App\Models\ManagedValkey;
 use App\Models\Project;
+use App\Models\ProjectDomain;
+use App\Models\ProjectSchedule;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Builder;
@@ -54,6 +59,42 @@ class PilotRuntimeLimitService
     /** MB the bucket quotas of such a workspace may reserve together; 0 for the same reason. */
     public const DEFAULT_MAX_BUCKET_STORAGE_MB = 0;
 
+    /**
+     * Managed Valkey stores of a workspace that follows the global setting,
+     * when that is unset or empty (ADR-023). 0: a store is memory the node
+     * keeps for good, so workspaces are opened one by one through limit
+     * profiles.
+     */
+    public const DEFAULT_MAX_VALKEYS = 0;
+
+    /** MB of `maxmemory` the stores of such a workspace may reserve together; 0 for the same reason. */
+    public const DEFAULT_MAX_VALKEY_MEMORY_MB = 0;
+
+    /**
+     * Custom domains of a workspace that follows the global setting, when
+     * that is unset or empty (ADR-024, hosted decision of 25 November 2026):
+     * one, so an ordinary account can use its own domain. A domain costs one
+     * certificate and one route.
+     */
+    public const DEFAULT_MAX_CUSTOM_DOMAINS = 1;
+
+    /**
+     * Worker containers of a workspace that follows the global setting, when
+     * that is unset or empty (ADR-022, option A): one, so a Laravel queue
+     * worker runs from an ordinary account. Workers also count against
+     * max_active_containers, so they never add capacity.
+     */
+    public const DEFAULT_MAX_WORKER_CONTAINERS = 1;
+
+    /** Enabled schedules of such a workspace (option A). */
+    public const DEFAULT_MAX_SCHEDULES = 2;
+
+    /** Shortest gap between two slots of a schedule of such a workspace, in minutes (option A). */
+    public const DEFAULT_MIN_SCHEDULE_INTERVAL_MINUTES = 15;
+
+    /** Scheduled runs such a workspace runs at once (option A). */
+    public const DEFAULT_MAX_CONCURRENT_JOB_RUNS = 1;
+
     /** The rolling window the build rate limit counts deployments in: one hour. */
     public const BUILD_RATE_WINDOW_SECONDS = 3600;
 
@@ -78,10 +119,15 @@ class PilotRuntimeLimitService
                 $this->maxDatabaseStorageMbFor($profile),
                 $this->maxBucketsFor($profile),
                 $this->maxBucketStorageMbFor($profile),
+                $this->scheduleLimitsFor($profile),
+                $this->maxValkeysFor($profile),
+                $this->maxValkeyMemoryMbFor($profile),
+                $this->maxCustomDomainsFor($profile),
             );
         }
 
         $maxProjects = (int) config('sakala.pilot_limits.max_projects_per_user', 3);
+        $workloads = $this->scheduleLimitsFor(null);
         $personal = new WorkspaceLimitsData(
             max_projects: $maxProjects,
             max_active_containers: self::configuredOr('sakala.pilot_limits.max_active_containers_per_workspace', $maxProjects),
@@ -95,6 +141,13 @@ class PilotRuntimeLimitService
             max_database_storage_mb: $this->maxDatabaseStorageMbFor(null),
             max_buckets: $this->maxBucketsFor(null),
             max_bucket_storage_mb: $this->maxBucketStorageMbFor(null),
+            max_worker_containers: $workloads->maxWorkerContainers,
+            max_schedules: $workloads->maxSchedules,
+            min_schedule_interval_minutes: $workloads->minScheduleIntervalMinutes,
+            max_concurrent_job_runs: $workloads->maxConcurrentJobRuns,
+            max_valkeys: $this->maxValkeysFor(null),
+            max_valkey_memory_mb: $this->maxValkeyMemoryMbFor(null),
+            max_custom_domains: $this->maxCustomDomainsFor(null),
         );
 
         if ($workspace->type === WorkspaceType::Personal) {
@@ -116,6 +169,36 @@ class PilotRuntimeLimitService
             max_database_storage_mb: $personal->max_database_storage_mb,
             max_buckets: $personal->max_buckets,
             max_bucket_storage_mb: $personal->max_bucket_storage_mb,
+            max_worker_containers: $personal->max_worker_containers,
+            max_schedules: $personal->max_schedules,
+            min_schedule_interval_minutes: $personal->min_schedule_interval_minutes,
+            max_concurrent_job_runs: $personal->max_concurrent_job_runs,
+            max_valkeys: $personal->max_valkeys,
+            max_valkey_memory_mb: $personal->max_valkey_memory_mb,
+            max_custom_domains: $personal->max_custom_domains,
+        );
+    }
+
+    /**
+     * The worker and schedule limits of a workspace under this profile
+     * (ADR-022). A profile without its own value, and a workspace without a
+     * profile (personal or team), follow `sakala.workers.default_max_containers`
+     * and the `sakala.schedules.default_*` settings: unset or empty means the
+     * DEFAULT_ constants above (option A). 0 allows no worker container, no
+     * schedule, or no run; the minimum interval is at least one minute. This
+     * is the only place that decides.
+     */
+    public function scheduleLimitsFor(?LimitProfile $profile): ScheduleLimitsData
+    {
+        return new ScheduleLimitsData(
+            maxWorkerContainers: max(0, $profile->max_worker_containers
+                ?? self::configuredOr('sakala.workers.default_max_containers', self::DEFAULT_MAX_WORKER_CONTAINERS)),
+            maxSchedules: max(0, $profile->max_schedules
+                ?? self::configuredOr('sakala.schedules.default_max_count', self::DEFAULT_MAX_SCHEDULES)),
+            minScheduleIntervalMinutes: max(LimitProfile::MIN_SCHEDULE_INTERVAL_FLOOR, $profile->min_schedule_interval_minutes
+                ?? self::configuredOr('sakala.schedules.default_min_interval_minutes', self::DEFAULT_MIN_SCHEDULE_INTERVAL_MINUTES)),
+            maxConcurrentJobRuns: max(0, $profile->max_concurrent_job_runs
+                ?? self::configuredOr('sakala.schedules.default_max_concurrent_runs', self::DEFAULT_MAX_CONCURRENT_JOB_RUNS)),
         );
     }
 
@@ -167,6 +250,45 @@ class PilotRuntimeLimitService
     {
         return max(0, $profile->max_bucket_storage_mb
             ?? self::configuredOr('sakala.buckets.default_max_storage_mb', self::DEFAULT_MAX_BUCKET_STORAGE_MB));
+    }
+
+    /**
+     * Managed Valkey stores a workspace under this profile may hold. A
+     * profile without its own value, and a workspace without a profile,
+     * follow `sakala.valkey.default_max_count`: unset or empty means
+     * DEFAULT_MAX_VALKEYS. 0 allows none. This is the only place that decides.
+     */
+    public function maxValkeysFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_valkeys
+            ?? self::configuredOr('sakala.valkey.default_max_count', self::DEFAULT_MAX_VALKEYS));
+    }
+
+    /**
+     * MB of `maxmemory` the Valkey stores of a workspace under this profile
+     * may reserve together. A profile without its own value, and a workspace
+     * without a profile, follow `sakala.valkey.default_max_memory_mb`: unset
+     * or empty means DEFAULT_MAX_VALKEY_MEMORY_MB. 0 allows no new store and
+     * no growth; existing stores keep their size. This is the only place that
+     * decides.
+     */
+    public function maxValkeyMemoryMbFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_valkey_memory_mb
+            ?? self::configuredOr('sakala.valkey.default_max_memory_mb', self::DEFAULT_MAX_VALKEY_MEMORY_MB));
+    }
+
+    /**
+     * Custom domains a workspace under this profile may hold (ADR-024). A
+     * profile without its own value, and a workspace without a profile,
+     * follow `sakala.custom_domains.default_max_count`: unset or empty means
+     * DEFAULT_MAX_CUSTOM_DOMAINS. 0 allows none. This is the only place that
+     * decides.
+     */
+    public function maxCustomDomainsFor(?LimitProfile $profile): int
+    {
+        return max(0, $profile->max_custom_domains
+            ?? self::configuredOr('sakala.custom_domains.default_max_count', self::DEFAULT_MAX_CUSTOM_DOMAINS));
     }
 
     /**
@@ -357,10 +479,16 @@ class PilotRuntimeLimitService
      * limits. The caller holds the workspace and project row locks inside a
      * transaction.
      *
+     * `$workerContainers` are the worker containers the new deployment runs
+     * next to its replicas (ADR-022); they count against
+     * `max_active_containers` like replicas, and against
+     * `max_worker_containers` on their own.
+     *
      * @throws ActiveDeploymentLimitExceededException
      * @throws ActiveContainerLimitExceededException
+     * @throws WorkerContainerLimitExceededException
      */
-    public function checkActiveDeploymentLimit(User $actor, Project $project): void
+    public function checkActiveDeploymentLimit(User $actor, Project $project, int $workerContainers = 0): void
     {
         if ($actor->isAdmin()) {
             return;
@@ -398,11 +526,23 @@ class PilotRuntimeLimitService
         }
 
         // Redeploying a project that already serves replaces its containers, so
-        // only replicas beyond the ones it runs need a free slot: going from 1
+        // only containers beyond the ones it runs need a free slot: going from 1
         // to 3 needs 2. A sleeping one holds no slot, so its redeploy takes
-        // all of its replicas like a wake.
-        $required = $this->replicasFor($project);
-        $held = $project->isServing() ? ($project->activeDeployment->replicas ?? Project::DEFAULT_REPLICAS) : 0;
+        // all of its containers like a wake. Worker containers count like
+        // replicas (ADR-022).
+        $serving = $project->isServing() ? $project->activeDeployment : null;
+        $heldWorkers = $serving === null ? 0 : $serving->worker_containers;
+
+        if ($workerContainers > $heldWorkers) {
+            $otherWorkers = $this->workerContainersIn($workspace, except: $project);
+
+            if ($otherWorkers + $workerContainers > $limits->max_worker_containers) {
+                throw new WorkerContainerLimitExceededException($limits->max_worker_containers, $otherWorkers, $workerContainers);
+            }
+        }
+
+        $required = $this->replicasFor($project) + $workerContainers;
+        $held = $serving === null ? 0 : $serving->replicas + $serving->worker_containers;
 
         if ($required <= $held) {
             return;
@@ -411,7 +551,7 @@ class PilotRuntimeLimitService
         $others = $this->activeContainersIn($workspace, except: $project);
 
         if ($others + $required > $limits->max_active_containers) {
-            throw new ActiveContainerLimitExceededException($limits->max_active_containers, $others + $held, $required);
+            throw new ActiveContainerLimitExceededException($limits->max_active_containers, $others + $held, $required, $workerContainers);
         }
     }
 
@@ -469,8 +609,9 @@ class PilotRuntimeLimitService
 
     /**
      * Whether waking this sleeping project stays within its workspace's running
-     * container limit. A wake starts every replica of the deployment the node
-     * keeps (`$workload`), whatever the project's setting says now. Applies to
+     * container limit. A wake starts every replica and worker container of the
+     * deployment the node keeps (`$workload`), whatever the project's setting
+     * says now; its worker containers also stay within `max_worker_containers`. Applies to
      * everyone, admins included: a wake can come from an anonymous visitor, and
      * the limit is what keeps a node's slots shared. The caller holds the
      * project row lock.
@@ -485,11 +626,21 @@ class PilotRuntimeLimitService
             return;
         }
 
-        $limit = $this->limitsFor($workspace)->max_active_containers;
+        $limits = $this->limitsFor($workspace);
+        $limit = $limits->max_active_containers;
         $containers = $this->activeContainersIn($workspace, except: $project);
+        $requested = $workload->replicas + $workload->worker_containers;
 
-        if ($containers + $workload->replicas > $limit) {
-            throw new ProjectWakeLimitExceededException($limit, $containers, $exposeUsage, $workload->replicas);
+        if ($containers + $requested > $limit) {
+            throw new ProjectWakeLimitExceededException($limit, $containers, $exposeUsage, $requested);
+        }
+
+        if ($workload->worker_containers > 0) {
+            $workers = $this->workerContainersIn($workspace, except: $project);
+
+            if ($workers + $workload->worker_containers > $limits->max_worker_containers) {
+                throw new ProjectWakeLimitExceededException($limits->max_worker_containers, $workers, $exposeUsage, $workload->worker_containers, workers: true);
+            }
         }
     }
 
@@ -515,6 +666,11 @@ class PilotRuntimeLimitService
             current_buckets_count: ManagedBucket::countIn($workspace->id),
             current_bucket_storage_mb: ManagedBucket::reservedMbIn($workspace->id),
             current_bucket_usage_bytes: ManagedBucket::usageBytesIn($workspace->id),
+            current_worker_containers_count: $this->workerContainersIn($workspace),
+            current_schedules_count: ProjectSchedule::enabledCountIn($workspace->id),
+            current_valkeys_count: ManagedValkey::countIn($workspace->id),
+            current_valkey_memory_mb: ManagedValkey::reservedMbIn($workspace->id),
+            current_custom_domains_count: ProjectDomain::countIn($workspace->id),
         );
     }
 
@@ -551,8 +707,23 @@ class PilotRuntimeLimitService
     }
 
     /**
-     * Running containers of the workspace: the replicas of every project that
-     * serves, or is being deployed and will serve (Project::heldContainers()).
+     * Running worker containers of the workspace (Project::heldWorkerContainers()),
+     * for `max_worker_containers`. One query.
+     */
+    public function workerContainersIn(Workspace $workspace, ?Project $except = null): int
+    {
+        return Project::query()
+            ->where('workspace_id', $workspace->id)
+            ->when($except !== null, fn (Builder $query) => $query->whereKeyNot($except?->id))
+            ->holdingContainers()
+            ->get()
+            ->sum(static fn (Project $project): int => $project->heldWorkerContainers());
+    }
+
+    /**
+     * Running containers of the workspace: the replicas and worker containers
+     * of every project that serves, or is being deployed and will serve
+     * (Project::heldContainers()).
      * A sleeping project keeps its active deployment but runs nothing, so it
      * does not count. One query.
      */

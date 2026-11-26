@@ -14,6 +14,7 @@ use App\Models\AgentCommand;
 use App\Models\Project;
 use App\Services\Agent\AgentNodeSchedulerService;
 use App\Services\GitHub\GithubBranchService;
+use App\Support\Database\TransactionRetry;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -147,7 +148,7 @@ final class RequestProjectInspectionAction
             ]);
 
             return $command;
-        });
+        }, TransactionRetry::ATTEMPTS);
     }
 
     /**

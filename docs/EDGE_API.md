@@ -90,7 +90,7 @@ Body tanpa pembungkus `data`. Header: `ETag: "<revision>"`,
 | Field | Tipe | Null | Keterangan |
 | --- | --- | --- | --- |
 | `generated_at` | string RFC 3339 | tidak | Kapan API menyusun tabel ini. Bisa lebih tua sampai `SAKALA_EDGE_ROUTES_CACHE_SECONDS` detik (lihat Cache). |
-| `revision` | string, 64 karakter hex huruf kecil | tidak | SHA-256 dari JSON `{"expected_minimum_routes", "routes", "skipped_routes"}` persis seperti di response, urutan kunci itu, `JSON_UNESCAPED_SLASHES`. `generated_at` tidak ikut, jadi revisi hanya berubah bila isi yang dipakai Edge berubah. Juga nilai ETag. Edge cukup memperlakukannya sebagai string buram. |
+| `revision` | string, 64 karakter hex huruf kecil | tidak | SHA-256 dari JSON `{"expected_minimum_routes", "routes", "skipped_routes"}` persis seperti di response, urutan kunci itu, `JSON_UNESCAPED_SLASHES`; selama custom domain aktif, ditambah `"expected_minimum_custom_routes", "custom_routes"` di belakangnya (lihat [Custom domain](#custom-domain)). `generated_at` tidak ikut, jadi revisi hanya berubah bila isi yang dipakai Edge berubah. Juga nilai ETag. Edge cukup memperlakukannya sebagai string buram. |
 | `expected_minimum_routes` | integer ≥ 0 | tidak | Jumlah route yang disusun API, sama dengan panjang `routes`. Edge **wajib** menolak response yang `routes`-nya lebih sedikit (terpotong) dan tetap memakai salinan terakhir. |
 | `routes` | array | tidak | Satu item per project yang punya workload di node, urut menurut `host`. Array kosong hanya bila memang tidak ada project yang punya workload. |
 | `routes[].host` | string | tidak | Domain project (`projects.default_domain`), huruf kecil, selalu tepat satu label di bawah `SAKALA_PROJECT_DEFAULT_DOMAIN` (misalnya `toko-buku.sakala.app`, atau `demo.staging.sakala.app` di staging). Unik di seluruh tabel. |
@@ -140,6 +140,40 @@ Alamat node (`edge_address`) adalah override admin bila ada, selain itu nilai
 `metadata.runtime.edge_address` dari heartbeat terakhir node. Node yang offline atau
 token-nya dicabut tetap dicantumkan: container dan router-nya bisa tetap melayani,
 dan health check Edge yang menentukan upstream sehat atau tidak.
+
+## Custom domain
+
+Selama `SAKALA_CUSTOM_DOMAINS_ENABLED=true` (ADR-024, [CUSTOM_DOMAINS.md](CUSTOM_DOMAINS.md)), response membawa dua field tambahan di belakang `skipped_routes`. Selama fitur mati keduanya tidak ada sama sekali, dan isi serta `revision` tabel persis seperti sebelum fitur ini. Edge versi lama mengabaikan keduanya. Custom domain sengaja tidak masuk `routes`, karena Edge menolak seluruh tabel bila satu host `routes` berada di luar suffix project.
+
+```json
+{
+  "expected_minimum_custom_routes": 2,
+  "custom_routes": [
+    {
+      "host": "contoh.net",
+      "project_id": "019a8f3c-7d10-7e22-8a5b-6c9d0e1f2a3b",
+      "upstreams": []
+    },
+    {
+      "host": "www.contoh.com",
+      "project_id": "019a8f3c-6a2e-7b41-9c0d-2f5e8a1b3c4d",
+      "upstreams": ["10.0.47.201:8180"]
+    }
+  ]
+}
+```
+
+| Field | Tipe | Null | Keterangan |
+| --- | --- | --- | --- |
+| `expected_minimum_custom_routes` | integer ≥ 0 | tidak | Jumlah custom route yang disusun API, sama dengan panjang `custom_routes`. Edge menolak bagian custom yang lebih sedikit (`below_expected_minimum`) dan tetap memakai bagian custom terakhir yang baik. |
+| `custom_routes` | array | tidak | Satu item per custom domain `verified` dari project yang tidak dihapus, urut menurut `host`. Boleh kosong. |
+| `custom_routes[].host` | string | tidak | Custom domain dalam bentuk akhir: huruf kecil ASCII, IDN sebagai punycode, minimal dua label, paling panjang 253 karakter, tidak di bawah domain project atau `SAKALA_CUSTOM_DOMAIN_FORBIDDEN_ZONES`. Unik di seluruh bagian custom (unique index parsial di API). Nama yang terlanjur `verified` lalu masuk zona terlarang karena konfigurasi berubah dilewati dan dicatat di log, supaya Edge tidak menolak seluruh bagian custom karenanya. |
+| `custom_routes[].project_id` | string UUID | tidak | Project pemilik domain. |
+| `custom_routes[].upstreams` | array of string | tidak | Sama dengan `routes[].upstreams` project itu bila workload-nya ada di node yang mengiklankan capability `custom-domains`. **Kosong** bila project tidak punya workload (belum deploy, di-stop) atau node-nya belum bisa melayani custom domain: Edge tetap menulis site dan merawat sertifikatnya, dan menjawab 404 "Belum ada aplikasi di alamat ini" sendiri. |
+
+Bila bagian custom ditolak Edge, route project dari tabel yang sama tetap diterapkan, dan Edge melaporkan `Sakala-Edge-Status: custom_routes_rejected` (alasannya ada di `status.json` Edge). API memperlakukannya seperti status bukan `ok` lain: terlihat di `GET admin/edges`, dan bila bertahan lebih lama dari `SAKALA_EDGE_STALE_AFTER_SECONDS`, `edge:check-health` memberi tahu admin (alasan `status`).
+
+Domain yang baru `verified`, dinonaktifkan, atau dihapus terlihat di tabel paling lambat `SAKALA_EDGE_ROUTES_CACHE_SECONDS` (default 5 detik) ditambah interval poll Edge.
 
 ## Cache
 

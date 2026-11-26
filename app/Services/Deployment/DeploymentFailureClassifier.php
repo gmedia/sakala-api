@@ -6,6 +6,8 @@ namespace App\Services\Deployment;
 
 use App\Data\Deployment\DeploymentFailureData;
 use App\Enums\DeploymentFailureCategory as Category;
+use App\Services\CustomDomain\CustomDomainRouteSync;
+use App\Support\Valkey\ValkeyCommandFailure;
 
 /**
  * Turns an agent or control-plane error code into text a student can act on.
@@ -155,6 +157,14 @@ final class DeploymentFailureClassifier
                 'Buka log deployment bagian rilis untuk melihat langkah yang lambat. Pastikan perintah rilis selesai sendiri, tidak menunggu input, dan tidak menjalankan server. Perbaiki, lalu deploy ulang.',
             ),
 
+            // ADR-022: a worker exited or restarted before the route switched.
+            'worker_start_failed' => $this->userFixable(
+                $errorCode,
+                Category::Start,
+                'Salah satu worker berhenti saat dijalankan, jadi versi baru tidak dijalankan. Nama worker dan kode keluarnya tertulis di detail kegagalan. Versi sebelumnya, kalau ada, tetap melayani bersama worker-nya.',
+                'Buka log deployment dan pilih proses worker itu untuk melihat error-nya. Pastikan perintah worker tetap berjalan, tidak selesai sendiri, dan memorinya cukup. Perbaiki perintah worker di pengaturan proyek atau di repository, lalu deploy ulang.',
+            ),
+
             'runtime_app_crashed' => $this->userFixable(
                 $errorCode,
                 Category::Start,
@@ -208,6 +218,27 @@ final class DeploymentFailureClassifier
                 Category::Health,
                 'Aplikasi merespons pengecekan dari Sakala dengan error server (status 500 ke atas).',
                 'Buka log deployment untuk melihat error-nya. Status di bawah 500 sudah dianggap sehat, jadi yang perlu diperbaiki hanya error server di aplikasimu. Perbaiki, lalu deploy ulang.',
+            ),
+
+            ValkeyCommandFailure::NETWORK_UNAVAILABLE => $this->platform(
+                $errorCode,
+                Category::Start,
+                'Jaringan Valkey yang dipasang ke proyek ini tidak ditemukan di server, jadi versi baru tidak dijalankan. Versi sebelumnya, kalau ada, tetap melayani.',
+                'Ini gangguan di sisi Sakala, bukan kesalahan di aplikasimu. Coba deploy ulang beberapa saat lagi. Kalau gagal lagi, lepas Valkey dari proyek atau hubungi admin Sakala.',
+            ),
+
+            CustomDomainRouteSync::ERROR_INVALID => $this->platform(
+                $errorCode,
+                Category::Route,
+                'Server Sakala menolak salah satu custom domain proyek ini, jadi versi baru tidak dijalankan. Versi sebelumnya, kalau ada, tetap melayani.',
+                'Hubungi admin Sakala dan sebutkan domain yang tertulis di detail kegagalan. Sementara itu, kamu bisa menghapus domain itu dari proyek, lalu deploy ulang.',
+            ),
+
+            CustomDomainRouteSync::ERROR_TAKEN => $this->platform(
+                $errorCode,
+                Category::Route,
+                'Salah satu custom domain proyek ini masih tercatat di proyek lain di server yang sama, jadi versi baru tidak dijalankan. Versi sebelumnya, kalau ada, tetap melayani.',
+                'Biasanya ini sisa proyek lama yang memakai domain yang sama dan sedang dibersihkan Sakala. Coba deploy ulang beberapa menit lagi. Kalau gagal lagi, hubungi admin Sakala.',
             ),
 
             'runtime_routing_failed' => $this->platform(

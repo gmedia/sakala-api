@@ -15,10 +15,15 @@ use App\Models\BucketAttachment;
 use App\Models\DatabaseAttachment;
 use App\Models\Deployment;
 use App\Models\Project;
+use App\Models\ProjectSchedule;
 use App\Models\User;
+use App\Models\ValkeyAttachment;
 use App\Services\Runtime\ProjectWorkloadService;
+use App\Services\Schedule\ScheduleRunCanceller;
 use App\Support\Bucket\BucketAudit;
+use App\Support\CustomDomain\CustomDomainAudit;
 use App\Support\Database\DatabaseAudit;
+use App\Support\Valkey\ValkeyAudit;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -41,7 +46,41 @@ final class DeleteProjectAction
         private readonly CreateStopProjectCommandAction $createStopCommand,
         private readonly CancelDeploymentAction $cancelDeployment,
         private readonly ProjectWorkloadService $workloads,
+        private readonly ScheduleRunCanceller $scheduleRuns,
     ) {}
+
+    /**
+     * Schedules go with the project (ADR-022): open runs are stopped, then
+     * the schedules and their history are deleted, so the dispatcher never
+     * sees them again. The StopProject also cancels a job the node runs.
+     */
+    private function deleteSchedules(Project $project): void
+    {
+        $project->schedules()->get()->each(function (ProjectSchedule $schedule): void {
+            $this->scheduleRuns->cancelOpenRuns($schedule);
+            $schedule->delete();
+        });
+    }
+
+    /**
+     * Custom domains go with the project (ADR-024): every claim is soft
+     * deleted in the same transaction, under the project row lock, before
+     * any claim row is locked. The StopProject removes the node route, and
+     * a deleted project has no Edge route. Restoring the project does not
+     * bring them back.
+     */
+    private function deleteDomains(Project $project, ?User $user): void
+    {
+        foreach ($project->domains()->get() as $domain) {
+            $domain->next_check_at = null;
+            $domain->save();
+            $domain->delete();
+
+            CustomDomainAudit::record($user ?? CustomDomainAudit::PROJECT_DELETE_ACTOR, CustomDomainAudit::DELETED, $domain, [
+                'reason' => CustomDomainAudit::DELETE_REASON_PROJECT_DELETED,
+            ]);
+        }
+    }
 
     public function handle(Project $project, ?User $user = null): void
     {
@@ -52,6 +91,9 @@ final class DeleteProjectAction
             $stopCommandId = $this->stopServingWorkload($locked);
             $this->detachDatabases($locked, $user);
             $this->detachBuckets($locked, $user);
+            $this->detachValkeys($locked, $user);
+            $this->deleteSchedules($locked);
+            $this->deleteDomains($locked, $user);
 
             $locked->delete();
 
@@ -122,6 +164,27 @@ final class DeleteProjectAction
                 BucketAudit::record($user ?? self::SYSTEM_ACTOR_ID, BucketAudit::DETACHED, $attachment->bucket, [
                     'project_id' => $project->id,
                     'reason' => BucketAudit::DETACH_REASON_PROJECT_DELETED,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * A managed Valkey store outlives the projects it is attached to
+     * (ADR-023), the same way as a bucket, and under the same lock rule. The
+     * StopProject above removes the project's containers from its network.
+     */
+    private function detachValkeys(Project $project, ?User $user): void
+    {
+        $attachments = ValkeyAttachment::query()->with('valkey')->where('project_id', $project->id)->get();
+
+        foreach ($attachments as $attachment) {
+            $attachment->delete();
+
+            if ($attachment->valkey !== null) {
+                ValkeyAudit::record($user ?? self::SYSTEM_ACTOR_ID, ValkeyAudit::DETACHED, $attachment->valkey, [
+                    'project_id' => $project->id,
+                    'reason' => ValkeyAudit::DETACH_REASON_PROJECT_DELETED,
                 ]);
             }
         }

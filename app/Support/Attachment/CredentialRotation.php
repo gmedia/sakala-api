@@ -9,18 +9,22 @@ use App\Enums\AgentCommandType;
 use App\Enums\BucketKeyRotationStatus;
 use App\Enums\DatabasePasswordRotationStatus;
 use App\Enums\DeploymentTrigger;
+use App\Enums\ValkeyPasswordRotationStatus;
 use App\Models\AgentCommand;
 use App\Models\User;
 use App\Support\Bucket\BucketCommandFailure;
+use App\Support\Valkey\ValkeyCommandFailure;
 
 /**
  * The control-plane side of a credential rotation command, a
- * RotateDatabasePassword (ADR-020) or a RotateBucketKey (ADR-021), kept in its
+ * RotateDatabasePassword (ADR-020), a RotateBucketKey (ADR-021), or a
+ * RotateValkeyPassword (ADR-023), kept in its
  * `request_context` (never sent to the node): who asked, whether attached
  * projects are redeployed once the node reports success, and, once the API
  * queued them, what happened per project. Also what `password_rotation` on
- * DatabaseResource and `key_rotation` on BucketResource show. One
- * implementation serves both resources.
+ * DatabaseResource, `key_rotation` on BucketResource, and
+ * `password_rotation` on ValkeyResource show. One implementation serves all
+ * three resources.
  */
 final class CredentialRotation
 {
@@ -36,11 +40,11 @@ final class CredentialRotation
     /** One item per project attached at that moment: `project_id`, `deployment_id`, `skipped_reason`. */
     public const REDEPLOYS_KEY = 'redeploys';
 
-    /** Which send of the same new bucket secret this command is, from 1; absent on the first. */
+    /** Which send of the same new bucket secret or Valkey password this command is, from 1; absent on the first. */
     public const ATTEMPT_KEY = 'attempt';
 
     /**
-     * Sends of one bucket key rotation, the first included, before the API
+     * Sends of one bucket key or Valkey password rotation, the first included, before the API
      * stops resending after uncertain outcomes and shows `unknown`.
      */
     public const MAX_UNCERTAIN_ATTEMPTS = 10;
@@ -57,18 +61,23 @@ final class CredentialRotation
     /** Prefix of the idempotency key of each redeploy after a bucket key rotation, followed by the command ID. */
     private const BUCKET_IDEMPOTENCY_PREFIX = 'bucket-key-rotation:';
 
+    /** Prefix of the idempotency key of each redeploy after a Valkey password rotation, followed by the command ID. */
+    private const VALKEY_IDEMPOTENCY_PREFIX = 'valkey-password-rotation:';
+
     /** Whether the command is one of the rotations this class describes. */
     public static function isRotation(AgentCommand $command): bool
     {
-        return in_array($command->type, [AgentCommandType::RotateDatabasePassword, AgentCommandType::RotateBucketKey], true);
+        return in_array($command->type, [AgentCommandType::RotateDatabasePassword, AgentCommandType::RotateBucketKey, AgentCommandType::RotateValkeyPassword], true);
     }
 
     /** The trigger of the redeploys a rotation queues. */
     public static function trigger(AgentCommand $command): DeploymentTrigger
     {
-        return $command->type === AgentCommandType::RotateBucketKey
-            ? DeploymentTrigger::BucketKeyRotated
-            : DeploymentTrigger::DatabasePasswordRotated;
+        return match ($command->type) {
+            AgentCommandType::RotateBucketKey => DeploymentTrigger::BucketKeyRotated,
+            AgentCommandType::RotateValkeyPassword => DeploymentTrigger::ValkeyPasswordRotated,
+            default => DeploymentTrigger::DatabasePasswordRotated,
+        };
     }
 
     /** @return array<string, mixed> */
@@ -90,17 +99,24 @@ final class CredentialRotation
     }
 
     /**
-     * Whether a closed bucket key rotation ended without knowing if the node
-     * switched to the new secret: a first send that failed with an uncertain
-     * code (BucketCommandFailure::uncertainRotationCodes()), or any send after
-     * the first that did not complete, since an earlier send may have applied
-     * the new secret already.
+     * Whether a closed bucket key or Valkey password rotation ended without
+     * knowing if the node switched to the new credential: a first send that
+     * failed with an uncertain code (BucketCommandFailure or
+     * ValkeyCommandFailure::uncertainRotationCodes()), or any send after the
+     * first that did not complete, since an earlier send may have applied the
+     * new credential already.
      */
     public static function uncertain(AgentCommand $command): bool
     {
-        return $command->type === AgentCommandType::RotateBucketKey
+        $uncertainCodes = match ($command->type) {
+            AgentCommandType::RotateBucketKey => BucketCommandFailure::uncertainRotationCodes(),
+            AgentCommandType::RotateValkeyPassword => ValkeyCommandFailure::uncertainRotationCodes(),
+            default => null,
+        };
+
+        return $uncertainCodes !== null
             && in_array($command->status, [AgentCommandStatus::Failed, AgentCommandStatus::Expired, AgentCommandStatus::Cancelled], true)
-            && (self::attempt($command) > 1 || in_array((string) $command->error_code, BucketCommandFailure::uncertainRotationCodes(), true));
+            && (self::attempt($command) > 1 || in_array((string) $command->error_code, $uncertainCodes, true));
     }
 
     /** Seconds to wait before send number `$attempt` (from 2): doubling from RESEND_BASE_DELAY_SECONDS, capped. */
@@ -139,19 +155,21 @@ final class CredentialRotation
      */
     public static function idempotencyKey(AgentCommand $command): string
     {
-        $prefix = $command->type === AgentCommandType::RotateBucketKey
-            ? self::BUCKET_IDEMPOTENCY_PREFIX
-            : self::DATABASE_IDEMPOTENCY_PREFIX;
+        $prefix = match ($command->type) {
+            AgentCommandType::RotateBucketKey => self::BUCKET_IDEMPOTENCY_PREFIX,
+            AgentCommandType::RotateValkeyPassword => self::VALKEY_IDEMPOTENCY_PREFIX,
+            default => self::DATABASE_IDEMPOTENCY_PREFIX,
+        };
 
         return $prefix.$command->id;
     }
 
     /**
-     * `password_rotation` of DatabaseResource or `key_rotation` of
-     * BucketResource for the newest rotation, or null when the credential was
-     * never rotated.
+     * `password_rotation` of DatabaseResource or ValkeyResource, or
+     * `key_rotation` of BucketResource, for the newest rotation, or null when
+     * the credential was never rotated.
      *
-     * @return array{status: DatabasePasswordRotationStatus|BucketKeyRotationStatus, requested_at: string, completed_at: string|null, failed_at: string|null, redeploy_attached: bool, redeploys: list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>|null}|null
+     * @return array{status: DatabasePasswordRotationStatus|BucketKeyRotationStatus|ValkeyPasswordRotationStatus, requested_at: string, completed_at: string|null, failed_at: string|null, redeploy_attached: bool, redeploys: list<array{project_id: string, deployment_id: string|null, skipped_reason: string|null}>|null}|null
      */
     public static function present(?AgentCommand $latest): ?array
     {
@@ -159,9 +177,11 @@ final class CredentialRotation
             return null;
         }
 
-        $status = $latest->type === AgentCommandType::RotateBucketKey
-            ? BucketKeyRotationStatus::fromCommandStatus($latest->status, self::uncertain($latest))
-            : DatabasePasswordRotationStatus::fromCommandStatus($latest->status);
+        $status = match ($latest->type) {
+            AgentCommandType::RotateBucketKey => BucketKeyRotationStatus::fromCommandStatus($latest->status, self::uncertain($latest)),
+            AgentCommandType::RotateValkeyPassword => ValkeyPasswordRotationStatus::fromCommandStatus($latest->status, self::uncertain($latest)),
+            default => DatabasePasswordRotationStatus::fromCommandStatus($latest->status),
+        };
 
         return [
             'status' => $status,

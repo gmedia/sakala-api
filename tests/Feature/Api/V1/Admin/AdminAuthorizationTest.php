@@ -10,6 +10,7 @@ use App\Models\Deployment;
 use App\Models\Feedback;
 use App\Models\LimitProfile;
 use App\Models\Project;
+use App\Models\ProjectDomain;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -34,6 +35,7 @@ function adminApiRoutes(): array
     $agent = AgentNode::factory()->create();
     $command = AgentCommand::factory()->create(['agent_node_id' => $agent->id]);
     $feedback = Feedback::factory()->create(['user_id' => $user->id]);
+    $domain = ProjectDomain::factory()->create(['project_id' => $project->id]);
 
     return [
         'overview' => ['GET', '/api/v1/admin/overview'],
@@ -72,6 +74,9 @@ function adminApiRoutes(): array
         'feedback index' => ['GET', '/api/v1/admin/feedback'],
         'feedback update' => ['PATCH', "/api/v1/admin/feedback/{$feedback->id}"],
         'audit events' => ['GET', '/api/v1/admin/audit-events'],
+        'custom domains index' => ['GET', '/api/v1/admin/custom-domains'],
+        'custom domains disable' => ['POST', "/api/v1/admin/custom-domains/{$domain->id}/disable"],
+        'custom domains enable' => ['POST', "/api/v1/admin/custom-domains/{$domain->id}/enable"],
         'pilot validation metrics' => ['GET', '/api/v1/admin/metrics/pilot-validation'],
         'signals' => ['GET', '/api/v1/admin/signals'],
     ];
@@ -90,8 +95,8 @@ test('the route list covers every admin route', function (): void {
 
     $covered = collect(adminApiRoutes())
         ->map(fn (array $route): string => $route[0].' '.preg_replace(
-            ['#/projects/[^/]+#', '#/users/\d+#', '#/workspaces/[^/]+#', '#/limit-profiles/[^/]+#', '#/deployments/(?!failures|failure-summary)[^/]+#', '#/agents/[^/]+/commands/[^/]+#', '#/agents/(?!.*commands/\{)[^/]+#', '#/feedback/[^/]+#'],
-            ['/projects/{project}', '/users/{user}', '/workspaces/{workspace}', '/limit-profiles/{limitProfile}', '/deployments/{deployment}', '/agents/{agent}/commands/{command}', '/agents/{agent}', '/feedback/{feedback}'],
+            ['#/projects/[^/]+#', '#/users/\d+#', '#/workspaces/[^/]+#', '#/limit-profiles/[^/]+#', '#/deployments/(?!failures|failure-summary)[^/]+#', '#/agents/[^/]+/commands/[^/]+#', '#/agents/(?!.*commands/\{)[^/]+#', '#/feedback/[^/]+#', '#/custom-domains/[^/]+/#'],
+            ['/projects/{project}', '/users/{user}', '/workspaces/{workspace}', '/limit-profiles/{limitProfile}', '/deployments/{deployment}', '/agents/{agent}/commands/{command}', '/agents/{agent}', '/feedback/{feedback}', '/custom-domains/{domain}/'],
             ltrim($route[1], '/'),
         ))
         ->sort()

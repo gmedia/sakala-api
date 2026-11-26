@@ -9,6 +9,7 @@ use App\Enums\ProjectAlert;
 use App\Notifications\Messages\SakalaMailMessage;
 use App\Services\Auth\ConsoleAuthenticationRedirect;
 use App\Services\Notification\NotificationUnsubscribeLinks;
+use App\Services\Schedule\SchedulePolicy;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Notifications\Notification;
@@ -52,6 +53,13 @@ final class ProjectAlertMailNotification extends Notification implements ShouldQ
             ProjectAlert::DeploymentSucceeded => $this->deploymentSucceeded(),
             ProjectAlert::AppCrashed => $this->appCrashed(),
             ProjectAlert::AutoDeploySkipped => $this->autoDeploySkipped(),
+            ProjectAlert::WorkerCrashed => $this->workerCrashed(),
+            ProjectAlert::ScheduleFailing => $this->scheduleFailing(),
+            ProjectAlert::SchedulePaused => $this->schedulePaused(),
+            ProjectAlert::CustomDomainFailing => $this->customDomainFailing(),
+            ProjectAlert::CustomDomainDisabled => $this->customDomainDisabled(),
+            ProjectAlert::CustomDomainReactivated => $this->customDomainReactivated(),
+            ProjectAlert::CustomDomainReleased => $this->customDomainReleased(),
         };
 
         return $message
@@ -143,6 +151,125 @@ final class ProjectAlertMailNotification extends Notification implements ShouldQ
         $this->heldBackLine($message, "Ada {$this->heldBack} push lagi yang juga tidak di-deploy sejak email terakhir.");
 
         return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function workerCrashed(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $worker = $this->data->summary ?? 'worker';
+        $message = (new SakalaMailMessage)
+            ->subject("Worker {$worker} proyek {$name} di Sakala berhenti sendiri")
+            ->preheader('Aplikasi web tetap melayani pengunjung, tetapi pekerjaan latar worker ini tertunda.')
+            ->headline("Worker {$worker} proyek {$name} berhenti sendiri")
+            ->line('Aplikasi web tetap melayani pengunjung. Worker ini dimulai ulang terus oleh Sakala, jadi pekerjaan latarnya, misalnya antrean, tertunda sampai penyebabnya diperbaiki.')
+            ->line('Buka log deployment dan pilih proses worker ini untuk melihat pesan terakhir sebelum berhenti. Penyebab yang sering muncul: perintah worker yang keliru, environment variable yang belum diisi, atau memori yang habis.');
+
+        $this->heldBackLine($message, "Worker di proyek ini berhenti {$this->heldBack} kali lagi sejak email terakhir.");
+
+        return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function scheduleFailing(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $schedule = $this->data->summary ?? 'jadwal';
+        $message = (new SakalaMailMessage)
+            ->subject("Jadwal {$schedule} proyek {$name} di Sakala gagal")
+            ->preheader('Sakala memberi tahu lagi saat jadwal ini berhasil.')
+            ->headline("Jadwal {$schedule} proyek {$name} gagal")
+            ->line('Run terakhir jadwal ini gagal, melewati batas waktu, atau hilang karena server berhenti. Buka riwayat jadwal untuk melihat kode keluar dan log-nya.')
+            ->line('Sakala tidak mengirim email untuk setiap kegagalan berikutnya. Kamu diberi tahu lagi saat jadwal ini berhasil, atau saat jadwal dijeda karena gagal terus.');
+
+        $this->heldBackLine($message, "Ada {$this->heldBack} jadwal lain di proyek ini yang juga mulai gagal sejak email terakhir.");
+
+        return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function schedulePaused(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $schedule = $this->data->summary ?? 'jadwal';
+        $failures = app(SchedulePolicy::class)->pauseAfterFailures();
+        $message = (new SakalaMailMessage)
+            ->subject("Jadwal {$schedule} proyek {$name} di Sakala dijeda")
+            ->preheader("Jadwal ini gagal {$failures} kali berturut-turut.")
+            ->headline("Jadwal {$schedule} proyek {$name} dijeda")
+            ->line("Jadwal ini gagal {$failures} kali berturut-turut, jadi Sakala menjedanya supaya tidak terus memakai kapasitas. Tidak ada run baru sampai jadwal ini diaktifkan lagi.")
+            ->line('Buka riwayat jadwal untuk melihat kode keluar dan log-nya, perbaiki perintahnya atau aplikasinya, lalu aktifkan lagi jadwal ini.');
+
+        $this->heldBackLine($message, "Ada {$this->heldBack} jadwal lain di proyek ini yang juga dijeda sejak email terakhir.");
+
+        return $message->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function customDomainFailing(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $domain = $this->data->summary ?? 'custom domain';
+        $when = $this->data->detail ?? 'segera';
+        $message = (new SakalaMailMessage)
+            ->subject("Domain {$domain} proyek {$name} di Sakala akan dinonaktifkan")
+            ->preheader('Pemeriksaan DNS domain ini gagal terus. Perbaiki record-nya supaya domain tetap aktif.')
+            ->headline("Domain {$domain} akan dinonaktifkan {$when}")
+            ->line("Sakala memeriksa DNS {$domain} secara berkala, dan pemeriksaannya gagal terus. Kalau record-nya belum diperbaiki, domain ini dinonaktifkan {$when}: pengunjung {$domain} tidak lagi sampai ke proyek {$name}. Alamat proyek di Sakala tetap jalan.");
+
+        if ($this->data->recoveryHint !== null) {
+            $message->line("Yang perlu diperbaiki: {$this->data->recoveryHint}");
+        }
+
+        $this->heldBackLine($message, "Ada {$this->heldBack} domain lain di proyek ini yang juga gagal sejak email terakhir.");
+
+        return $message
+            ->action('Buka proyek', $this->console()->project($this->data->projectId))
+            ->line('Setelah record diperbaiki, tekan Periksa sekarang di daftar domain proyek, atau tunggu pemeriksaan berikutnya.');
+    }
+
+    private function customDomainDisabled(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $domain = $this->data->summary ?? 'custom domain';
+        $message = (new SakalaMailMessage)
+            ->subject("Domain {$domain} proyek {$name} di Sakala dinonaktifkan")
+            ->preheader('Pengunjung domain ini tidak lagi sampai ke proyekmu. Alamat proyek di Sakala tetap jalan.')
+            ->headline("Domain {$domain} dinonaktifkan")
+            ->line("Pengunjung {$domain} tidak lagi sampai ke proyek {$name}. Alamat proyek di Sakala tetap jalan, dan domain ini tetap tercatat di proyek sampai kamu menghapusnya.");
+
+        if ($this->data->recoveryHint !== null) {
+            $message->line($this->data->recoveryHint);
+        }
+
+        $this->heldBackLine($message, "Ada {$this->heldBack} domain lain di proyek ini yang juga dinonaktifkan sejak email terakhir.");
+
+        return $message
+            ->action('Buka proyek', $this->console()->project($this->data->projectId))
+            ->line('Domain yang dinonaktifkan karena DNS aktif lagi sendiri kalau record-nya diperbaiki dalam 30 hari. Sakala memeriksanya sekali sehari, atau saat kamu menekan Periksa sekarang.');
+    }
+
+    private function customDomainReactivated(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $domain = $this->data->summary ?? 'custom domain';
+
+        return (new SakalaMailMessage)
+            ->subject("Domain {$domain} proyek {$name} di Sakala aktif lagi")
+            ->preheader('Pemeriksaan DNS domain ini lolos lagi.')
+            ->headline("Domain {$domain} aktif lagi")
+            ->line("Pemeriksaan DNS {$domain} lolos lagi, jadi pengunjung domain ini kembali sampai ke proyek {$name}. Tidak ada yang perlu kamu lakukan.")
+            ->action('Buka proyek', $this->console()->project($this->data->projectId));
+    }
+
+    private function customDomainReleased(): SakalaMailMessage
+    {
+        $name = $this->data->projectName;
+        $domain = $this->data->summary ?? 'custom domain';
+
+        return (new SakalaMailMessage)
+            ->subject("Domain {$domain} sekarang dipakai proyek lain di Sakala")
+            ->preheader('Domain yang dinonaktifkan di proyekmu diklaim pemilik DNS-nya untuk proyek lain.')
+            ->headline("Domain {$domain} dipakai proyek lain")
+            ->line("{$domain} sudah dinonaktifkan di proyek {$name}. Sekarang proyek lain membuktikan kepemilikan domain ini lewat record TXT-nya, jadi domain itu aktif di sana dan tidak bisa aktif lagi di proyek {$name}.")
+            ->line('Kalau domain ini masih milikmu, periksa siapa yang bisa mengubah DNS-nya. Hapus domain ini dari daftar domain proyekmu.')
+            ->action('Buka proyek', $this->console()->project($this->data->projectId));
     }
 
     private function heldBackLine(SakalaMailMessage $message, string $sentence): void

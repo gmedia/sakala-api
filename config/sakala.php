@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use App\Actions\Edge\EvaluateEdgeHealthAction;
 use App\Services\Bucket\BucketQuotaPolicy;
+use App\Services\CustomDomain\CustomDomainPolicy;
 use App\Services\Runtime\PilotRuntimeLimitService;
+use App\Services\Schedule\SchedulePolicy;
 use App\Support\Domains\ProjectDomainGenerator;
 
 $emailDeliveryOverride = env('SAKALA_EMAIL_DELIVERY_ENABLED');
@@ -51,6 +53,9 @@ return [
         'edge' => (int) env('SAKALA_EDGE_RATE_LIMIT', 120),
         // Per minute per IP: the signed one-click unsubscribe link in alert emails.
         'notification_unsubscribe' => (int) env('SAKALA_NOTIFICATION_UNSUBSCRIBE_RATE_LIMIT', 10),
+        // Per minute per custom domain and, separately, per user: "check now"
+        // asks the domain's name servers several questions each time (ADR-024).
+        'custom_domain_check' => (int) env('SAKALA_CUSTOM_DOMAIN_CHECK_RATE_LIMIT', 6),
     ],
 
     // Current versions of the published documents, stored per user on acceptance.
@@ -118,6 +123,9 @@ return [
             // Managed object storage serves S3 at s3.<default_domain> (ADR-021);
             // that host-level site wins over the project wildcard.
             's3',
+            // Custom domains point a CNAME at edge.<default_domain> (ADR-024);
+            // that explicit record wins over the project wildcard.
+            'edge',
         ],
     ],
 
@@ -200,6 +208,102 @@ return [
         // Quota of a new bucket created without `quota_mb`, in MB, capped at
         // what the workspace has left.
         'default_quota_mb' => env('SAKALA_BUCKET_DEFAULT_QUOTA_MB', BucketQuotaPolicy::DEFAULT_QUOTA_MB),
+    ],
+
+    // Worker processes (ADR-022): containers of a deployment's image that run
+    // another command next to `web`, such as a queue worker. Off by default,
+    // so an installation changes nothing until an operator turns it on: the
+    // endpoints answer 404, DeployProject never carries `processes`, and no
+    // worker container is counted.
+    'workers' => [
+        'enabled' => (bool) env('SAKALA_WORKERS_ENABLED', false),
+        // Worker containers a workspace may run at once, for a workspace whose
+        // limit profile leaves the field empty and one without a profile. They
+        // also count against max_active_containers. Empty means the default;
+        // 0 allows none.
+        'default_max_containers' => env('SAKALA_WORKER_DEFAULT_MAX_CONTAINERS', PilotRuntimeLimitService::DEFAULT_MAX_WORKER_CONTAINERS),
+    ],
+
+    // Scheduled jobs (ADR-022): the API records each due slot and runs it as a
+    // RunJob container from the live image. Off by default for the same
+    // reason as workers: schedules:dispatch does nothing and the endpoints
+    // answer 404.
+    'schedules' => [
+        'enabled' => (bool) env('SAKALA_SCHEDULES_ENABLED', false),
+        // Defaults for a workspace whose limit profile leaves the field empty
+        // and one without a profile. Empty values fall back to the defaults.
+        'default_max_count' => env('SAKALA_SCHEDULE_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_SCHEDULES),
+        'default_min_interval_minutes' => env('SAKALA_SCHEDULE_DEFAULT_MIN_INTERVAL_MINUTES', PilotRuntimeLimitService::DEFAULT_MIN_SCHEDULE_INTERVAL_MINUTES),
+        'default_max_concurrent_runs' => env('SAKALA_SCHEDULE_DEFAULT_MAX_CONCURRENT_RUNS', PilotRuntimeLimitService::DEFAULT_MAX_CONCURRENT_JOB_RUNS),
+        // A slot that has not started this many minutes after its time (or
+        // within its interval, if shorter) is recorded as missed.
+        'start_deadline_minutes' => max(1, (int) env('SAKALA_SCHEDULE_START_DEADLINE_MINUTES', SchedulePolicy::DEFAULT_START_DEADLINE_MINUTES)),
+        // Finished runs kept per schedule; older ones are deleted.
+        'runs_kept' => max(1, (int) env('SAKALA_SCHEDULE_RUNS_KEPT', SchedulePolicy::DEFAULT_RUNS_KEPT)),
+        // Failed, timed out, or lost runs in a row before a schedule is paused.
+        'pause_after_failures' => max(1, (int) env('SAKALA_SCHEDULE_PAUSE_AFTER_FAILURES', SchedulePolicy::DEFAULT_PAUSE_AFTER_FAILURES)),
+    ],
+
+    // Managed Valkey stores (ADR-023). Off by default, so an installation
+    // changes nothing until an operator turns it on: the endpoints answer
+    // 404, DeployProject and RunJob never carry `valkey`, and no REDIS_*
+    // variable is injected. Production stays off until the privacy notice
+    // that covers Valkey is in force.
+    'valkey' => [
+        'enabled' => (bool) env('SAKALA_VALKEY_ENABLED', false),
+        // Stores a workspace may hold, and the `maxmemory` they may reserve
+        // together in MB, for a workspace whose limit profile leaves the field
+        // empty and one without a profile. Both 0: a store is permanent memory
+        // on the node, so workspaces are opened one by one through limit
+        // profiles. Empty values fall back to the defaults.
+        'default_max_count' => env('SAKALA_VALKEY_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_VALKEYS),
+        'default_max_memory_mb' => env('SAKALA_VALKEY_DEFAULT_MAX_MEMORY_MB', PilotRuntimeLimitService::DEFAULT_MAX_VALKEY_MEMORY_MB),
+    ],
+
+    // Custom domains for projects (ADR-024). Off by default, so an
+    // installation changes nothing until an operator turns it on: the
+    // endpoints answer 404, no command carries `custom_domains`, the Edge
+    // route table has no custom part, and custom-domains:check does nothing.
+    // Production stays off until the privacy notice that names Let's Encrypt
+    // is in force.
+    'custom_domains' => [
+        'enabled' => (bool) env('SAKALA_CUSTOM_DOMAINS_ENABLED', false),
+        // The stable name users point a CNAME at; empty means
+        // edge.<SAKALA_PROJECT_DEFAULT_DOMAIN>. It must resolve to the Edge
+        // addresses: an apex domain passes when its addresses equal these.
+        'target' => env('SAKALA_CUSTOM_DOMAIN_TARGET'),
+        // Custom domains a workspace may hold, for a workspace whose limit
+        // profile leaves the field empty and one without a profile. Empty
+        // means the default; 0 allows none.
+        'default_max_count' => env('SAKALA_CUSTOM_DOMAIN_DEFAULT_MAX_COUNT', PilotRuntimeLimitService::DEFAULT_MAX_CUSTOM_DOMAINS),
+        // Zones that are never a custom domain, comma separated; names under
+        // them are refused too. The project domain is always refused. Keep it
+        // equal to SAKALA_CUSTOM_DOMAIN_FORBIDDEN_ZONES on the agents and
+        // SAKALA_EDGE_CUSTOM_DOMAIN_FORBIDDEN_ZONES on the Edge.
+        'forbidden_zones' => env('SAKALA_CUSTOM_DOMAIN_FORBIDDEN_ZONES', CustomDomainPolicy::DEFAULT_FORBIDDEN_ZONES),
+        // Recursive resolvers (IP addresses, comma separated) used to find a
+        // domain's name servers and to resolve the target; empty uses
+        // /etc/resolv.conf. Records of the domain itself are asked from its
+        // authoritative name servers.
+        'resolvers' => env('SAKALA_CUSTOM_DOMAIN_RESOLVERS', ''),
+        'dns_timeout_seconds' => env('SAKALA_CUSTOM_DOMAIN_DNS_TIMEOUT_SECONDS', CustomDomainPolicy::DEFAULT_DNS_TIMEOUT_SECONDS),
+        // The Public Suffix List file; empty uses the copy shipped in
+        // resources/data (docs/CUSTOM_DOMAINS.md says how to refresh it).
+        'public_suffix_list_path' => env('SAKALA_PUBLIC_SUFFIX_LIST_PATH'),
+        // Timing of the checks, in minutes, so staging can shorten them. Empty
+        // values fall back to the defaults in CustomDomainPolicy: a pending
+        // claim every minute for 30 minutes, then every 15 minutes, and
+        // failed after 72 hours; an active domain every 6 hours, an email
+        // after 24 hours of failing checks, disabled after 72; a disabled
+        // domain daily for 30 days.
+        'pending_fast_window_minutes' => env('SAKALA_CUSTOM_DOMAIN_PENDING_FAST_WINDOW_MINUTES'),
+        'pending_interval_minutes' => env('SAKALA_CUSTOM_DOMAIN_PENDING_INTERVAL_MINUTES'),
+        'pending_expire_minutes' => env('SAKALA_CUSTOM_DOMAIN_PENDING_EXPIRE_MINUTES'),
+        'recheck_minutes' => env('SAKALA_CUSTOM_DOMAIN_RECHECK_MINUTES'),
+        'warn_after_minutes' => env('SAKALA_CUSTOM_DOMAIN_WARN_AFTER_MINUTES'),
+        'disable_after_minutes' => env('SAKALA_CUSTOM_DOMAIN_DISABLE_AFTER_MINUTES'),
+        'disabled_recheck_minutes' => env('SAKALA_CUSTOM_DOMAIN_DISABLED_RECHECK_MINUTES'),
+        'reactivation_window_minutes' => env('SAKALA_CUSTOM_DOMAIN_REACTIVATION_WINDOW_MINUTES'),
     ],
 
     'workspaces' => [

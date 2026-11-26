@@ -48,7 +48,22 @@ enum AttachedRedeploySkipReason: string
     /** The project's attached bucket is in its key uncertain window (BucketKeyWindow). */
     case BucketKeyRotating = 'bucket_key_rotating';
 
+    /** The project's attached Valkey store is still being created, failed, or is being deleted (ADR-023). */
+    case ValkeyNotReady = 'valkey_not_ready';
+
+    /** The project's attached Valkey store is in its password uncertain window (ValkeyPasswordWindow). */
+    case ValkeyPasswordRotating = 'valkey_password_rotating';
+
+    /** The project runs on another node than its attached Valkey store. */
+    case ValkeyNodeMismatch = 'valkey_node_mismatch';
+
     case ReleaseCommandUnsupported = 'release_command_unsupported';
+
+    /** The deployment would run more worker containers than the workspace's `max_worker_containers` (ADR-022). */
+    case WorkerContainerLimit = 'worker_container_limit';
+
+    /** The project has worker processes and no node that could run it advertises `worker-processes`. */
+    case WorkerProcessesUnsupported = 'worker_processes_unsupported';
 
     /** Only for `deploy_when_ready`: the database's creation failed or expired, so there is nothing to connect to. */
     case DatabaseProvisioningFailed = 'database_provisioning_failed';

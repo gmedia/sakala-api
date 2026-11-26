@@ -38,6 +38,7 @@ test('a team with a bucket cannot be deleted until the bucket is on its way out'
             'projects' => 0,
             'databases' => 0,
             'buckets' => 1,
+            'valkeys' => 0,
         ]);
 
     $this->deleteJson("{$url}/buckets/{$bucket->id}")->assertAccepted();

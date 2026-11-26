@@ -32,5 +32,36 @@ rather than enum-level.
   replays every `fail` body and checks the API's handling per contract
   section 13: resend, `unknown`, or `failed`.
 
+- `commands/deploy-project-processes.json`, `commands/run-job.json`,
+  `failures/job-failures.json`, `failures/deploy-failures.json`,
+  `heartbeat/worker-processes.json` — worker processes and scheduled jobs
+  (ADR-022), copied byte for byte from `examples/` of **sakala-agent main
+  `1f41585`** (PR #140), before a tagged release (expected v0.18.0);
+  **re-check them against the release tag**. The heartbeat file is not a full
+  heartbeat (it has no `resources` or `lifecycle_state`); tests merge its
+  `capabilities` and `workloads` into one. `run-job.json` is a poll response
+  (`data` list).
+
+- `commands/valkey-commands.json`, `commands/deploy-project-valkey.json`,
+  `commands/run-job-valkey.json`, `heartbeat/valkey-host.json`,
+  `failures/valkey-failures.json` — managed Valkey (ADR-023), copied byte for
+  byte from `examples/` of **sakala-agent main `8d108cb`** (PR #146), before a
+  tagged release; **re-check them against the release tag**. The heartbeat file
+  carries only the Valkey fields that tests merge into a full heartbeat. The
+  command results are written from the contract in `docs/AGENT_API.md`
+  ("Command Valkey") at that commit. `ValkeyCommandLifecycleTest` replays every
+  `fail` body.
+
 Do not "fix" these files to match the API; when the agent contract changes,
 replace them from the new tag and adjust the API.
+
+- `commands/deploy-project-custom-domains.json`,
+  `commands/wake-project-custom-domains.json`,
+  `commands/update-project-domains.json`, `failures/custom-domain-failures.json`,
+  `edge/route-table-custom-domains.json` — custom domains (ADR-024), copied
+  byte for byte from `examples/` of **sakala-agent main `b19b9e0`** (PR #148),
+  before a tagged release; **re-check them against the release tag**.
+  `update-project-domains.json` holds the command, its `complete` result, and
+  the event; the enum test reads its `command`. The Edge table is the
+  `sakala-edge` example (`docs/EDGE.md`, "Custom domain"); tests compare the
+  API's table with its shape and field types.

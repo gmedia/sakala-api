@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Admin\AgentController;
 use App\Http\Controllers\Api\V1\Admin\AuditEventController;
+use App\Http\Controllers\Api\V1\Admin\CustomDomainController;
 use App\Http\Controllers\Api\V1\Admin\DeploymentController;
 use App\Http\Controllers\Api\V1\Admin\EdgeController;
 use App\Http\Controllers\Api\V1\Admin\FeedbackController;
@@ -15,6 +16,8 @@ use App\Http\Controllers\Api\V1\Admin\ProjectController;
 use App\Http\Controllers\Api\V1\Admin\UsageSignalsController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use App\Http\Controllers\Api\V1\Admin\WorkspaceController;
+use App\Http\Middleware\EnsureRuntimeFeatureEnabled;
+use App\Support\Runtime\RuntimeFeatures;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -72,6 +75,13 @@ Route::prefix('admin')->middleware(['auth:web', 'can:admin'])->group(function ()
     Route::post('agents/{agent}/revoke', [AgentController::class, 'revoke'])->whereUuid('agent');
     Route::get('agents/{agent}/commands', [AgentController::class, 'commands'])->whereUuid('agent');
     Route::get('agents/{agent}/commands/{command}', [AgentController::class, 'command'])->whereUuid(['agent', 'command']);
+
+    // Custom domains of every project (ADR-024); 404 while SAKALA_CUSTOM_DOMAINS_ENABLED is off.
+    Route::middleware(EnsureRuntimeFeatureEnabled::class.':'.RuntimeFeatures::CUSTOM_DOMAINS)->group(function (): void {
+        Route::get('custom-domains', [CustomDomainController::class, 'index']);
+        Route::post('custom-domains/{domain}/disable', [CustomDomainController::class, 'disable'])->whereUuid('domain');
+        Route::post('custom-domains/{domain}/enable', [CustomDomainController::class, 'enable'])->whereUuid('domain');
+    });
 
     // Sakala Edge instances and their health
     Route::get('edges', [EdgeController::class, 'index']);

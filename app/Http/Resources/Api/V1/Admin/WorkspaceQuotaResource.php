@@ -51,6 +51,20 @@ final class WorkspaceQuotaResource extends JsonResource
                 'max_buckets' => $limits->max_buckets,
                 /** Effective MB the bucket quotas may reserve together, from the profile or the global setting. `0` allows no new allocation. */
                 'max_bucket_storage_mb' => $limits->max_bucket_storage_mb,
+                /** Effective managed Valkey stores, from the profile or the global setting. `0` allows none. */
+                'max_valkeys' => $limits->max_valkeys,
+                /** Effective MB of `maxmemory` the Valkey stores may reserve together. `0` allows no new allocation. */
+                'max_valkey_memory_mb' => $limits->max_valkey_memory_mb,
+                /** Effective custom domains, from the profile or the global setting. `0` allows none. */
+                'max_custom_domains' => $limits->max_custom_domains,
+                /** Effective worker containers at once, from the profile or the global setting. `0` allows none. */
+                'max_worker_containers' => $limits->max_worker_containers,
+                /** Effective enabled schedules, from the profile or the global setting. `0` allows none. */
+                'max_schedules' => $limits->max_schedules,
+                /** Effective shortest gap between two slots of a schedule, in minutes. */
+                'min_schedule_interval_minutes' => $limits->min_schedule_interval_minutes,
+                /** Effective scheduled runs at once, from the profile or the global setting. `0` runs none. */
+                'max_concurrent_job_runs' => $limits->max_concurrent_job_runs,
                 /** Global, the same for every workspace. */
                 'max_active_deployments_per_project' => $this->resource->max_active_deployments_per_project,
             ],
@@ -69,6 +83,16 @@ final class WorkspaceQuotaResource extends JsonResource
                 'bucket_storage_mb' => $this->resource->current_bucket_storage_mb,
                 /** Reported usage of the workspace's buckets, in bytes. */
                 'bucket_usage_bytes' => $this->resource->current_bucket_usage_bytes,
+                /** Worker containers of the projects that serve or are being deployed. */
+                'worker_containers' => $this->resource->current_worker_containers_count,
+                /** Enabled schedules that count towards `max_schedules`. */
+                'schedules' => $this->resource->current_schedules_count,
+                /** Managed Valkey stores that count towards `max_valkeys`. */
+                'valkeys' => $this->resource->current_valkeys_count,
+                /** MB of `maxmemory` the workspace's Valkey stores reserve (allocated, not used). */
+                'valkey_memory_mb' => $this->resource->current_valkey_memory_mb,
+                /** Custom domain claims that count towards `max_custom_domains`. */
+                'custom_domains' => $this->resource->current_custom_domains_count,
             ],
         ];
     }

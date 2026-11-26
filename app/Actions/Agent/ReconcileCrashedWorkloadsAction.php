@@ -16,6 +16,7 @@ use App\Models\AgentNode;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Notification\UserNotifier;
+use App\Support\Database\RowLock;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -42,13 +43,15 @@ final class ReconcileCrashedWorkloadsAction
         }
 
         // Deployment before project, like TransitionDeploymentAction, so a
-        // heartbeat and a completing command cannot deadlock.
+        // heartbeat and a completing command cannot deadlock. FOR NO KEY
+        // UPDATE (see HeartbeatAgentAction): a command created for this
+        // deployment checks its foreign key without waiting for the heartbeat.
         /** @var Collection<string, Deployment> $deployments */
         $deployments = Deployment::query()
             ->whereKey($changed->pluck('active_deployment_id')->all())
             ->where('agent_node_id', $agent->id)
             ->orderBy('id')
-            ->lockForUpdate()
+            ->lock(RowLock::NO_KEY_UPDATE)
             ->get()
             ->keyBy('id');
 
@@ -57,7 +60,7 @@ final class ReconcileCrashedWorkloadsAction
             ->with('user')
             ->whereKey($changed->pluck('id')->all())
             ->orderBy('id')
-            ->lockForUpdate()
+            ->lock(RowLock::NO_KEY_UPDATE)
             ->get();
 
         // A newer attempt owns the status until it ends. Its outcome sets it, and

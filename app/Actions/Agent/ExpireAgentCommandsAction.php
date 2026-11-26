@@ -15,9 +15,12 @@ use App\Models\AuditEvent;
 use App\Models\Deployment;
 use App\Models\Project;
 use App\Services\Bucket\BucketCommandOutcomeService;
+use App\Services\CustomDomain\CustomDomainRouteSync;
 use App\Services\Database\DatabaseCommandOutcomeService;
 use App\Services\Deployment\DeploymentFailureClassifier;
 use App\Services\Project\ProjectInspectionOutcomeService;
+use App\Services\Schedule\ScheduleRunOutcomeService;
+use App\Services\Valkey\ValkeyCommandOutcomeService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -43,7 +46,10 @@ final class ExpireAgentCommandsAction
         private readonly ProjectInspectionOutcomeService $inspectionOutcome,
         private readonly DatabaseCommandOutcomeService $databaseOutcome,
         private readonly BucketCommandOutcomeService $bucketOutcome,
+        private readonly ValkeyCommandOutcomeService $valkeyOutcome,
         private readonly BroadcastRestartOutcomeAction $broadcastRestartOutcome,
+        private readonly ScheduleRunOutcomeService $scheduleRunOutcome,
+        private readonly CustomDomainRouteSync $customDomainRoutes,
     ) {}
 
     /**
@@ -120,8 +126,23 @@ final class ExpireAgentCommandsAction
                 $this->bucketOutcome->failed(self::ACTOR_ID, $command, $code);
             }
 
+            if ($command->type->isValkey()) {
+                $this->valkeyOutcome->failed(self::ACTOR_ID, $command, $code);
+            }
+
+            if ($command->type === AgentCommandType::RunJob) {
+                // Never claimed by the start deadline: missed. Claimed and
+                // then silent past its lease: lost.
+                $this->scheduleRunOutcome->expired($command, leaseExpired: $code === self::CODE_LEASE_EXPIRED);
+            }
+
             if ($command->type === AgentCommandType::RestartProject) {
                 $this->announceFailedRestart($command);
+            }
+
+            if ($command->type === AgentCommandType::UpdateProjectDomains && $command->project !== null) {
+                // The node may or may not have written the list: send it again (ADR-024).
+                $this->customDomainRoutes->sync($command->project, CustomDomainRouteSync::REASON_RETRY_AFTER_EXPIRY);
             }
 
             AuditEvent::create([

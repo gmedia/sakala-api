@@ -34,9 +34,23 @@ final readonly class WorkspaceLimitsData
         public int $max_buckets = 0,
         /** Effective MB the workspace's bucket quotas may reserve together; 0 = no new allocation. */
         public int $max_bucket_storage_mb = 0,
+        /** Effective worker containers the workspace may run at once; 0 = none (ADR-022). */
+        public int $max_worker_containers = 0,
+        /** Effective enabled schedules the workspace may hold; 0 = none. */
+        public int $max_schedules = 0,
+        /** Effective shortest gap between two slots of a schedule, in minutes. */
+        public int $min_schedule_interval_minutes = 1,
+        /** Effective scheduled runs the workspace runs at once; 0 = none. */
+        public int $max_concurrent_job_runs = 0,
+        /** Effective managed Valkey stores the workspace may hold; 0 = none (ADR-023). */
+        public int $max_valkeys = 0,
+        /** Effective MB of `maxmemory` the workspace's stores may reserve together; 0 = no new allocation. */
+        public int $max_valkey_memory_mb = 0,
+        /** Effective custom domains the workspace may hold; 0 = none (ADR-024). */
+        public int $max_custom_domains = 0,
     ) {}
 
-    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas, ?int $maxBuildsPerHour, int $maxDatabases, int $maxDatabaseStorageMb, int $maxBuckets, int $maxBucketStorageMb): self
+    public static function fromProfile(LimitProfile $profile, int $idleSleepMinutes, int $maxReplicas, ?int $maxBuildsPerHour, int $maxDatabases, int $maxDatabaseStorageMb, int $maxBuckets, int $maxBucketStorageMb, ScheduleLimitsData $workloads, int $maxValkeys = 0, int $maxValkeyMemoryMb = 0, int $maxCustomDomains = 0): self
     {
         return new self(
             max_projects: $profile->max_projects,
@@ -52,6 +66,13 @@ final readonly class WorkspaceLimitsData
             max_database_storage_mb: $maxDatabaseStorageMb,
             max_buckets: $maxBuckets,
             max_bucket_storage_mb: $maxBucketStorageMb,
+            max_worker_containers: $workloads->maxWorkerContainers,
+            max_schedules: $workloads->maxSchedules,
+            min_schedule_interval_minutes: $workloads->minScheduleIntervalMinutes,
+            max_concurrent_job_runs: $workloads->maxConcurrentJobRuns,
+            max_valkeys: $maxValkeys,
+            max_valkey_memory_mb: $maxValkeyMemoryMb,
+            max_custom_domains: $maxCustomDomains,
         );
     }
 }

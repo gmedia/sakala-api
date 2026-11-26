@@ -197,6 +197,38 @@ final class MailPreviewCatalog
                 )),
                 'notifiable' => $user,
             ],
+            'project-worker-crashed' => [
+                'trigger' => 'Heartbeat melaporkan worker proyek berhenti sendiri berulang kali (ADR-022)',
+                'notification' => new ProjectAlertMailNotification(new ProjectAlertMailData(
+                    alert: ProjectAlert::WorkerCrashed,
+                    projectId: $projectId,
+                    projectName: 'toko-kopi-web',
+                    deploymentId: $deploymentId,
+                    deploymentSequence: 6,
+                    summary: 'queue',
+                )),
+                'notifiable' => $user,
+            ],
+            'project-schedule-failing' => [
+                'trigger' => 'Run jadwal gagal setelah sebelumnya berhasil (ADR-022)',
+                'notification' => new ProjectAlertMailNotification(new ProjectAlertMailData(
+                    alert: ProjectAlert::ScheduleFailing,
+                    projectId: $projectId,
+                    projectName: 'toko-kopi-web',
+                    summary: 'laporan-harian',
+                )),
+                'notifiable' => $user,
+            ],
+            'project-schedule-paused' => [
+                'trigger' => 'Jadwal dijeda setelah gagal berturut-turut (ADR-022)',
+                'notification' => new ProjectAlertMailNotification(new ProjectAlertMailData(
+                    alert: ProjectAlert::SchedulePaused,
+                    projectId: $projectId,
+                    projectName: 'toko-kopi-web',
+                    summary: 'laporan-harian',
+                )),
+                'notifiable' => $user,
+            ],
             'account-deleted' => [
                 'trigger' => 'Pengguna menghapus akunnya',
                 'notification' => new AccountDeletedNotification,
