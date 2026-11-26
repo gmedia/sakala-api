@@ -4,6 +4,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-30
+
 ### Added
 
 - **Worker processes (ADR-022), behind `SAKALA_WORKERS_ENABLED` (off by default).** `GET`, `POST`, `PATCH`, and `DELETE /api/v1/app/projects/{project}/processes`: up to 5 definitions per project (`name`, `command`, `replicas` 0 to `max_replicas`, `memory_mb`, `cpu_millis`), read by any member and changed by owners and members, audited (`project.process_*`), and part of the configuration fingerprint so `redeploy_required` turns on. `DeployProject` carries them as `processes` in the agent's shape, only to nodes that advertise `worker-processes` (`409 PROJECT_WORKER_PROCESSES_UNSUPPORTED` when none could run it); a rollback runs the target's recorded processes, and a redeploy that only changes processes reuses the live image. New deploy failure code `worker_start_failed` (category `start`, user-fixable). New table `project_processes`, columns `deployments.worker_containers`, `deployments.crashed_processes`, `projects.processes_fingerprint`.
@@ -29,6 +31,10 @@ All notable changes to Sakala API will be documented in this file. The format fo
 
 - **`waiting_for_node` is typed as a boolean in the OpenAPI document.** The custom domain resource sent a boolean but the document said string, so generated clients had to override it.
 - A restart, stop, deploy, wake, or other command created for a project no longer deadlocks with a heartbeat of the node that serves it, which answered `500`. The command insert checks its foreign keys to the node and the deployment, and the heartbeat held those rows `FOR UPDATE` while it waited for the project to record `last_request_at` (or a crash change). The heartbeat now locks its node, deployment, and project rows `FOR NO KEY UPDATE`: heartbeats, claims, and admin node changes still run one at a time, but a foreign key check no longer waits for them. The member and admin transactions that create such commands (restart, stop, reconcile, inspection, wake, run now, deployment) are also run again, up to 3 attempts, when PostgreSQL picks them as a deadlock victim.
+
+### Security
+
+- Updated symfony/http-foundation, http-kernel, mailer, mime, routing, and var-dumper to 8.1.12 for the Symfony advisories published on 25 November 2026 (#216).
 
 ### Changed
 
@@ -398,7 +404,8 @@ All notable changes to Sakala API will be documented in this file. The format fo
 - A correctly signed GitHub webhook whose `X-GitHub-Delivery` is not a UUID gets `422` instead of a 500 from PostgreSQL.
 - A manual deployment of a commit whose first line is longer than 500 characters no longer gets a 500 from PostgreSQL. `commit_message` is now the first line without control characters, cut to 500 characters, for manual and push deployments alike; a push used to keep the whole multi-line message.
 
-[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/gmedia/sakala-api/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/gmedia/sakala-api/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/gmedia/sakala-api/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/gmedia/sakala-api/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/gmedia/sakala-api/compare/v0.10.0...v0.11.0
